@@ -25,7 +25,7 @@ it('puts every tool in a group, and the rows in the order of the groups: those t
 
 it('lists every tool, every view key and the gizmo in the sheet, each key once where it is listened to', () => {
   const sheet = cheatSheet()
-  expect(sheet.map((g) => g.context)).toEqual(['Everywhere', 'Viewport', 'With a tool in hand', 'With a shape in hand', 'Page of objects', 'New object', 'Session', 'In a field, a menu or a sheet', 'For working on torno'])
+  expect(sheet.map((g) => g.context)).toEqual(['Everywhere', 'Viewport', 'With a tool in hand', 'With a shape in hand', 'Page of projects', 'New project', 'Session', 'In a field, a menu or a sheet', 'For working on torno'])
   expect(sheet.map((g) => g.context)).toEqual(CONTEXTS.map((c) => c.name))
   for (const group of sheet) expect([group.context, group.rows.length > 0, group.when.length > 0]).toEqual([group.context, true, true])
   const viewport = KEYS.filter((row) => row.scope === 'viewport').flatMap((row) => row.keys)

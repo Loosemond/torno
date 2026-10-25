@@ -364,7 +364,7 @@ export function App() {
         <ViewBoard />
       </main>
 
-      <aside className="left" data-region="left" aria-label="Objects, layers, parameters, scans and marks">
+      <aside className="left" data-region="left" aria-label="Projects, layers, parameters, scans and marks">
         <header className="panel-head">
           <h1 className="workspace-name" title={workspace.root}>
             {basename(workspace.root)}

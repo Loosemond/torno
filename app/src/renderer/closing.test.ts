@@ -23,7 +23,7 @@ describe('what closing the window would end', () => {
   })
 
   it('says of a new object and of an export, which are of no object, what they are and where the new one is', () => {
-    expect(closingWhy({ ...NOTHING, draft: true })).toEqual([{ objectId: null, label: 'New object', page: 'new', what: 'it is set up and not made yet' }])
+    expect(closingWhy({ ...NOTHING, draft: true })).toEqual([{ objectId: null, label: 'New project', page: 'new', what: 'it is set up and not made yet' }])
     expect(closingWhy({ ...NOTHING, draft: false })).toEqual([])
     expect(closingWhy({ ...NOTHING, exporting: true })).toEqual([{ objectId: null, label: 'Export', what: 'a file is being written' }])
   })
@@ -57,7 +57,7 @@ describe('what leaving the folder would end', () => {
   it('names the objects whose sessions are at work, and the new object that would be thrown away', () => {
     expect(leavingWhy({ sessions: [{ objectId: 'bracket', status: 'working' }, { objectId: 'plain', status: 'idle' }], draft: true })).toEqual([
       { objectId: 'bracket', what: 'Claude Code is working' },
-      { objectId: null, label: 'New object', page: 'new', what: 'it is set up and not made yet' }
+      { objectId: null, label: 'New project', page: 'new', what: 'it is set up and not made yet' }
     ])
   })
 })

@@ -599,7 +599,7 @@ async function saved(deps: ToolDeps, objectId: string, png: Uint8Array): Promise
 }
 
 function coloursText(drawing: SectionDrawingResult, obj: ObjectInfo): string {
-  return drawing.colours === 'window' ? 'the parts in the colours the user sees them in' : `the parts in their default colours (${obj.name} is not the object open in the torno window)`
+  return drawing.colours === 'window' ? 'the parts in the colours the user sees them in' : `the parts in their default colours (${obj.name} is not the project open in the torno window)`
 }
 
 /** The plane a section is asked by: the user's own for `'current'`, which only the object on screen has. */

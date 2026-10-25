@@ -157,7 +157,7 @@ describe('marks file', () => {
 
   it('says it of one mark in the singular, and a stray field alone is nothing to say', async () => {
     writeRaw(JSON.stringify({ next: 3, marks: [pin(), { ...pin(), id: 'M2', kind: 'region' }] }))
-    expect((await loadMarksFile(dir, NOW)).problem).toMatch(/^1 mark in the marks file of this object was /)
+    expect((await loadMarksFile(dir, NOW)).problem).toMatch(/^1 mark in the marks file of this project was /)
     writeRaw(JSON.stringify({ next: 2, marks: [{ ...pin(), extra: 1 }] }))
     expect(await loadMarksFile(dir, NOW)).toEqual({ file: { next: 2, marks: [pin()] } })
   })
@@ -386,7 +386,7 @@ describe('a dimension', () => {
     const { file, problem } = await loadMarksFile(dir, () => new Date('2026-10-09T12:00:00.000Z'))
     expect(file.marks.map((m) => m.id)).toEqual(['M1', 'M8'])
     expect(file.next).toBe(9)
-    expect(problem).toContain('1 mark in the marks file of this object was not of a kind this version of torno can read')
+    expect(problem).toContain('1 mark in the marks file of this project was not of a kind this version of torno can read')
     expect(readdirSync(join(dir, '.torno')).some((name) => name.startsWith('marks.json.dropped-'))).toBe(true)
     rmSync(dir, { recursive: true, force: true })
   })

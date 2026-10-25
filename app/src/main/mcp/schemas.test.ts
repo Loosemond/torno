@@ -36,6 +36,6 @@ describe('what the tools tell a client', () => {
     const lines = SERVER_INSTRUCTIONS.split('\n').filter((line) => line.startsWith('- '))
     expect(lines.map((line) => line.slice(2, line.indexOf(':'))).sort()).toEqual(Object.keys(TOOLS).sort())
     for (const word of ['measure', 'wall thickness', 'section', 'clearance', 'picture', 'marks', 'overlap', 'scan']) expect(SERVER_INSTRUCTIONS, word).toContain(word)
-    expect(SERVER_INSTRUCTIONS.split('\n')[0]).toContain('CAD part of the object this session works on')
+    expect(SERVER_INSTRUCTIONS.split('\n')[0]).toContain('CAD part of the project this session works on')
   })
 })

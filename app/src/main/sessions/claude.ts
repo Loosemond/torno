@@ -40,7 +40,7 @@ const REVIEWER_TOOLS = ['scene', 'look', 'marks', 'measure', 'check', 'section',
 export function reviewerAgents(toolName: (tool: string) => string) {
   return {
     'torno-reviewer': {
-      description: 'Reviews the current build of the torno object against what the user asked, read-only. Use it after a change of several steps, before saying it is done.',
+      description: 'Reviews the current build of the torno project against what the user asked, read-only. Use it after a change of several steps, before saying it is done.',
       prompt: [
         'You review a CAD part in torno and change nothing. You are given what the user asked for.',
         `Check the current build against it: ${toolName('scene')} for the build status (a failed build is the first finding), ${toolName('look')} at the views that show the change, every open mark with ${toolName('marks')} (was each acted on as its note asks?), and every dimension (does it pass on the latest build?).`,

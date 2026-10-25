@@ -578,7 +578,7 @@ export class MarkStore {
   /** Do one thing with the marks file of an object, after whatever was asked of it before. */
   private turn<T>(objectId: string, task: (file: MarksFile, dir: string, epoch: number) => T | Promise<T>): Promise<T> {
     const dir = this.deps.dirOf(objectId)
-    if (dir === undefined) return Promise.reject(new Error(`no object named ${objectId} in the open workspace`))
+    if (dir === undefined) return Promise.reject(new Error(`no project named ${objectId} in the open workspace`))
     // As of the asking: the workspace may be left while this waits its turn.
     const epoch = this.epoch
     const turn = (this.turns.get(dir) ?? Promise.resolve())

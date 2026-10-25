@@ -10,7 +10,7 @@ point at the parts to say what you mean, measure them, and hold them to
 numbers; the agent is told what you pointed at and has tools to see what you
 see.
 
-The window has three columns. On the left, the objects of the folder you
+The window has three columns. On the left, the projects of the folder you
 opened, and under them the parts, scans and marks of the open one; the marks
 have the room, and the sections above them fold. In the
 middle, the parts in 3D, with a bar of views above them and the tools down the
@@ -32,7 +32,7 @@ Linux or macOS. Developed on Arch with Wayland (Hyprland). macOS is tested on Gi
 - Python 3.11 or 3.12 (uv fetches one if none is installed)
 - Claude Code (`claude`) on `PATH`, logged in (see [What Claude Code is
   given](#what-claude-code-is-given))
-- A workspace: a folder of objects, each a subfolder with a Python model in
+- A workspace: a folder of projects, each a subfolder with a Python model in
   it. If the workspace has a `pyproject.toml`, its environment must already
   exist and hold build123d (`uv sync` there once, yourself). Torno runs the
   kernel in that environment with `uv run --no-sync` and never changes it. A
@@ -44,8 +44,8 @@ Linux or macOS. Developed on Arch with Wayland (Hyprland). macOS is tested on Gi
   workspace's environment, which build123d brings.
 
 Torno checks these when it starts, before anything fails, and says so in a block
-called "Ready to work" on the first screen, in a workspace with no object and on
-the page of a new object (below): a line for Claude Code, for `uv` when it is
+called "Ready to work" on the first screen, in a workspace with no project and on
+the page of a new project (below): a line for Claude Code, for `uv` when it is
 missing, and for the kernel's Python environment. When everything is there the
 block is one quiet line ("Claude Code and build123d 0.13.0 are ready"), and a
 click opens it. It looks for `claude` and `uv` on the `PATH` torno was started
@@ -72,7 +72,7 @@ pnpm install
 ## Run
 
 ```sh
-scripts/torno ~/objects     # open that folder as the workspace
+scripts/torno ~/projects    # open that folder as the workspace
 scripts/torno               # open the workspace opened last, or the first screen
 pnpm start [folder]         # the same, from the repository
 ```
@@ -97,9 +97,9 @@ seconds, written into `app/out`).
 
 With no folder to open, the first screen says what torno is, says what is ready
 and what is missing (see Requirements), draws how a folder
-of objects is laid out and offers "Open folder" (an empty one is fine) and
+of projects is laid out and offers "Open folder" (an empty one is fine) and
 "Open the example"; coming back, it lists the folders opened lately first. The
-example is four small objects
+example is four small projects
 of the repository's test workspace, copied to a temporary folder. That copy is
 removed when torno quits, with whatever was made in it, and the window says so
 under the workspace's name for as long as it is open; one that a crash left is
@@ -138,8 +138,8 @@ opens it, asking first if a session there is in the middle of its work.
 On Linux torno has no menu. The window is closed through the window manager, which
 ends torno and the sessions in it. When that would cut something short, torno
 asks first, in a dialog over the window ("Close torno?", with "Keep it open" in
-focus) that names each object and what would be cut short, as a link to the
-object: a session working or waiting for an answer, a prompt written and not
+focus) that names each project and what would be cut short, as a link to the
+project: a session working or waiting for an answer, a prompt written and not
 sent, a region painted on a scan and not kept, a scan being imported or an
 export being written. With none of that it closes at once. `Ctrl+Q`, `Ctrl+W`, `F11` and
 the zoom shortcuts do not exist. For work on torno itself, `pnpm dev` runs the app from
@@ -178,8 +178,8 @@ that was not shown; step 7 with a stand-in for the agent.
    scripts/torno /tmp/torno-tour
    ```
 
-   The window opens on a page of cards, one per object. None has a picture
-   yet: a picture is made when an object is built here. Some of these objects
+   The window opens on a page of cards, one per project. None has a picture
+   yet: a picture is made when a project is built here. Some of these projects
    are there to fail; leave them.
 
 2. Click `hollow`. It is built (a second or two; longer the very first time,
@@ -225,31 +225,31 @@ that was not shown; step 7 with a stand-in for the agent.
    writes one HTML file that someone without torno can open: it needs
    nothing else.
 
-9. Press `?` for every key, and `W` for the page of objects. Then open your
+9. Press `?` for every key, and `W` for the page of projects. Then open your
    own folder with the folder button at the top left.
 
 To clean up: close torno and `rm -r /tmp/torno-tour`. Torno wrote only in
 `/tmp/torno-tour/hollow/.torno/`.
 
-## Objects and builds
+## Projects and builds
 
-A folder is an object when it holds a `.py` file; dotfiles and `__init__.py`
+A folder is a project when it holds a `.py` file; dotfiles and `__init__.py`
 do not count, and folders whose names start with `.` or `_`, and `common`,
-`tests` and `out`, are never objects. The model is the one `.py` file that is
+`tests` and `out`, are never projects. The model is the one `.py` file that is
 not a test (`test_*.py`, `*_test.py`, `conftest.py`). Of several, it is the one
 named after the folder, with `-` and `_` taken as the same:
-`helmet-stand/helmet_stand.py`. Once an object is open, torno keeps building
+`helmet-stand/helmet_stand.py`. Once a project is open, torno keeps building
 the model it chose for as long as that file exists. A folder where no model
 can be chosen, or a model with none of the forms below, is listed with the
 reason it cannot be built.
 
-With an object open in a folder of several, the list of objects is folded to one row, the
-switcher: the open object's name, and "All objects `W`" beside the title. A click on the name,
-or `Enter`, opens a menu of every object (a dot for a session that works or waits, the reason
-under one that cannot be built) with "New object" at its foot; the arrows, `Home` and `End`
-move in it, `Enter` opens one, `Esc` puts it away. When a session of another object waits for
-you, the switcher has its dot and says so ("bracket needs you"). The "Objects" title unfolds the
-whole list in place. With no object open, or the page of objects up, the list is whole.
+With a project open in a folder of several, the list of projects is folded to one row, the
+switcher: the open project's name, and "All projects `W`" beside the title. A click on the name,
+or `Enter`, opens a menu of every project (a dot for a session that works or waits, the reason
+under one that cannot be built) with "New project" at its foot; the arrows, `Home` and `End`
+move in it, `Enter` opens one, `Esc` puts it away. When a session of another project waits for
+you, the switcher has its dot and says so ("bracket needs you"). The "Projects" title unfolds the
+whole list in place. With no project open, or the page of projects up, the list is whole.
 
 The kernel imports the model file as a module (`if __name__ == "__main__"` does
 not run) and takes the first of:
@@ -268,7 +268,7 @@ keeps its own Y and Z. The picture, the bounding boxes and `scene` all show
 the parts where torno put them, and `scene` says how far each was moved
 (`arranged`). The model and what it exports are not changed.
 
-**Builds.** Saving a file in the object's folder (dotfiles, `out/`, `cache/`,
+**Builds.** Saving a file in the project's folder (dotfiles, `out/`, `cache/`,
 `.torno/` and `__pycache__/` are ignored, as are `build/`, `dist/`,
 `node_modules/`, `.venv/` and `.git/`) or in the workspace's `common/` starts
 a build 300 ms later. Saving a `.py` file during a build cancels that build
@@ -297,13 +297,13 @@ length and the points along it) is also named by that ref, as of that build. Not
 the result of its edit and in `scene`, and can try a fillet on the last good
 build with `try_fillet` before it edits the model again.
 
-**The window.** On the left, the list of objects, then the layers, the parameters and the scans of the
-open object, then its marks. Objects, Layers, Parameters and Scans each fold by their title; folded, the
+**The window.** On the left, the list of projects, then the layers, the parameters and the scans of the
+open project, then its marks. Projects, Layers, Parameters and Scans each fold by their title; folded, the
 title says what matters (`Layers 12 · 3 hidden`, `Scans 1 · unaligned`). Marks never folds:
 it keeps room for five rows at least, and the sections above give way first. Drag the line
 above Marks up for more (`Up` and `Down` with it in focus), double click it for the shares
 again. What is folded and where the line is are kept by the window, not in the folder. The
-layers (parts) of the open object each have a visibility switch. Parameters lists the fields of
+layers (parts) of the open project each have a visibility switch. Parameters lists the fields of
 the model's `Params` (folded to its title at first; a model with none has no section): each
 field's name, its default in the monospace face (four digits at most, the whole value on hover) and
 its comment as the model has it, and, for a default the model works out (an expression, not a
@@ -316,18 +316,18 @@ header each, which folds the group, hides or shows all of it, or, on "Show only"
 shows that group alone in the layout; ask the agent to group parts and it edits
 `groups(p)`. In the viewport, drag to orbit, drag with the right or
 middle button to pan, scroll to zoom; a triad in the bottom left corner shows which way X
-(red), Y (green) and Z (blue) run in the object's own frame, as the agent's pictures
+(red), Y (green) and Z (blue) run in the project's own frame, as the agent's pictures
 do, and in the bottom right corner are a scale bar (orthographic) or the step of the grid,
 `grid 5 mm` (perspective); the bar at the top switches layout
 (`assembly`, `print`), view and projection. The folder button (top left)
 opens a menu of the folders opened lately (the open one marked "current"),
 "Open folder…" and the example; opening another ends the sessions of this one,
-so torno asks first, in a dialog that names the objects, if one of them is
+so torno asks first, in a dialog that names the projects, if one of them is
 working or waiting for an answer. A folder that cannot be opened is said under
 the folder's name, and the workspace stays as it was.
 
 "Rebuild", in the line at the bottom beside how the build stands, builds the
-open object again from its sources as they are (`Ctrl+Shift+B` from anywhere).
+open project again from its sources as they are (`Ctrl+Shift+B` from anywhere).
 It is always there, and it is the main button when the last build failed for a
 reason outside the model (the build took too long, stopped, or was cancelled) or
 was let go to make room: building the same sources again may work. After an error
@@ -359,10 +359,10 @@ of it (`lid/E3`), with a line from the kernel on what that is, such as
 parts on screen are older than the model (a build is running, or the last one
 failed) nothing is picked, and the pointer says why.
 
-### Making a new object
+### Making a new project
 
-"New object" starts one from what you have. It is at the foot of the list of objects (of the switcher's menu when the list is folded), in the header of the page
-of objects and in its empty state: a folder with no object in it leads with "Make your first object", "New object" and,
+"New project" starts one from what you have. It is at the foot of the list of projects (of the switcher's menu when the list is folded), in the header of the page
+of projects and in its empty state: a folder with no project in it leads with "Make your first project", "New project" and,
 where torno runs from its repository, "open the example to look around". The way for models you already have (a folder
 such as `part/part.py`, and the note on `pyproject.toml` and `uv`) is in a fold, "Already have build123d models?". The page asks for a name and "What is it?" (what it is for, what it must fit or
 hold, sizes you know, how it will be made), and then for what you have, each with a note for Claude:
@@ -370,17 +370,17 @@ hold, sizes you know, how it will be made), and then for what you have, each wit
 - **Photos** ("Add photos…", or dropped on the page): PNG, JPEG or WebP, at most 12, 25 MB each and 50 megapixels
   (a larger picture is refused with a reason on the card, before it is decoded). HEIC, the iPhone's default, is
   not read: set the phone to Most compatible, or export as JPEG. Claude gets each one attached to its first prompt, after a line naming it ("Picture 1: reference/photo-1.jpg"),
-  scaled to 1280 px on its long edge; the original is copied to `reference/photo-<n>.<ext>` in the object.
+  scaled to 1280 px on its long edge; the original is copied to `reference/photo-<n>.<ext>` in the project.
 - **Doodles** ("Draw…"): up to 6, drawn on a board (below). Claude gets each as a PNG with dark ink on white,
   whichever theme you drew it in, and `reference/` keeps it.
-- **Scans** ("Add a scan…", or dropped): up to 4. They are imported into the object as "Import scan…" does, not
+- **Scans** ("Add a scan…", or dropped): up to 4. They are imported into the project as "Import scan…" does, not
   copied and not aligned; Claude is told each scan's file name and id, and that it is not aligned (you align it in
   torno); `brief.md` keeps the path it came from, with `~` for your home folder.
-- **Other objects** (a menu of the objects of the workspace): up to 8. Claude is told to look in `../<name>/` and
-  gets the object's summary (its parts and box, with whether the kernel says it is exact; "not built in this run"
+- **Other projects** (a menu of the projects of the workspace): up to 8. Claude is told to look in `../<name>/` and
+  gets the project's summary (its parts and box, with whether the kernel says it is exact; "not built in this run"
   if it has not been built) and its thumbnail.
 
-At most 6 pictures go with the prompt, photos and doodles first, then the thumbnails of other objects; a picture
+At most 6 pictures go with the prompt, photos and doodles first, then the thumbnails of other projects; a picture
 beyond that, or one that fails the checks (PNG or JPEG, 2000 px at most, 3.75 MB, so that it is under 5 MB as
 the API takes it; a PNG over that is sent as a JPEG), is named in the prompt as not attached, with the file in `reference/` to read. Notes are kept to a line each and the description to 20,000
 characters.
@@ -394,36 +394,36 @@ name whose model file would be taken for a test (`test_*`, `*_test`). The page s
 
 "Create" writes one new folder in the workspace and nothing else: `<name>/<module>.py` (a placeholder, a 20 mm
 cube, to be replaced), `brief.md` (your words and a line for each reference with its note) and `reference/`. The
-`.torno/` folder is made as for any object. It is made in a hidden temporary folder beside it and renamed into
+`.torno/` folder is made as for any project. It is made in a hidden temporary folder beside it and renamed into
 place as the last step, so it is whole or not there, and it never goes into or over a folder that exists (an
 empty one of that name is used). A temporary folder a crash left is swept away at the next opening of the
 workspace once it is ten minutes old, unless it holds files in `reference/` (your doodles may be nowhere else):
-such a leftover, a hidden `.<name>.torno-new-<hex>` folder in the workspace, is yours to look at and delete. Then torno opens the object, imports the scans, starts Claude Code in a
+such a leftover, a hidden `.<name>.torno-new-<hex>` folder in the workspace, is yours to look at and delete. Then torno opens the project, imports the scans, starts Claude Code in a
 chat and sends one prompt with everything. The prompt asks Claude to list the sizes that decide fit or function and
-say where each comes from (your words, a note, a scan, another object, or nowhere), and to ask you for those that come
+say where each comes from (your words, a note, a scan, another project, or nowhere), and to ask you for those that come
 from nowhere in one round (a card in the chat, at most four questions, each with a typical value among its options;
 "build with assumptions" is an answer) before it builds. What it builds without an answer is marked "assumed" in the
 model, and its reply lists those. If Claude Code cannot start (the command is not found, or the
-trust question stands, or the CLI starts and leaves at once because it is signed out or too old), the object is made
+trust question stands, or the CLI starts and leaves at once because it is signed out or too old), the project is made
 and open anyway: the pane says why and the text of the prompt waits in the message box for you to send. Where
 torno already knows Claude Code is not found or not signed in, the page says so above "Create", before the folder is made. The
 pictures are not sent then: the text says each is "not attached" and names the file in `reference/` (and the
-`.torno/thumb.png` of another object) for Claude to read. If the object was made but the workspace does not list it,
+`.torno/thumb.png` of another project) for Claude to read. If the project was made but the workspace does not list it,
 the scans were not imported, and the page says so and where the folder is. While "Creating…" shows, `Esc`, Cancel
 and Discard do nothing.
 
-While the page is up the window is about the object being made: no object of the list is selected (folded, the
-list reads "New object"), the Marks
-section gives way, and the status line says "New object" with the build123d version alone. The session pane says
-what Claude Code will start with once you create the object (the name, whether you said what it is, and how many
-photos, doodles, scans and objects you gave), filled in as you go. A session of the object that was open that is
+While the page is up the window is about the project being made: no project of the list is selected (folded, the
+list reads "New project"), the Marks
+section gives way, and the status line says "New project" with the build123d version alone. The session pane says
+what Claude Code will start with once you create the project (the name, whether you said what it is, and how many
+photos, doodles, scans and projects you gave), filled in as you go. A session of the project that was open that is
 still running stays as it is, a question waiting in it included, under a note saying whose it is: it goes on, and
-the new object gets its own. Cancel or `Esc` brings everything back as it was.
+the new project gets its own. Cancel or `Esc` brings everything back as it was.
 
-Beside "Create", "Claude Code on" picks the model and the effort the new object's session starts on. Both start
+Beside "Create", "Claude Code on" picks the model and the effort the new project's session starts on. Both start
 at "Your default", which passes nothing: Claude Code goes by your own settings. A choice holds for that session
 alone (torno starts the CLI with `--model` and `--effort`) and is never written to your settings; the page keeps
-it for the next object you make in this window. The models are the ones Claude Code offered in the last chat
+it for the next project you make in this window. The models are the ones Claude Code offered in the last chat
 (kept in torno's own data), or its aliases, Opus, Sonnet and Haiku, before any chat has run; the efforts (Low,
 Medium, High, Extra high, Max) are the ones the chosen model takes, and a model that takes none leaves the effort
 off. Both can be changed in the chat afterwards.
@@ -432,26 +432,26 @@ The doodle board (the same board as the chat's "Draw on view") has a thin pen, a
 `Esc` puts the board away; if strokes were drawn since it was opened it asks "Discard this doodle?" first. A
 doodle can be opened again from its card and changed.
 
-What you have entered is a draft, kept while the window lives: you can leave the page, open another object and
+What you have entered is a draft, kept while the window lives: you can leave the page, open another project and
 come back. `Esc` on the page leaves it, asking first when something is in it; so does leaving the workspace, and so
-does closing the window ("A new object is set up here and not made yet"). Nothing of the draft is written until
+does closing the window ("A new project is set up here and not made yet"). Nothing of the draft is written until
 "Create".
 
 ## The agent
 
-Each object has its own session: Claude Code running in the object's folder.
+Each project has its own session: Claude Code running in the project's folder.
 It opens in a chat, a pane of torno's own, or in a terminal when you switch to
-it. It keeps running while another object is shown. A session that works or
+it. It keeps running while another project is shown. A session that works or
 that waits for your answer (a permission, a question, a plan) says so wherever
-you are, not only in its own pane. In the list of objects its row has a dot
+you are, not only in its own pane. In the list of projects its row has a dot
 after the name: a quiet one while it works, and, in the warning colour with the
 words "needs you", while it waits. Folded, the list's one row has the dot of any
-session of the folder that works or waits, and names the object of one that
+session of the folder that works or waits, and names the project of one that
 waits ("bracket needs you"); its menu has a dot on each row as the list does. Nothing is shown for a session that is idle
 or ended. When the session pane is hidden, its button has the same dot for the
-open object's session. And when any session of the folder waits for you, the
+open project's session. And when any session of the folder waits for you, the
 status line has a button "*bracket* needs you" (with "and N more" if several do,
-the first in the list named): it opens that object, shows the pane and takes you
+the first in the list named): it opens that project, shows the pane and takes you
 to the card. If the window is not the one in use when a session starts to wait,
 its frame flashes (the dock icon bounces on a Mac), once for each question; torno
 posts no system notification. "New session"
@@ -496,7 +496,7 @@ is a new line, and a prompt sent while the agent is at work waits its turn
   the cards are chips: hovering one lights it in the view, clicking a mark
   focuses it, clicking a face or an edge selects it. A ref that names nothing
   now (a mark that is gone, a part not shown) says why and does nothing. What is
-no ref of this object is only text: an `M3` clearance hole when the object has
+no ref of this project is only text: an `M3` clearance hole when the project has
 no mark `M3`, a build `r9` that has not been made, a part the build does not have.
 - **When it asks.** A permission is a card in the conversation: "Allow",
   "Allow for this session" (offered when Claude Code suggests a rule; the rule
@@ -558,7 +558,7 @@ no mark `M3`, a build `r9` that has not been made, a part the build does not hav
   turn. When the CLI says a turn could not authenticate (it marks its answer
   `authentication_failed`, as it would should `claude -p` stop reading your
   login), a warning says the chat could not use your login, once a session, with
-  "Use the terminal", which runs this object's sessions in Claude Code's own
+  "Use the terminal", which runs this project's sessions in Claude Code's own
   terminal, the conversation going on there. A field the CLI does not print is not a warning. Nothing of your settings is read.
 - **`/` commands.** Typing `/` offers the commands Claude Code has; `Up` and
   `Down` choose, `Tab` completes, `Esc` closes the list. `/compact` leaves one
@@ -568,7 +568,7 @@ no mark `M3`, a build `r9` that has not been made, a part the build does not hav
 - **The model** is chosen in the menu under the header. It changes the model of
   this session only; `/model` typed in a terminal session changes your default
   (see below). **The effort** is the menu beside it: "Default effort" until you
-  choose one (or one was chosen when the object was made), then the level, from
+  choose one (or one was chosen when the project was made), then the level, from
   those the model takes. It too is for this session only, and a note in the chat
   says each change. A line under the box shows the rate limit once more than half of
   it is used.
@@ -579,7 +579,7 @@ resuming it. With no session it sets what the next one will be; the choice is
 kept in `.torno/agent.json`. What the chat showed is kept as text in
 `.torno/chat/`, and a resumed conversation shows it under "Earlier in this
 conversation"; pictures are never written. The photos and doodles you gave when
-you made the object are shown again from `reference/`, by the name the log
+you made the project are shown again from `reference/`, by the name the log
 keeps (one you have since deleted says `reference/doodle-1.png is no longer
 there`); a picture a tool gave says "Picture of an earlier build, not kept",
 and any other "Picture not kept".
@@ -604,10 +604,10 @@ instruction files Claude Code reads on its own, it lists the paths and sizes
   them (idle, working, needs input, ended) and adds to its prompts.
 - What you marked goes with your next prompt, by itself, and counts as sent
   once the prompt's hook has been answered with it.
-- The instruction files Claude Code reads for the object are listed in the
+- The instruction files Claude Code reads for the project are listed in the
   session pane, in a quiet line under the view's buttons ("Claude Code also
   reads, by default, `~/objects/CLAUDE.md` 7 KB"), for the chat and for the terminal. It is
-  what Claude Code loads by default when it starts in the object's folder:
+  what Claude Code loads by default when it starts in the project's folder:
   `CLAUDE.md`, `.claude/CLAUDE.md` and `CLAUDE.local.md` in the folder and in
   every folder above it, `.claude/rules/` there (one entry: the folder, "up to"
   how many `.md` files, their size: a rule that names `paths` in its frontmatter
@@ -670,7 +670,7 @@ only says Claude Code has been waiting at its prompt for a while (or has
 signed in) leaves the status as it was. In a terminal, the first time Claude
 Code runs in a folder it asks whether you trust the folder; that question is its
 own, and it is answered there. Run headless, as the chat runs it, Claude Code
-skips that question, so torno asks instead: before the first chat in an object
+skips that question, so torno asks instead: before the first chat in a project
 whose folder, or a folder above it up to your home, has settings Claude Code
 would load (`.mcp.json`, `.claude/settings.json`, `.claude/settings.local.json`),
 the pane names those files and asks "Start the chat anyway?". "Start the chat"
@@ -703,10 +703,10 @@ Open marks: M2 (moved), M6 (unchecked)
 ```
 
 - The first line is the build: for a failed build it carries the error; for
-  an object that is not the one open in the window it says so, and names no
+  a project that is not the one open in the window it says so, and names no
   layout; with the parts drawn apart it says `exploded 40 % along z (display
   only)` after the layout.
-- `Scans` is there when the object has scans, and `Selected` when you have
+- `Scans` is there when the project has scans, and `Selected` when you have
   faces or edges selected and the parts on screen are those of the last build
   (eight refs at most).
 - Each mark you left since the last prompt has a line, once: it then shows as
@@ -775,8 +775,8 @@ M4 thickness 2 mm wall, along the normal, tub/F2 at (30, 0, -10) (expected 3 ± 
 When Claude Code would stop, torno holds it back for what the turn itself did:
 once for each reason, and twice in a turn at most. Every reason is for a build
 the turn caused: one that began after the turn first
-changed a source, by an edit of a `.py` of the object or a Bash command after
-which one is newer. The first build of an object you have just opened, a save of
+changed a source, by an edit of a `.py` of the project or a Bash command after
+which one is newer. The first build of a project you have just opened, a save of
 yours in your own editor before the agent's first edit, and any build in a turn
 that changed no source are told to the agent as ever but never hold it back. It
 first waits, up to twenty seconds, for such a build that is still running and
@@ -823,8 +823,8 @@ torno has quit.
 ### Tools
 
 Torno's MCP server (on `127.0.0.1`, a port of its own choosing, answering only
-requests that carry the token of the object's session) gives the
-agent of an object these tools for that object. They answer from the last
+requests that carry the token of the project's session) gives the
+agent of a project these tools for that project. They answer from the last
 build that worked, say which revision that is, and say so when a newer build
 is running or has failed. A tool given a key it does not take is refused,
 naming the keys it takes.
@@ -851,7 +851,7 @@ them: `scene`, `look`, `marks`, `describe` and `measure`. The others are found b
 | `mcp__torno__check` | Whether two parts overlap, how far apart they are, whether a part's mesh is closed, and whether it prints: overhangs, thin walls, the fit on a bed. |
 | `mcp__torno__diff` | What changed between the last two successful builds (or the two revisions given as `from` and `to`): for each layout the parts added and removed, and for each part its volume (and its change in percent), box size and min corner before and after, with whether each is exact, and its face, edge and solid counts, a hint that refs may name other faces now. The answer to an edit gives the same of each part that changed. Only the last two builds are kept. |
 | `mcp__torno__try_fillet` | Tries a fillet (or a chamfer, `kind: 'chamfer'`) of `radius` mm of some edges of a part (`part`, `edges` as refs such as `lid/E3`) on the last good build and throws it away: whether it works, and when it does not, the edges that fail alone or in pairs and the largest radius that works, as a failed build's error says it. It changes nothing. |
-| `mcp__torno__scans` | The scans of the object and how each is aligned. |
+| `mcp__torno__scans` | The scans of the project and how each is aligned. |
 | `mcp__torno__scan_clash` | What of a scan is inside a part. |
 | `mcp__torno__scan_deviation` | How far a part lies from a scan. |
 
@@ -965,7 +965,7 @@ pointer. `Esc` drops a first click; the tool stays in hand.
 **A measurement leaves nothing.** The kernel's value is read out at the pointer
 and stays in the strip as `Last: 6 mm between planes` until the next
 measurement, `Esc` with nothing under way, another tool, a new build or another
-object. It is no mark, and the agent is not told of it: not with the next
+project. It is no mark, and the agent is not told of it: not with the next
 prompt, not in `state.md`, not in a picture. To keep it, press `Enter` or
 "Keep as a dimension" in the strip: it becomes a dimension, measured again by
 main as it is kept, and the strip says `Kept as M4`.
@@ -1054,7 +1054,7 @@ shell) is cut open. Drag the arrow on the plane to move it; a drag anywhere
 else turns the camera. The arrow keys move it by 1 mm, with Shift by 0.1 mm.
 On a cut face there is nothing of the model to pick, and the pointer says so;
 a mark on what was cut away stays, drawn faint. The bar stays while there is a
-section, whichever tool is in hand, and the section is kept with the object.
+section, whichever tool is in hand, and the section is kept with the project.
 The pictures the agent takes are cut the same way.
 
 **`section`** (the agent's) takes `plane`, and optionally `parts`, `layout`,
@@ -1157,7 +1157,7 @@ painted: the brush takes nothing behind a part, nor of what a section has cut
 away. "Keep" (`Enter`) makes it a mark with a number and a note, such as
 "wiring loom, can be pushed aside": it is how you tell the agent what a part of
 the scan is. A painting waits until you keep or clear it, whatever tool or
-object you go to meanwhile. "Edit" on a region's row takes it in hand again.
+project you go to meanwhile. "Edit" on a region's row takes it in hand again.
 Removing a scan leaves its regions as marks that say their scan is gone.
 
 **The scan tools.** The agent cannot import or align a scan: you do. It can
@@ -1220,7 +1220,7 @@ of the parts as assembled.
   view or go under the bars at its top: then the parts are framed anew, and
   put together again they are seen from where they were before, if you have
   not moved the camera meanwhile.
-- An object of one part has nothing to draw apart, and the bar says so; parts
+- A project of one part has nothing to draw apart, and the bar says so; parts
   that share a centre need an axis.
 - The agent's `look` and `show` take `explode`; a picture drawn apart says so
   in its caption. Every other tool answers of the parts as built.
@@ -1230,7 +1230,7 @@ screen under a name: the camera, the layout, which parts are switched off, the
 section or the explode (never both), and how each scan is shown. A click on a
 chip brings it back; the chip's menu renames it, updates it to what is on
 screen, or deletes it. A name is 1 to 40 characters and not that of a standard
-view. An object keeps 24 views; the strip shows six and the rest behind
+view. A project keeps 24 views; the strip shows six and the rest behind
 "*n* more". Applying a view changes no geometry and no mark and starts no
 build. What a view names that is gone (a part, a layout, a scan) is passed
 over and said on its chip.
@@ -1241,24 +1241,24 @@ proposes its own with `save_view`: a dashed chip that says "proposed", with
 "Keep" and "Discard". A proposal is the agent's until you keep it; it can
 replace its own proposals (12 at most) and never a view of yours.
 
-## The page of objects
+## The page of projects
 
-`W`, or "All objects" at the top of the list (beside its title once an object is open), shows every object of the folder
-as a card; a workspace of several objects starts there. `/` or a letter
+`W`, or "All projects" at the top of the list (beside its title once a project is open), shows every project of the folder
+as a card; a workspace of several projects starts there. `/` or a letter
 filters by name, the arrows move, `Enter` opens, `Esc` goes back. A card has:
 
-- **A picture** of the object's last build as you last looked at it (its
+- **A picture** of the project's last build as you last looked at it (its
   layout, the parts switched on, its section or explode), 480 × 360, without
   marks or scans. It is made when a build lands in torno and kept in
-  `.torno/thumb.png`. No build is ever started for a picture: an object that
+  `.torno/thumb.png`. No build is ever started for a picture: a project that
   was never built in torno says `No picture yet`. The card says when the
   picture was made, what it leaves out (`cut by its section`), and `A source
   has changed since` when a `.py` file of the object or of `common/` is newer.
-- **How the build stands**, for an object opened in this run: `Built, r6`,
+- **How the build stands**, for a project opened in this run: `Built, r6`,
   building, or failed, with the picture of the last build that worked dimmed.
   Otherwise `Not opened in this run`.
 - **Marks and dimensions**: how many marks are open and how many are not sent
-  yet; how many dimensions fail and pass. Of an object not opened in this run
+  yet; how many dimensions fail and pass. Of a project not opened in this run
   there is no verdict, only `1 dimension failed as of its last run`.
 - **The session**, if one runs.
 
@@ -1266,10 +1266,10 @@ Looking at the page builds nothing, opens nothing and writes nothing.
 
 ## Export
 
-"Export…" in the line at the bottom (the open object), in the head of the page
-of objects (any of them), on a card, or `Ctrl+Shift+E`, writes **one HTML
+"Export…" in the line at the bottom (the open project), in the head of the page
+of projects (any of them), on a card, or `Ctrl+Shift+E`, writes **one HTML
 file** for someone who has no torno, or a **STEP, STL or 3MF** file of one
-object (below). It is made from the last build of this run, so an object must
+project (below). It is made from the last build of this run, so a project must
 have been opened first. Nothing is uploaded: the file goes where the save
 dialog says, which opens in `.torno/exports/`.
 
@@ -1287,18 +1287,18 @@ fonts are inside it, and its policy lets it load and send nothing. It has the
 parts with a switch each, the layouts, an explode slider, a section (parts are
 drawn open, without cut faces), the saved and the standard views, the marks as
 labels and a list with each dimension as torno measured it, and light and
-dark. It measures nothing and says so. With several objects, each is unpacked
+dark. It measures nothing and says so. With several projects, each is unpacked
 when it is first shown.
 
 A part costs about 10 bytes a triangle on top of 0.7 MB for the page itself:
-an object of one part and 12,000 triangles in two layouts is 1 MB. Over 12 MB
+a project of one part and 12,000 triangles in two layouts is 1 MB. Over 12 MB
 the largest scan is reduced further, then left out, and the sheet says so;
 above 64 MB nothing is written. The file is written whole or not at all, and a
 name without `.html` gets it.
 
 ### STEP, STL and 3MF
 
-The sheet's format buttons write a file of the model instead, of one object:
+The sheet's format buttons write a file of the model instead, of one project:
 
 | Format | What is in it | Layout unless you pick another |
 |---|---|---|
@@ -1352,8 +1352,8 @@ the pointer, which has no keys:
 Point at a tool of the palette and a panel beside it says, at once, what the tool does and its key. With a
 tool in hand (not Select) a quiet line at the foot of the view says what the tool waits for next: for Measure
 `click the first end`, then `click the second end`; for Arrow `press on the part and drag to where it should go`.
-Region of a scan and Align scan, with no scan in the object, are drawn quieter and say `Import a scan first`.
-The line that tells how the pointer moves the view shows the first time an object is drawn in this install,
+Region of a scan and Align scan, with no scan in the project, are drawn quieter and say `Import a scan first`.
+The line that tells how the pointer moves the view shows the first time a project is drawn in this install,
 until the camera is first moved; the window remembers that in its own storage, never in a workspace.
 
 <!-- keys: generated from cheatSheet() in app/src/shared/keys.ts; `TORNO_README=write pnpm -C app exec vitest run src/readme.test.ts` writes it -->
@@ -1361,8 +1361,8 @@ until the camera is first moved; the window remembers that in its own storage, n
 |---|---|---|
 | Everywhere | `?` | This sheet of keys, outside a field and the terminal |
 | Everywhere | `` Ctrl+` `` | To the session, and from it back to the view |
-| Everywhere | `Ctrl+Shift+E` | Export to one HTML file, or to STEP, STL or 3MF: the open object, or from the page of objects any of them |
-| Everywhere | `Ctrl+Shift+B` | Rebuild: build the open object again, as the button in the status line does |
+| Everywhere | `Ctrl+Shift+E` | Export to one HTML file, or to STEP, STL or 3MF: the open project, or from the page of projects any of them |
+| Everywhere | `Ctrl+Shift+B` | Rebuild: build the open project again, as the button in the status line does |
 | Viewport | `V` | Select: click a face, an edge or a part |
 | Viewport | `M` | Measure: two clicks, or a double click on a round thing; nothing is kept unless you keep it |
 | Viewport | `X` | Section: cut the parts by a plane |
@@ -1376,7 +1376,7 @@ until the camera is first moved; the window remembers that in its own storage, n
 | Viewport | `F` | Fit the parts in view |
 | Viewport | `O` | Perspective or orthographic |
 | Viewport | `E` | Draw the parts apart, or together again |
-| Viewport | `W` | All objects of the folder, on one page (there a letter filters them by name) |
+| Viewport | `W` | All projects of the folder, on one page (there a letter filters them by name) |
 | Viewport | `Esc` | Step back: what is under way, then the tool in hand, then the selection |
 | With a tool in hand | `T` | Measure: the wall under the pointer |
 | With a tool in hand | `Enter` | Measure: keep the last measurement as a dimension |
@@ -1391,13 +1391,13 @@ until the camera is first moved; the window remembers that in its own storage, n
 | With a tool in hand | `Z` | Region: undo the last stroke |
 | With a tool in hand | `Enter` | Region: keep what is painted |
 | With a shape in hand | `G` `R` `T` | Move, rotate or size the shape with its handles |
-| Page of objects | `Left` `Right` `Up` `Down` `Home` `End` | Move among the cards |
-| Page of objects | `Enter` | Open the card in focus |
-| Page of objects | `/` | Filter by name: a letter or a figure does too |
-| Page of objects | `Esc` | Clear the filter, then back to the open object |
-| Page of objects | `Enter` | In the filter: open the first card |
-| Page of objects | `Down` | In the filter: down to the cards |
-| New object | `Esc` | Leave the page, asking first when something is in it; on the doodle board, put the board away |
+| Page of projects | `Left` `Right` `Up` `Down` `Home` `End` | Move among the cards |
+| Page of projects | `Enter` | Open the card in focus |
+| Page of projects | `/` | Filter by name: a letter or a figure does too |
+| Page of projects | `Esc` | Clear the filter, then back to the open project |
+| Page of projects | `Enter` | In the filter: open the first card |
+| Page of projects | `Down` | In the filter: down to the cards |
+| New project | `Esc` | Leave the page, asking first when something is in it; on the doodle board, put the board away |
 | Session | `Shift+Enter` | A new line in the prompt, not a send |
 | Session | `Ctrl+Shift+C` | Copy what is selected in the terminal |
 | Session | `Ctrl+Shift+V` | Paste into the terminal |
@@ -1426,19 +1426,19 @@ repository.
 
 ## Files torno writes
 
-Inside a workspace torno writes only under `<object>/.torno/`, with one exception: "Create" on the page of a new
-object (see "Making a new object") writes the new object's folder, `<name>/<module>.py`, `brief.md` and `reference/`.
-Those are the object's own, in git like its model, and torno never writes into them again. It writes under `.torno/` only when
-that is a real folder inside the object: where a link or a file is in its
+Inside a workspace torno writes only under `<project>/.torno/`, with one exception: "Create" on the page of a new
+project (see "Making a new project") writes the new project's folder, `<name>/<module>.py`, `brief.md` and `reference/`.
+Those are the project's own, in git like its model, and torno never writes into them again. It writes under `.torno/` only when
+that is a real folder inside the project: where a link or a file is in its
 place (a workspace copied from elsewhere may hold one) torno writes nothing
 there, and says so once in the Marks panel, until a real folder is put in its
 place.
 
 | File | What | In git |
 |---|---|---|
-| `scene.json` | how you last looked at the object: the layout, the layer visibility, the section, the explode of each layout, how each scan is shown, and the saved views (`views`) | travels with the object |
-| `marks.json` | the marks of the object: yours and the agent's, with their notes, anchors and status; of a dimension also what is expected of it and the value last measured | travels |
-| `scans.json` | the scans of the object: where each source file is and its hash, how it was imported, and its alignment in each layout | travels |
+| `scene.json` | how you last looked at the project: the layout, the layer visibility, the section, the explode of each layout, how each scan is shown, and the saved views (`views`) | travels with the project |
+| `marks.json` | the marks of the project: yours and the agent's, with their notes, anchors and status; of a dimension also what is expected of it and the value last measured | travels |
+| `scans.json` | the scans of the project: where each source file is and its hash, how it was imported, and its alignment in each layout | travels |
 | `scans/<id>/mesh.bin`, `<mark>.mask` | the scan as torno draws and checks it, and the triangles of each region | the meshes are ignored (`scans/.gitignore`): a clone has the record, and the row offers "Import again" |
 | `agent.json` | whether Claude Code is shown as a chat or a terminal; without it, in a chat | travels |
 | `chat/<conversation>.jsonl` | what a chat session said and did, as text; no picture data, no address (a picture of `reference/` by its path) | ignored |
@@ -1450,8 +1450,8 @@ place.
 
 "Ignored" is by `.torno/.gitignore` (or one inside the folder), which torno
 adds lines to and never rewrites; a line you negate there (`!state.md`) is
-yours, and is not added against. What travels with the object in git is what
-is the object's: `scene.json`, `marks.json`, `scans.json` and `agent.json`.
+yours, and is not added against. What travels with the project in git is what
+is the project's: `scene.json`, `marks.json`, `scans.json` and `agent.json`.
 What changes with every build or session, or is of this machine, is
 ignored: `state.md`, `session.json`, `chat/`, the thumbnail, `views/` and
 `exports/`. Add `.torno/` to the workspace's `.gitignore` if you
@@ -1461,7 +1461,7 @@ Outside the workspace:
 
 - `~/.config/torno/` (on macOS `~/Library/Application Support/torno/`): `config.json` holds the workspace last opened and the
   folders opened lately (eight at most); `models.json` the models Claude Code offered in the last chat, for the page
-  of a new object; the rest is Electron's own cache.
+  of a new project; the rest is Electron's own cache.
 - `~/.config/torno/agent/<session>.mcp.json` (on macOS under `~/Library/Application Support/torno/`): the file
   `--mcp-config` names, which tells a session where torno's MCP server is. It holds the placeholder
   `${TORNO_SESSION}`, never the token, and is removed when the session ends (and at the next start after a crash).
@@ -1536,7 +1536,7 @@ and says `approximate`, and `how` says why.
 **What it costs.** The volume and the box of every part are worked out during
 each build. On prismatic parts that is nothing: the test models build in a
 tenth of a second. On a freeform part it is about a second for the volume and
-up to a second for the box: an object of three lofted parts of about 90 faces
+up to a second for the box: a project of three lofted parts of about 90 faces
 each, whose model runs in 10 s, builds in 17 s, 5 s of it for volumes and
 boxes. `area` of the whole of such a part takes a second or two on the first
 ask (three integrals of every freeform face, to say how many digits agree);
@@ -1549,17 +1549,17 @@ address the agent's hooks post to listen on `127.0.0.1` alone, check that a
 request comes from no web page (`Origin`, `Host`), and answer 404 to any
 request without its session's token in the `X-Torno-Session` header: 32
 random bytes made when the session starts, which open that session's hooks
-and its object's tools, and nothing once the session has ended. The token is
+and its project's tools, and nothing once the session has ended. The token is
 in the agent's environment (`TORNO_SESSION`) and nowhere else: not in the
 arguments it is started with, which every user of this machine can read (`ps`),
 and not in the file `--mcp-config` names, which holds only the placeholder
 `${TORNO_SESSION}` that Claude Code expands. Torno does not log it and writes
 it to no file. That keeps out another user of this machine, any program that
 only finds the port or reads the agent's command line, and the session of
-another object. It does not keep out a program running as you, which can read
+another project. It does not keep out a program running as you, which can read
 the agent's environment, nor a script the agent runs, which inherits it: such
 a program can call `show`, `add_mark`, `resolve_mark` and `save_view` of that
-object, and post its hooks, while the session lasts.
+project, and post its hooks, while the session lasts.
 
 **Parts that fit together.** `overlap`, `clearance` and a distance between two
 parts are of the parts where the layout has them, so fit can only be checked
@@ -1571,19 +1571,19 @@ dimension between them is not kept, and one that is there already is not
 measurable on such a build; a scan is not checked against a part torno moved.
 What is of one part is answered as ever (thickness, diameter, bbox, area,
 volume, mass, mesh, a distance within the part, an angle), with `arranged`,
-how far torno moved the part. An object with only a print layout can
+how far torno moved the part. A project with only a print layout can
 therefore be measured part by part, but not checked for fit until its model
 has an assembly.
 
-**Memory.** The last build of an object stays in memory, in a process of its
+**Memory.** The last build of a project stays in memory, in a process of its
 own, to answer what is measured and checked of it: half a gigabyte for a small
 part, and many gigabytes for a large model. At most four are kept. Before a
 build is started the kernel looks at how much memory is free: when there is
-less than the last build of that object holds (2 GiB at least) and 2 GiB more,
-it lets go the builds of other open objects first, the one least recently
-used first, and then that object's own. The line at the bottom then says "The
+less than the last build of that project holds (2 GiB at least) and 2 GiB more,
+it lets go the builds of other open projects first, the one least recently
+used first, and then that project's own. The line at the bottom then says "The
 last build was let go to make room (memory): tools answer when this one
-lands". An object whose build was let go is built again when something is
+lands". A project whose build was let go is built again when something is
 asked of it, never by a check on a timer; and a model that has just failed to
 build is not built again until a source changes.
 
@@ -1618,7 +1618,7 @@ build is not built again until a source changes.
   model's** (the kernel stopped, a build was let go and the model has since
   failed). "Rebuild" is in the line at the bottom, beside how the build
   stands; `Ctrl+Shift+B` does the same from anywhere.
-- **Nothing is kept of an object: no mark, no view, no picture.** Its `.torno`
+- **Nothing is kept of a project: no mark, no view, no picture.** Its `.torno`
   is a link or a file; the Marks panel says so. Put a real folder in its place.
   A link in the place of `.torno/views`, `.torno/exports`, `.torno/scans` or
   `.torno/chat` stops only what goes there (the agent's pictures, an export,
@@ -1628,8 +1628,8 @@ build is not built again until a source changes.
   in.** Install Claude Code and log in (`claude` in a terminal), then reopen torno,
   or press "Check again" in the sheet of the folder menu ("Check what torno needs").
   Torno looks on the `PATH` it was started with, which the line shows, and which a
-  desktop launcher may have shorter than your shell's. The page of a new object
-  says the same above "Create": the object is made all the same, but Claude Code
+  desktop launcher may have shorter than your shell's. The page of a new project
+  says the same above "Create": the project is made all the same, but Claude Code
   cannot start in it.
 - **The first screen says `uv` is not found.** Install it from
   [docs.astral.sh/uv](https://docs.astral.sh/uv/) and reopen torno. Without it no
@@ -1718,10 +1718,10 @@ a second start exited and the first opened the folder it was given. There is
 no menu, also on Alt. Alt-drag with the Draw tool turned the camera and drew
 nothing (sent as events; no binding of the compositor's was in the way).
 `hyprctl clients` showed class `torno`. Light and dark were legible in both
-themes. A large object's thumbnail was on its card at once and the window did
+themes. A large project's thumbnail was on its card at once and the window did
 not stall. `Ctrl+Shift+E` with Claude Code's prompt in focus brought up the
 export sheet and nothing reached the CLI; `?` outside a field and the terminal
-brought up the sheet of keys. Left alone for five minutes with a large object
+brought up the sheet of keys. Left alone for five minutes with a large project
 open, torno's memory stayed flat and its processes idled near zero. With
 Claude Code a pin was told with the next prompt and turned from draft to sent,
 and `scene`, `look`, `marks`, `save_view` and `add_mark` ran without a
@@ -1733,7 +1733,7 @@ and tests no longer write into `~/.config/torno`. An exported file showed no
 parts in `firefox --headless --screenshot`, which takes its picture before the
 first frame; driven in headless Firefox instead, the page drew the parts.
 
-The chat was driven once with the real Claude Code (Haiku, 15 October 2026) in a hidden window on a temporary copy of `micra-intake`: a pin was sent with the prompt and shown under it, a torno `look` came back with its picture and the "Pulled from torno" line, a ref in the reply was a chip, a Write was allowed by the CLI without asking under the person's permission mode (so there was no card), and no `.claude/` folder was written in the object. It was not looked at on a visible screen, so the items listed below stay to check.
+The chat was driven once with the real Claude Code (Haiku, 15 October 2026) in a hidden window on a temporary copy of `micra-intake`: a pin was sent with the prompt and shown under it, a torno `look` came back with its picture and the "Pulled from torno" line, a ref in the reply was a chip, a Write was allowed by the CLI without asking under the person's permission mode (so there was no card), and no `.claude/` folder was written in the project. It was not looked at on a visible screen, so the items listed below stay to check.
 
 What remains is yours to try once. Each says what to try and what should
 happen.
@@ -1744,21 +1744,21 @@ On the screen:
 - **Resizing.** `scripts/torno ~/objects` on Hyprland: drag the window wider and narrower, or retile it: it redraws without flicker. If the window does not come up right, `TORNO_OZONE=x11`, then `TORNO_OZONE=wayland`, and keep the one that works.
 - **Focus.** Start torno a second time with another folder: the window that is open comes to the front (on Hyprland only where `focus_on_activate` is on). Start dragging the section's arrow, switch workspace, come back: the plane is where it was before the drag, and the next drag turns the camera.
 - **Closing.** With a session working, close the window through the window manager: torno asks "Close torno?", "Keep it open" keeps everything as it was, "Close torno" ends torno and the session. With nothing under way it closes at once.
-- **A session that needs you, away from its pane.** In two objects, ask Claude Code in one for something that needs a permission, then open the other (and again with the session pane hidden): the first one's row has a dot and "needs you" in the warning colour, the status line has the button "*name* needs you", which opens it and brings you to the card, and a working session's dot is a quiet grey. In a window that is not in front (another window on top, or a workspace switched away) the frame should flash on Linux, and the dock icon bounce once on a Mac: no test shows a window, so only the rule is tested.
-- **The left column.** With a folder of many objects, open one: the list is one row, "All objects `W`" beside its
+- **A session that needs you, away from its pane.** In two projects, ask Claude Code in one for something that needs a permission, then open the other (and again with the session pane hidden): the first one's row has a dot and "needs you" in the warning colour, the status line has the button "*name* needs you", which opens it and brings you to the card, and a working session's dot is a quiet grey. In a window that is not in front (another window on top, or a workspace switched away) the frame should flash on Linux, and the dock icon bounce once on a Mac: no test shows a window, so only the rule is tested.
+- **The left column.** With a folder of many projects, open one: the list is one row, "All projects `W`" beside its
   title. Its menu, by the mouse and by the keys, opens another; folding Layers and Scans gives their room to the
   marks, and their titles say how many parts and scans there are. Drag the line above Marks up and down, and double
   click it: it moves without lag, the sections above give way down to their titles, and the shares come back.
   Start torno again: what was folded, and where the line was, are as you left them. Legible in light and dark.
-- **Parameters.** In an object whose model has a `Params` dataclass with comments and one default that is an
+- **Parameters.** In a project whose model has a `Params` dataclass with comments and one default that is an
   expression, unfold Parameters under the layers: a row for each field in the model's order, the value in the
   monospace face, the comment as written (cut to two lines, whole on hover), "worked out in the model" on the expression's.
   With a real session running, in the chat and then in the terminal view, a click on a row puts `Params.wall` at the
   cursor of the box (or the prompt) and sends nothing, with the dock hidden as well; with no session the rows are
   not clickable. Legible in light and dark, and Marks keeps its five rows with the section open.
 - **The clipboard in the terminal.** Select text in a session and press `Ctrl+Shift+C`, then `Ctrl+Shift+V`: it is copied and pasted. No test touches the clipboard. "Copy" on the build error sheet likewise.
-- **By eye.** On a monitor, in dark and in light: text, marks, part edges and the terminal's colours are legible; the scrollbars are the thin grey ones, also in the list of objects and on the page of objects in the dark theme; a mark that has moved says so on a line under its note. `?` typed in a field on your own keyboard (with its dead keys) is a question mark.
-- **The doodle board with a mouse and a pen.** Draw with a mouse, a tablet pen and a touch screen: the line follows the pointer without lag, the eraser takes away what it crosses, `Ctrl+Z` takes the last stroke back, and the PNG Claude gets is dark on white in both themes. Tests drew with synthetic pointer events only. A photo dropped from the file manager on the new object's page is taken too; a test cannot drop a file with a path.
+- **By eye.** On a monitor, in dark and in light: text, marks, part edges and the terminal's colours are legible; the scrollbars are the thin grey ones, also in the list of projects and on the page of projects in the dark theme; a mark that has moved says so on a line under its note. `?` typed in a field on your own keyboard (with its dead keys) is a question mark.
+- **The doodle board with a mouse and a pen.** Draw with a mouse, a tablet pen and a touch screen: the line follows the pointer without lag, the eraser takes away what it crosses, `Ctrl+Z` takes the last stroke back, and the PNG Claude gets is dark on white in both themes. Tests drew with synthetic pointer events only. A photo dropped from the file manager on the new project's page is taken too; a test cannot drop a file with a path.
 - **The Scans panel.** Import a scan of your own: the sheet `How is S1 read?` is at the top of the Scans panel with the size it would have; "Later" leaves a dot on the row. The row is one line at the column's default width, the name cut with an ellipsis and whole in its tooltip, the word legible in both themes, the dot and a `check` or `rough` word told apart from the rest. Open its detail and another's: one is open at a time, and Frame, Align and Rename are on one line.
 - **Drawing on the view with the real Claude Code.** In a chat, "Draw on view", ring a face and draw an arrow to it with a mouse and with a tablet pen, "Done", then a prompt ("make this thicker"): the ink follows the pointer, the eraser takes ink and never the picture, the row above the box names the faces the ink lies over before anything is sent (and says so, in the warning colour, when it could not be worked out), "Attach view" shows a small picture of the view before it goes, the chat shows the picture and that line with the prompt, and Claude Code's reply speaks of the ringed place and names the face the caption gave. Tests drew with synthetic pointer events and the stand-in agent.
 - **A broken part in the layers.** Build a model with a cavity whose shell faces into it, or a part made of a shell
@@ -1782,22 +1782,22 @@ On the screen:
 - **The replace question.** Save an export as `x` where `x.html` exists: torno asks before it replaces that file, and "Cancel" writes nothing.
 - **A 3MF opened in a slicer.** Export a 3MF of a plate of two parts or more and open it in PrusaSlicer, Bambu Studio, OrcaSlicer and Cura: each part is an object of its name, in millimetres, where torno set it; it slices with no repair asked for. "Open it once saved" opens it in the slicer the system gives `.3mf` files to. Tests read the file back with lib3mf only.
 - **An STL in a slicer, a STEP in a CAD program.** Open an STL of a round part in a slicer: no facets you can see on its holes at 0.01 mm. Open a STEP in FreeCAD and in Fusion or Onshape: the parts are named bodies in their colours, in millimetres, and a volume measured there is the one torno told; a part named with an accent (`tampa ção`) keeps it there, as torno writes names in UTF-8. Tests read it back with OCC only.
-- **Torno left on another workspace with a session working.** Give the agent something that takes minutes, or start a long build, and switch to another workspace for ten minutes, watching `ps -o rss -p <pid of the window>`: its memory stays flat and torno idles near zero. Idle with a large object it did; with a session working nobody has watched it.
+- **Torno left on another workspace with a session working.** Give the agent something that takes minutes, or start a long build, and switch to another workspace for ten minutes, watching `ps -o rss -p <pid of the window>`: its memory stays flat and torno idles near zero. Idle with a large project it did; with a session working nobody has watched it.
 - **An exported file elsewhere.** Open one from `file://` in Firefox, in Safari and on a phone, with the network off, and look: parts, layouts, the explode slider, the section, a saved view and the marks work. Headless Firefox drew the parts; nobody has looked at it by eye there, or anywhere but in Electron's Chromium.
 - **The desktop entry.** `scripts/torno --install-desktop`, then start torno from your launcher: it is listed with its icon, the window comes up and is grouped under the entry (`StartupWMClass=torno`) with torno's icon. Given a folder (`gtk-launch torno ~/objects`) it opens that folder; given two, it refuses. With `claude` only on the `PATH` of a login shell, "New session" says it was not found there: start torno from a terminal, or put the command on the launcher's `PATH`.
 
 With a real agent:
 
-- **Claude Code and the trust question.** In a folder never opened before, with a `.claude/settings.json` that holds a hook (or a `.mcp.json`), either in the object or in a folder above it: "New session" asks "Start the chat anyway?" and starts nothing; "Start the chat" starts it (and the hook runs, as Claude Code's documentation says it does without a question when run non-interactively), and the next session there is not asked; "Use the terminal" shows Claude Code's own trust question. The measuring on 2026-10-15 (Claude Code 2.1.300) only read the documentation for this.
-- **The instruction files, with the real Claude Code.** In an object whose workspace folder holds a `CLAUDE.md` (the person's real `~/objects` has one that names `out/nerv/report.json`), the session pane lists it with its size and your own `~/.claude/CLAUDE.md`, in the chat and in the terminal view, and a click on a name shows the file in your file manager (nothing is opened or run); `/memory` in a terminal session lists the same files and no others (an `AGENTS.md` only where no `CLAUDE.md` is above the object). After the first prompt, ask what it reads of the build: the real CLI in `~/objects` no longer reads `out/nerv/report.json` to see the shape but uses `scene`, `look` and `measure`, while it still follows the file's advice on how to model (caliper numbers first, blockouts first). The stand-in agent cannot show what the model chooses.
+- **Claude Code and the trust question.** In a folder never opened before, with a `.claude/settings.json` that holds a hook (or a `.mcp.json`), either in the project or in a folder above it: "New session" asks "Start the chat anyway?" and starts nothing; "Start the chat" starts it (and the hook runs, as Claude Code's documentation says it does without a question when run non-interactively), and the next session there is not asked; "Use the terminal" shows Claude Code's own trust question. The measuring on 2026-10-15 (Claude Code 2.1.300) only read the documentation for this.
+- **The instruction files, with the real Claude Code.** In a project whose workspace folder holds a `CLAUDE.md` (the person's real `~/objects` has one that names `out/nerv/report.json`), the session pane lists it with its size and your own `~/.claude/CLAUDE.md`, in the chat and in the terminal view, and a click on a name shows the file in your file manager (nothing is opened or run); `/memory` in a terminal session lists the same files and no others (an `AGENTS.md` only where no `CLAUDE.md` is above the project). After the first prompt, ask what it reads of the build: the real CLI in `~/objects` no longer reads `out/nerv/report.json` to see the shape but uses `scene`, `look` and `measure`, while it still follows the file's advice on how to model (caliper numbers first, blockouts first). The stand-in agent cannot show what the model chooses.
 - **The prompts in the command menu.** In a chat, type `/mcp`: `/mcp__torno__review`, `/mcp__torno__printable` and `/mcp__torno__explain` are offered, and choosing one sends it; the stand-in names none of them, so no test has seen them in Claude Code's own list.
 - **A failed or old Claude Code in the chat.** A `claude` that does not know one of the chat's flags, or is signed out: the pane says "Claude Code stopped (exit code 1)" with the last line it wrote, and "It did not start: is `claude` up to date and signed in?". Not yet seen with a real old CLI; the stand-in prints to stderr and exits 1.
 - **A chat that could not use the login, with the real CLI.** The stand-in plays it (`FAKE_AGENT_AUTH_ERROR`) in the shape of the Agent SDK's types (an assistant message with `error: "authentication_failed"`, then a `result` with `is_error: true`); no real CLI has been seen to print it. Start torno with `CLAUDE_CODE_SIMPLE=1` (what `--bare` sets) and no `ANTHROPIC_API_KEY`, send a prompt in a chat: the CLI's words, then the warning "Claude Code's chat could not use your login" with "Use the terminal", once. Note what the CLI prints then (`claude -p --bare --output-format stream-json --verbose hello` in a terminal, with no key: the assistant message's `error`, the `result`'s `subtype`, `is_error` and `api_error_status`) and whether a signed-out `claude` (`claude auth logout`) or a login that ran out answers the same way or exits (an exit leaves the chat ended, and its "Use the terminal" still starts the terminal). Then start torno without the variable: "Use the terminal" ends the chat and the same conversation goes on in the terminal.
 - **Subagents and thinking.** A turn with a subagent (`Task`; newer versions may call the tool `Agent`) and one with extended thinking: the card counts steps and lists the tools, "Thought for N s" shows after a thought. The number was worked out from a recording; nobody has looked at it with the real CLI.
-- **The chat with the real Claude Code.** In a session in chat: a prompt with a pin or two marked (the "torno added" line shows them and they turn to sent); a command that asks permission, answered "Allow", then another with "Allow for this session" (the next like it is not asked, and `~/.claude/settings.json` and the object's `.claude/` are as they were), then one "Deny"; a question (`AskUserQuestion`) answered with an option and with "Other"; a plan in plan mode approved; "Attach view" (the agent describes what you see); the model menu (the next answer is from that model, and `/model` in the terminal still shows your default); the effort menu (a level chosen is taken, `/effort` in the terminal still shows your default, and `~/.claude/settings.json` is as it was); a new object made with a model and an effort chosen beside "Create" (its first answer is from that model, at that effort); `/compact` (one note, the conversation goes on); "Terminal", then "Chat" again: the same conversation, its earlier part shown.
-- **Making a new object with the real Claude Code.** "New object" with a name, a description, two photos from a phone (one large), a doodle, a scan and a reference to another object, each with a note, then "Create": the object is opened, its chat shows the one prompt with the pictures, Claude Code's reply speaks of them and of the notes, the scan is in the Scans list, `reference/` holds the original photos, and nothing else was written in the workspace. The stand-in agent has taken the prompt; the real CLI has not.
-- **Asking for the missing sizes, with the real Claude Code.** Make an object whose description gives one size and leaves out the rest (a lid for a box of an unnamed size, screws not named): before the first write of the model, Claude Code asks once, in a card with at most four questions, each with a typical value among its options and "Other" taking "build with assumptions"; it asks nothing about a fillet radius; after the answers it builds, and a size you did not give is a field of `Params` commented "assumed" and listed in its reply. Then ask for a new feature with no key size (a hole for "a screw"): it asks once, not again. The stand-in agent only plays the card; the real model's choice to ask has not been seen, and the eval harness (#121) does not yet measure it.
-- **Claude Code and torno's skills.** `--plugin-dir` works under `-p` (chat) and in the terminal view: in each, `/skills` (or asking the agent) lists `torno:torno-model`, `torno:build123d`, `torno:scans` and `torno:dimensions`, a model written in an empty object uses `torno-model` and builds with both layouts on the first try, and nothing was written under `~/.claude` or in the object's `.claude/`. The stand-in only shows the flag is passed. Asked how an argument of build123d is written, the agent searches `reference/api-0.13.0.txt` of the `build123d` skill (its `${CLAUDE_SKILL_DIR}` is filled in with the real folder, in the packaged app too) instead of running Python, and `claude plugin validate app/resources/agent-plugin` passes.
+- **The chat with the real Claude Code.** In a session in chat: a prompt with a pin or two marked (the "torno added" line shows them and they turn to sent); a command that asks permission, answered "Allow", then another with "Allow for this session" (the next like it is not asked, and `~/.claude/settings.json` and the project's `.claude/` are as they were), then one "Deny"; a question (`AskUserQuestion`) answered with an option and with "Other"; a plan in plan mode approved; "Attach view" (the agent describes what you see); the model menu (the next answer is from that model, and `/model` in the terminal still shows your default); the effort menu (a level chosen is taken, `/effort` in the terminal still shows your default, and `~/.claude/settings.json` is as it was); a new project made with a model and an effort chosen beside "Create" (its first answer is from that model, at that effort); `/compact` (one note, the conversation goes on); "Terminal", then "Chat" again: the same conversation, its earlier part shown.
+- **Making a new project with the real Claude Code.** "New project" with a name, a description, two photos from a phone (one large), a doodle, a scan and a reference to another project, each with a note, then "Create": the project is opened, its chat shows the one prompt with the pictures, Claude Code's reply speaks of them and of the notes, the scan is in the Scans list, `reference/` holds the original photos, and nothing else was written in the workspace. The stand-in agent has taken the prompt; the real CLI has not.
+- **Asking for the missing sizes, with the real Claude Code.** Make a project whose description gives one size and leaves out the rest (a lid for a box of an unnamed size, screws not named): before the first write of the model, Claude Code asks once, in a card with at most four questions, each with a typical value among its options and "Other" taking "build with assumptions"; it asks nothing about a fillet radius; after the answers it builds, and a size you did not give is a field of `Params` commented "assumed" and listed in its reply. Then ask for a new feature with no key size (a hole for "a screw"): it asks once, not again. The stand-in agent only plays the card; the real model's choice to ask has not been seen, and the eval harness (#121) does not yet measure it.
+- **Claude Code and torno's skills.** `--plugin-dir` works under `-p` (chat) and in the terminal view: in each, `/skills` (or asking the agent) lists `torno:torno-model`, `torno:build123d`, `torno:scans` and `torno:dimensions`, a model written in an empty project uses `torno-model` and builds with both layouts on the first try, and nothing was written under `~/.claude` or in the project's `.claude/`. The stand-in only shows the flag is passed. Asked how an argument of build123d is written, the agent searches `reference/api-0.13.0.txt` of the `build123d` skill (its `${CLAUDE_SKILL_DIR}` is filled in with the real folder, in the packaged app too) instead of running Python, and `claude plugin validate app/resources/agent-plugin` passes.
 - **A failed fillet, with the real Claude Code.** Ask for a fillet that cannot be made as asked (the plate above, all
   its vertical edges at R6): the result of the edit says why under the error, and the agent reads it, calls
   `try_fillet` on the last good build with the edges it names before it edits again, and changes the radius of the
@@ -1805,7 +1805,7 @@ With a real agent:
   radius, or call `max_fillet()`. The stand-in agent cannot show what the model chooses.
 - **What Claude Code says of itself, with the real CLI.** The stand-in plays each case (`FAKE_AGENT_INIT`); the real CLI has not: with `ANTHROPIC_API_KEY` set the chat says it is billed to an API key and names what `apiKeySource` is then (look at the value in a real `init`: `user`, `project`, `org`, `temporary`, or another), with it unset and logged in it says nothing (`none` or `oauth`); in a new session with torno's plugin, `init` lists `torno` among its `plugins` and no warning appears, and `/skills` lists the four skills (what `skills` holds with a `--plugin-dir` plugin is not recorded: the recordings' lists hold no plugin skill at all, so torno judges the skills only when `skills` shows some with a `plugin:` name); a `claude` of another minor than 2.1 (or older than 2.1.300) says so once; with the torno server made to fail the warning carries what the CLI said; a real overload shows "retrying (attempt N)" and it goes with the answer; a command refused by a rule of `settings.json` leaves the warning "Permission denied: …" (and the fields `mcp_server_errors`, `plugin_errors` and `permission_denials` are read as their form is guessed from the documentation). When the CLI moves, record a new stream (`app/test/fixtures/RECORDING.md`) and move the range.
 - **The torno-reviewer subagent.** One run with the real CLI, in chat and in the terminal: after a change of several steps Claude Code calls `torno-reviewer`, which uses only its read-only tools, reports with numbers from `measure` and changes nothing; whether the subagent's MCP calls go through `--allowedTools 'mcp__torno__*'` without a permission prompt; and that an invalid `--agents` would have stopped the start (it did not). The stand-in only shows the argument is passed.
-- **Pictures of a resumed chat, with the real Claude Code.** Make an object with one photo and one doodle and send the first prompt; let Claude Code take one `look`; quit torno. Start it again and open the object (the chat resumes): the photo and the doodle show, and the `look` picture says "Picture of an earlier build, not kept". Ask "Without reading any file, describe the doodle I gave at the start": a right answer confirms that `--resume` gives the model its pictures again. Then `/clear` and ask what references the object has: it names them from the line in `reference/`. The stand-in agent shows only that the window reads the files and the line is sent.
+- **Pictures of a resumed chat, with the real Claude Code.** Make a project with one photo and one doodle and send the first prompt; let Claude Code take one `look`; quit torno. Start it again and open the project (the chat resumes): the photo and the doodle show, and the `look` picture says "Picture of an earlier build, not kept". Ask "Without reading any file, describe the doodle I gave at the start": a right answer confirms that `--resume` gives the model its pictures again. Then `/clear` and ask what references the project has: it names them from the line in `reference/`. The stand-in agent shows only that the window reads the files and the line is sent.
 - **The session's token with the real Claude Code.** Start a chat and a terminal session: torno's tools connect (no
   "torno's tools are not connected" warning; `look` answers) and the hooks arrive (the status moves to working and
   back, a pin turns to sent), all with the token in the `X-Torno-Session` header. `ps -eo args` shows the `--mcp-config`
@@ -1821,7 +1821,7 @@ With a real agent:
   no test has seen a real CLI read it.
 - **The holds of a `Stop` with the real Claude Code.** Have it edit the model and say it is done without a `look`
   (once through its editing tool, once with `cat > model.py` in Bash): the `Stop` is held with the reason about the
-  build "built during this turn", the agent looks, and the turn ends. Open an object and ask something that
+  build "built during this turn", the agent looks, and the turn ends. Open a project and ask something that
   changes nothing while its first build runs, then save the file in your editor in the middle of a turn: neither holds it. Pin a dimension, then have it change the model
   so that it fails: it is held once and names it. Let a build run for twenty seconds while it would stop: the `Stop`
   waits, and the hook's 25 s limit is enough (the stand-in cannot tell). Whether the second `Stop` of a turn that was
@@ -1829,4 +1829,4 @@ With a real agent:
   plays it as the documentation says. Whether the hooks of a `torno-reviewer`'s `look` arrive on the session's
   address (so that its look counts) has not been seen.
 - **Claude Code and the newer tools.** Ask it to cut the part, to look at it drawn apart and to check a part against a scan: `section`, `look` with `explode`, `scan_clash` and `scan_deviation` are called without a permission prompt and their replies are used.
-- **What torno says it needs, with the real CLI, a machine without `claude` and one without `uv`.** Tests look for `claude` on the `PATH` and never run it; the stand-in plays `--version` and `auth status`. With the real CLI: the first screen says `claude` is found, its version (`claude --version` prints it first, as `2.1.307 (Claude Code)`) and "signed in" (look at the real output of `claude auth status`: torno reads `loggedIn` and `authMethod` of its JSON, and says nothing of the account where it finds neither); signed out (`claude auth logout`) the line says so and the page of a new object warns above "Create"; a `claude` that hangs or is too old to know `auth status` is said to have not answered, within 3 seconds. On a machine without `claude` on the `PATH` the line says "Not found on PATH", and without `uv` the uv line does and the kernel's is left out. With no `kernel/.venv` (or no `kernel-env` under torno's data folder, packaged), "Not made yet" and "Make it now" run `uv sync` on the network and show its lines, then the line says torno's environment is made; offline the reason is uv's. Started from the Finder or a desktop launcher the `PATH` shown is the one torno has.
+- **What torno says it needs, with the real CLI, a machine without `claude` and one without `uv`.** Tests look for `claude` on the `PATH` and never run it; the stand-in plays `--version` and `auth status`. With the real CLI: the first screen says `claude` is found, its version (`claude --version` prints it first, as `2.1.307 (Claude Code)`) and "signed in" (look at the real output of `claude auth status`: torno reads `loggedIn` and `authMethod` of its JSON, and says nothing of the account where it finds neither); signed out (`claude auth logout`) the line says so and the page of a new project warns above "Create"; a `claude` that hangs or is too old to know `auth status` is said to have not answered, within 3 seconds. On a machine without `claude` on the `PATH` the line says "Not found on PATH", and without `uv` the uv line does and the kernel's is left out. With no `kernel/.venv` (or no `kernel-env` under torno's data folder, packaged), "Not made yet" and "Make it now" run `uv sync` on the network and show its lines, then the line says torno's environment is made; offline the reason is uv's. Started from the Finder or a desktop launcher the `PATH` shown is the one torno has.

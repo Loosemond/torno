@@ -412,7 +412,7 @@ test('what was wrong with a marks file is said in the panel in full, to a window
   expect(readFileSync(join(root, 'plain', '.torno', aside), 'utf8')).toBe(CORRUPT)
   expect((await state()).marksProblem).toBeNull()
 
-  const sentence = `The marks file of this object could not be read. It was kept as .torno/${aside}, and a new list was started.`
+  const sentence = `The marks file of this project could not be read. It was kept as .torno/${aside}, and a new list was started.`
   const line = page.locator('.marks-problem')
   await openObject('plain')
   await expect(line).toContainText(sentence)

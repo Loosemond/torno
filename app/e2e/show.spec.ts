@@ -68,7 +68,7 @@ test('the page of objects shows a card each, builds nothing, and opens one with 
   // A workspace of several objects starts on the page.
   expect((await state()).page).toBe('objects')
   await expect(page.locator('.card')).toHaveCount((await state()).workspace!.objects.length)
-  await expect(page.getByRole('region', { name: /^Objects of torno-e2e-show-/ })).toBeVisible()
+  await expect(page.getByRole('region', { name: /^Projects of torno-e2e-show-/ })).toBeVisible()
   await expect(card('hollow')).toContainText('Not opened in this run')
   await expect(card('hollow')).toContainText('No picture yet')
   // With no picture to show, the picture's room is a third as tall as it is wide, and its three lines fit in it.
@@ -105,7 +105,7 @@ test('the page of objects shows a card each, builds nothing, and opens one with 
   await expect.poll(() => readFileSync(thumb('hollow', '.gitignore'), 'utf8').split('\n').filter(Boolean).sort()).toEqual(['state.md', 'thumb.json', 'thumb.png'])
   // Nothing of it outside .torno.
   expect(readdirSync(join(root, 'hollow')).sort()).toEqual(['.torno', 'hollow.py'])
-  await page.getByRole('button', { name: 'All objects' }).click()
+  await page.getByRole('button', { name: 'All projects' }).click()
   await expect(card('hollow')).toContainText('Built, r1')
   // A build of this run is said in ink behind the status line's dot; an object not opened here has neither.
   await expect(card('hollow').locator('[data-part="build"]')).toHaveAttribute('data-status', 'ok')
@@ -139,7 +139,7 @@ test('a card says when its picture is older than the model, and a second object 
   // Its facts say which picture they are of: its size and what its bytes hash to.
   expect(meta('hollow')).toMatchObject({ bytes: statSync(thumb('hollow')).size, hash: createHash('sha256').update(readFileSync(thumb('hollow'))).digest('hex') })
   writeFileSync(thumb('hollow', 'thumb.json'), JSON.stringify({ ...meta('hollow'), sourcesMtimeMs: 1 }))
-  await page.getByRole('button', { name: 'All objects' }).click()
+  await page.getByRole('button', { name: 'All projects' }).click()
   await expect(card('hollow')).toContainText('A source has changed since')
   await expect(card('plain')).not.toContainText('A source has changed since')
 })
@@ -249,7 +249,7 @@ test('the keys go from card to card, filter by name, open, and go back; none of 
   await page.keyboard.press('Home')
   // A letter goes into the filter: P is the Pin tool's key in the view, and is no tool's here.
   await page.keyboard.type('pl')
-  const field = page.getByRole('textbox', { name: 'Filter the objects by name' })
+  const field = page.getByRole('textbox', { name: 'Filter the projects by name' })
   await expect(field).toBeFocused()
   await expect(field).toHaveValue('pl')
   await expect(page.locator('.card')).toHaveCount(1)
@@ -267,7 +267,7 @@ test('the keys go from card to card, filter by name, open, and go back; none of 
   await page.keyboard.press('/')
   await expect(field).toBeFocused()
   await page.keyboard.type('zzz')
-  await expect(page.locator('.show-none')).toContainText('No object is named like zzz')
+  await expect(page.locator('.show-none')).toContainText('No project is named like zzz')
   await page.keyboard.press('Escape')
   await expect(page.locator('.card')).toHaveCount(ids.length)
   expect((await state()).page).toBe('objects')
@@ -385,7 +385,7 @@ test('the left column keeps the objects and the marks while the page is up, and 
   await page.keyboard.press('Escape')
   expect(await state()).toMatchObject({ page: 'object', objectId: 'plain' })
   // What had the focus when the page came up has it again when the page goes.
-  const all = page.getByRole('button', { name: 'All objects' })
+  const all = page.getByRole('button', { name: 'All projects' })
   await all.focus()
   await page.keyboard.press('Enter')
   expect((await state()).page).toBe('objects')
@@ -407,10 +407,10 @@ test('with an object open the list folds to a switcher, the marks start high, an
   const fold = (name: string) => left.locator('.section-fold').and(left.getByRole('button', { name, exact: true }))
   await expect(switcher(page)).toHaveAttribute('data-object', 'hollow')
   await expect(switcher(page)).toHaveAttribute('aria-haspopup', 'menu')
-  await expect(fold('Objects')).toHaveAttribute('aria-expanded', 'false')
-  await expect(fold('Objects')).toHaveAttribute('aria-description', `${count}`)
+  await expect(fold('Projects')).toHaveAttribute('aria-expanded', 'false')
+  await expect(fold('Projects')).toHaveAttribute('aria-description', `${count}`)
   await expect(objects.locator('.object-row')).toHaveCount(0)
-  await expect(objects.getByRole('button', { name: 'All objects' })).toBeVisible()
+  await expect(objects.getByRole('button', { name: 'All projects' })).toBeVisible()
   expect((await objects.boundingBox())!.height).toBeLessThanOrEqual(64)
   // Layers and Scans folded as well: their title rows say what matters, and the marks start high in the column.
   // hollow has Params, so Parameters is there too, folded to its title from the start.
@@ -439,13 +439,13 @@ test('with an object open the list folds to a switcher, the marks start high, an
   // and the arrows go about it; Enter opens the one in focus, and the keys are the switcher's again.
   await switcher(page).focus()
   await page.keyboard.press('Enter')
-  const menu = page.getByRole('menu', { name: 'Objects' })
+  const menu = page.getByRole('menu', { name: 'Projects' })
   await expect(menu.getByRole('menuitem', { name: 'hollow', exact: true })).toBeFocused()
   await expect(menu.getByRole('menuitem', { name: 'hollow', exact: true })).toHaveAttribute('aria-current', 'true')
   await expect(menu.getByRole('menuitem')).toHaveCount(count + 1)
   await expect(menu.getByRole('menuitem', { name: 'two', exact: true }).locator('.object-item-problem')).toContainText('more than one model file')
   await page.keyboard.press('End')
-  await expect(menu.getByRole('menuitem', { name: 'New object' })).toBeFocused()
+  await expect(menu.getByRole('menuitem', { name: 'New project' })).toBeFocused()
   await page.keyboard.press('Home')
   await page.keyboard.press('ArrowDown')
   await expect(menu.getByRole('menuitem', { name: 'broken', exact: true })).toBeFocused()
@@ -465,13 +465,13 @@ test('with an object open the list folds to a switcher, the marks start high, an
   expect((await state()).objectId).toBe('bracket')
 
   // The title unfolds the list in place, as it was; it gives way to the layers and the scans, a share of the column.
-  await fold('Objects').click()
-  await expect(fold('Objects')).toHaveAttribute('aria-expanded', 'true')
+  await fold('Projects').click()
+  await expect(fold('Projects')).toHaveAttribute('aria-expanded', 'true')
   await expect(objects.locator('.object-row')).toHaveCount(count)
   await expect(objects.getByRole('button', { name: 'bracket', exact: true })).toHaveAttribute('aria-current', 'true')
   const column = (await left.boundingBox())!.height
   expect((await objects.boundingBox())!.height).toBeLessThanOrEqual(column * 0.38 + 1)
-  await fold('Objects').click()
+  await fold('Projects').click()
   await expect(switcher(page)).toBeVisible()
 })
 

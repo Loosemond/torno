@@ -689,7 +689,7 @@ export class ScanStore {
    */
   private of<T>(objectId: string, ask: (place: Place) => Promise<T>): Promise<T> {
     const dir = this.deps.dirOf(objectId)
-    if (dir === undefined) return Promise.reject(new Error(`no object named ${objectId} in the open workspace`))
+    if (dir === undefined) return Promise.reject(new Error(`no project named ${objectId} in the open workspace`))
     return ask({ objectId, dir, epoch: this.epoch })
   }
 

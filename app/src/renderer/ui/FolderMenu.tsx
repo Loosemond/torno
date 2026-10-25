@@ -114,7 +114,7 @@ export function FolderMenu({ open: current, disabled, onChoose }: { open: string
             Open folder…
           </button>
           {example && (
-            <button type="button" role="menuitem" className="menu-item" title="Four small objects of torno's own, copied to a temporary folder that is removed when torno quits" onClick={() => choose('example')}>
+            <button type="button" role="menuitem" className="menu-item" title="Four small projects of torno's own, copied to a temporary folder that is removed when torno quits" onClick={() => choose('example')}>
               Open the example
             </button>
           )}

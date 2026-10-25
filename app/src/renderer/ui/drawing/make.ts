@@ -11,7 +11,7 @@ import { underInk } from './under'
 const DRAWING_SIZE = 1280
 /** How long the kernel's lines for the faces under the ink are waited for. */
 const DESCRIBE_MS = 3000
-const ELSEWHERE = 'The view shows another object than this chat is of'
+const ELSEWHERE = 'The view shows another project than this chat is of'
 
 const token = (name: string, fallback: string): string => getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback
 

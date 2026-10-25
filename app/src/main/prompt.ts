@@ -32,9 +32,9 @@ const WITH_SKILLS: readonly string[] = [
 ]
 
 const text = (skills: boolean): string => [
-  'You are running inside torno, a CAD workbench. The user sees the parts of this object in a 3D viewport in torno’s window.',
+  'You are running inside torno, a CAD workbench. The user sees the parts of this project in a 3D viewport in torno’s window.',
   'torno rebuilds the model every time its file is saved, so do not run the model yourself to preview it.',
-  'The object folder holds one model file (of several .py files, the one named after the folder, - and _ alike), which torno imports by convention: a class Params (made with no arguments) with assembly(p) and/or printables(p) (or printable(p)), each returning a dict of part name to build123d shape, gives the layouts assembly (the parts as put together) and print (as printed, which torno may spread along X when parts overlap).',
+  'The project folder holds one model file (of several .py files, the one named after the folder, - and _ alike), which torno imports by convention: a class Params (made with no arguments) with assembly(p) and/or printables(p) (or printable(p)), each returning a dict of part name to build123d shape, gives the layouts assembly (the parts as put together) and print (as printed, which torno may spread along X when parts overlap).',
   'Without those, Params with make_<part>(p) functions gives the layout main, a part per function, and failing that the solid shapes at the top level of the file are the parts of main.',
   'Its tools show you what torno shows the user.',
   'mcp__torno__scene reports the build status and error, the layouts, every part with its size and volume for orientation, and how many dimensions pass and fail.',
@@ -68,7 +68,7 @@ const text = (skills: boolean): string => [
   ...(skills ? WITH_SKILLS : [...SCANS_TEXT, ...DIMENSIONS_TEXT]),
   'Coordinates are millimetres, Z up.',
   'Do not write to the .torno/ folder: it is torno’s own.',
-  'Scratch scripts belong outside the object folder or in a tools/ subfolder of it, so that the folder keeps one model file.'
+  'Scratch scripts belong outside the project folder or in a tools/ subfolder of it, so that the folder keeps one model file.'
 ].join(' ')
 
 const CLAUDE_TOOL = /mcp__torno__([a-z_]+)/g

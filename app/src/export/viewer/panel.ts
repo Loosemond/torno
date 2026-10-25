@@ -129,7 +129,7 @@ export function createPanel(root: HTMLElement, host: PanelHost): Panel {
     const object = host.object()
     const made = el('header', { class: 'head' }, el('h1', {}, el('span', { class: 'name' }, object.name), ' ', num(`r${object.revision}`)))
     if (host.data.objects.length > 1) {
-      const list = el('ul', { class: 'objects', 'aria-label': 'Objects in this file' })
+      const list = el('ul', { class: 'objects', 'aria-label': 'Projects in this file' })
       for (const one of host.data.objects) {
         const button = el('button', { type: 'button', class: 'object', 'data-k': `object:${one.id}` }, el('span', { class: 'name' }, one.name), num(`r${one.revision}`))
         button.addEventListener('click', () => host.setObject(one.id))

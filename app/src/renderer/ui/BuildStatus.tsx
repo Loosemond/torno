@@ -103,9 +103,9 @@ export function BuildStatus({ onOpen }: { onOpen: (id: string) => void }) {
   return (
     <footer className="status" data-region="status">
       {creating ? (
-        <span className="status-name">New object</span>
+        <span className="status-name">New project</span>
       ) : name === null || !build ? (
-        <span>{name === null ? 'No object open' : name}</span>
+        <span>{name === null ? 'No project open' : name}</span>
       ) : (
         <>
           <span className="status-name">{name}</span>
@@ -194,7 +194,7 @@ export function BuildStatus({ onOpen }: { onOpen: (id: string) => void }) {
       </span>
       {/* The open object, as one HTML file or a file of the model. With the page of objects up, the page has the button for them all. */}
       {objectId !== null && !paged && !creating && (
-        <button type="button" className="status-export" title="Export this object: one HTML file that opens by itself, or a STEP, STL or 3MF file" onClick={() => actions.exportSheet([objectId])}>
+        <button type="button" className="status-export" title="Export this project: one HTML file that opens by itself, or a STEP, STL or 3MF file" onClick={() => actions.exportSheet([objectId])}>
           Export…
         </button>
       )}

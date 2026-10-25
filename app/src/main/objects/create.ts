@@ -144,15 +144,16 @@ export async function readPhoto(path: unknown): Promise<Uint8Array> {
 
 /** The request, held to what it may be; throws a plain reason. Returns what `brief.md` needs. */
 function checked(req: CreateRequest, deps: CreateDeps, existing: readonly string[]): void {
-  if (typeof req !== 'object' || req === null) throw new Error('No object to make.')
-  if (typeof req.name !== 'string') throw new Error('Give the object a name.')
+  if (typeof req !== 'object' || req === null) throw new Error('No project to make.')
+  if (typeof req.name !== 'string') throw new Error('Give the project a name.')
   const problem = objectNameProblem(req.name, existing)
   if (problem) throw new Error(problem)
   if (typeof req.description !== 'string' || req.description.trim() === '') throw new Error('Say what it is first.')
   if (req.description.length > MAX_DESCRIPTION) throw new Error(`The description is over ${MAX_DESCRIPTION} characters.`)
+  const named = { photos: 'photos', doodles: 'doodles', scans: 'scans', objects: 'projects' }
   for (const kind of ['photos', 'doodles', 'scans', 'objects'] as const) {
-    if (!Array.isArray(req[kind])) throw new Error(`The ${kind} are not a list.`)
-    if (req[kind].length > MOST[kind]) throw new Error(`At most ${MOST[kind]} ${kind}.`)
+    if (!Array.isArray(req[kind])) throw new Error(`The ${named[kind]} are not a list.`)
+    if (req[kind].length > MOST[kind]) throw new Error(`At most ${MOST[kind]} ${named[kind]}.`)
   }
   for (const scan of req.scans) {
     if (typeof scan?.path !== 'string' || !isAbsolute(scan.path) || !(SCAN_FORMATS as readonly string[]).includes(extname(scan.path).toLowerCase())) {
@@ -167,12 +168,12 @@ function checked(req: CreateRequest, deps: CreateDeps, existing: readonly string
     oneLine(photo.note, 'photo')
   }
   for (const doodle of req.doodles) oneLine(doodle?.note, 'doodle')
-  for (const [kind, keys] of [['photo', req.photos.map((p) => p.path)], ['scan', req.scans.map((s) => s.path)], ['object', req.objects.map((o) => o?.id)]] as const) {
+  for (const [kind, keys] of [['photo', req.photos.map((p) => p.path)], ['scan', req.scans.map((s) => s.path)], ['project', req.objects.map((o) => o?.id)]] as const) {
     if (new Set(keys).size !== keys.length) throw new Error(`The same ${kind} is given twice.`)
   }
   for (const other of req.objects) {
-    oneLine(other?.note, 'object')
-    if (typeof other?.id !== 'string' || !deps.objects.includes(other.id)) throw new Error(`There is no object ${JSON.stringify(other?.id)} in this workspace.`)
+    oneLine(other?.note, 'project')
+    if (typeof other?.id !== 'string' || !deps.objects.includes(other.id)) throw new Error(`There is no project ${JSON.stringify(other?.id)} in this workspace.`)
   }
 }
 
@@ -213,7 +214,7 @@ export async function createObject(req: CreateRequest, deps: CreateDeps): Promis
       references.push(line(file, oneLine(doodle.note, 'doodle')))
     }
     for (const scan of req.scans) references.push(line(`scan ${homeRelative(scan.path)}`, oneLine(scan.note, 'scan')))
-    for (const other of req.objects) references.push(line(`../${other.id}/`, oneLine(other.note, 'object')))
+    for (const other of req.objects) references.push(line(`../${other.id}/`, oneLine(other.note, 'project')))
     const brief = [`# ${name}`, '', req.description.trim(), ...(references.length ? ['', '## References', '', ...references] : []), ''].join('\n')
     await writeFileAtomic(join(temp, 'brief.md'), brief)
 

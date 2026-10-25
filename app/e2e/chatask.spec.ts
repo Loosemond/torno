@@ -631,7 +631,7 @@ test('Stop with a request open: the card reads cancelled, has no buttons, and th
 
 test('a request that waits for the person shows on the dock\'s toggle when the dock is hidden, and on its row and in the status line when another object is open; the signs go when it is answered', async () => {
   const toggle = () => page.locator('.dock-toggle')
-  const item = (name: string) => page.getByRole('menu', { name: 'Objects' }).getByRole('menuitem', { name, exact: true })
+  const item = (name: string) => page.getByRole('menu', { name: 'Projects' }).getByRole('menuitem', { name, exact: true })
   const needs = () => page.locator('.status-needs')
   await newSession()
   await say('ask Bash {"command":"ls"}')

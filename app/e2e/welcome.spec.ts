@@ -56,12 +56,12 @@ test('the first run shows what to open and how a folder of objects is laid out, 
     expect(await bare.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible())).toBe(false)
     const says = first.locator('[data-region="viewport"]')
     await expect(says).toContainText('Make CAD parts with an AI agent: it writes the model, you point at what to change.')
-    const tree = first.getByRole('figure', { name: 'How a folder of objects is laid out' })
-    await expect(tree.locator('.num')).toHaveText(['objects/', 'bracket/', 'bracket.py'])
+    const tree = first.getByRole('figure', { name: 'How a folder of projects is laid out' })
+    await expect(tree.locator('.num')).toHaveText(['projects/', 'bracket/', 'bracket.py'])
     await expect(tree).toContainText('the folder you open')
-    await expect(says).toContainText('An empty folder is fine: torno helps you make the first object.')
+    await expect(says).toContainText('An empty folder is fine: torno helps you make the first project.')
     await expect(says).toContainText('A temporary copy, removed when torno quits.')
-    await expect(says).toContainText('torno writes only into a .torno folder inside each object.')
+    await expect(says).toContainText('torno writes only into a .torno folder inside each project.')
     await expect(says).not.toContainText('for the keys')
     // The main way in is the one primary button; the example is a quiet one.
     await expect(first.locator('.welcome-page .button-primary')).toHaveText(['Open folder'])
@@ -92,10 +92,10 @@ test('the first run shows what to open and how a folder of objects is laid out, 
     await first.getByRole('button', { name: 'Open folder' }).click()
     expect(await bare.evaluate(() => (globalThis as unknown as { __tornoMain: Main }).__tornoMain.picks)).toBe(1)
     const name = empty.split('/').pop()!
-    await expect(says).toContainText(`No objects in ${name} yet`)
-    await expect(says.getByRole('heading', { name: 'Make your first object' })).toBeVisible()
+    await expect(says).toContainText(`No projects in ${name} yet`)
+    await expect(says.getByRole('heading', { name: 'Make your first project' })).toBeVisible()
     // New object leads and the example is offered beside it; the manual route and the pyproject note are in a closed fold.
-    await expect(says.getByRole('button').first()).toHaveText('New object')
+    await expect(says.getByRole('button').first()).toHaveText('New project')
     await expect(says.getByRole('button', { name: 'open the example to look around' })).toBeVisible()
     await expect(says.getByText('part/part.py')).toBeHidden()
     await says.getByText('Already have build123d models?').click()
@@ -126,7 +126,7 @@ test('the folders opened lately are listed from torno\'s own file: one that is g
     // Eight at most, whatever the file holds.
     await expect(list.locator('li')).toHaveCount(8)
     // Coming back, the list is what is shown first, and the explanation is not.
-    await expect(first.getByRole('figure', { name: 'How a folder of objects is laid out' })).toHaveCount(0)
+    await expect(first.getByRole('figure', { name: 'How a folder of projects is laid out' })).toHaveCount(0)
     await expect(first.locator('.welcome-page').getByText('An empty folder is fine', { exact: false })).toHaveCount(0)
     const missing = list.locator('li[data-missing]')
     await expect(missing).toHaveCount(1)
@@ -191,7 +191,7 @@ test('? shows every key of the one table; what is typed searches it, and no tool
   // Every row that is shown is there, under where it is listened to, its keys in the monospace face.
   await expect(sheet().locator('li')).toHaveCount(POINTER.length + KEYS.filter((row) => !row.hidden).length)
   // The pointer first: gestures, not keys, so no cap of its own.
-  await expect(sheet().locator('h3')).toHaveText(['Pointer', 'Everywhere', 'Viewport', 'With a tool in hand', 'With a shape in hand', 'Page of objects', 'New object', 'Session', 'In a field, a menu or a sheet', 'For working on torno'])
+  await expect(sheet().locator('h3')).toHaveText(['Pointer', 'Everywhere', 'Viewport', 'With a tool in hand', 'With a shape in hand', 'Page of projects', 'New project', 'Session', 'In a field, a menu or a sheet', 'For working on torno'])
   expect(await sheet().locator('kbd').first().evaluate((el) => getComputedStyle(el).fontFamily)).toContain('IBM Plex Mono')
   // The focus is in its field: a letter searches, and is no tool's key.
   await expect(sheet().getByRole('textbox', { name: 'Search the keys' })).toBeFocused()
@@ -256,7 +256,7 @@ test('in a field ? is a question mark, and on the page of objects it is the shee
   await page.keyboard.press('?')
   await expect(sheet()).toBeVisible()
   // Nothing went into the page's filter, and Escape puts away the sheet, not the page.
-  await expect(page.getByRole('textbox', { name: 'Filter the objects by name' })).toHaveValue('')
+  await expect(page.getByRole('textbox', { name: 'Filter the projects by name' })).toHaveValue('')
   await page.keyboard.press('Escape')
   await expect(sheet()).toBeHidden()
   await expect(page.locator('.show')).toBeVisible()
@@ -371,17 +371,17 @@ test('the empty workspace and the page of a new object say what is missing, and 
     const block = gone.locator('.show-empty .ready')
     await expect(block.locator('.ready-line[data-line="claude"]')).toContainText('Not found on PATH')
     // The page of a new object has the line above Create, and says what that means for the object.
-    await gone.locator('.show-empty').getByRole('button', { name: 'New object' }).click()
+    await gone.locator('.show-empty').getByRole('button', { name: 'New project' }).click()
     const foot = gone.locator('.new-foot .ready[data-variant="missing"]')
     await expect(foot.locator('.ready-line[data-line="claude"]')).toHaveAttribute('data-tone', 'fail')
-    await expect(foot).toContainText('The object will be made, but Claude Code cannot start in it until this is put right.')
+    await expect(foot).toContainText('The project will be made, but Claude Code cannot start in it until this is put right.')
     // Above Create, not under it.
     expect(await foot.evaluate((el) => !!(el.compareDocumentPosition(document.querySelector('.new-actions')!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true)
 
     // With Claude Code found the new object's page has no such block.
     const fine = await ok.firstWindow()
     await fine.waitForSelector('[data-region="left"]')
-    await fine.locator('.show-empty').getByRole('button', { name: 'New object' }).click()
+    await fine.locator('.show-empty').getByRole('button', { name: 'New project' }).click()
     await expect(fine.locator('.new-foot')).toBeVisible()
     await expect(fine.locator('.new-foot .ready')).toHaveCount(0)
     await fine.keyboard.press('Escape')

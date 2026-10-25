@@ -192,7 +192,7 @@ describe('highlight', () => {
   })
 
   it.each([
-    [{ objectId: 'other' }, 'other is not the object open in the torno window (open: bracket). Ask the user to open it.'],
+    [{ objectId: 'other' }, 'other is not the project open in the torno window (open: bracket). Ask the user to open it.'],
     [{ layout: 'print' }, 'layout print is not the one on screen (assembly): call show with that layout first, which changes what the user sees'],
     [{ refs: ['base/F5', 'lid', 'post/F6', 'post/E12'] }, 'nothing was highlighted: the window shows r3, which has no lid, no post/F6, no post/E12']
   ])('tints nothing for %o, and says why', (request, error) => {
@@ -436,7 +436,7 @@ describe('show', () => {
   })
 
   it.each([
-    [{ objectId: 'other', view: 'top' as const }, 'other is not the object open in the torno window (open: bracket). Ask the user to open it.'],
+    [{ objectId: 'other', view: 'top' as const }, 'other is not the project open in the torno window (open: bracket). Ask the user to open it.'],
     [{ layout: 'exploded' }, "no layout 'exploded'; layouts: assembly, print"],
     [{ layout: 'print', parts: ['post', 'lid'] }, "unknown part 'lid'; parts in layout print: base, post"]
   ])('changes nothing for %o, and says what there is', (request, error) => {
@@ -572,7 +572,7 @@ describe('save_view', () => {
   })
 
   it.each([
-    [{ objectId: 'other' }, 'other is not the object open in the torno window (open: bracket). Ask the user to open it.'],
+    [{ objectId: 'other' }, 'other is not the project open in the torno window (open: bracket). Ask the user to open it.'],
     [{ layout: 'bed' }, "no layout 'bed'; layouts: assembly, print"],
     [{ parts: ['lid'] }, "unknown part 'lid'; parts in layout assembly: base, post"],
     [{ name: 'top' }, '"top" is a standard view: choose another name'],
@@ -613,7 +613,7 @@ describe('look, joined by the app', () => {
     setPictures(async () => PICTURE)
     onLook({ id: 5, request: {} })
     await settle()
-    expect(replies).toEqual([4, 5].map((id) => ({ id, result: { error: 'no object open in the torno window' } })))
+    expect(replies).toEqual([4, 5].map((id) => ({ id, result: { error: 'no project open in the torno window' } })))
   })
 
   it('answers a request for the drawing of a section, whatever the window shows: here, that the plane cut nothing', async () => {

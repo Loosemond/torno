@@ -151,7 +151,7 @@ test('a file is imported by the real process, told as it goes, and its mesh come
 
 test('what cannot be done is refused in plain words', async () => {
   expect(await rejection('relative')).toBe('give the whole path of the file')
-  expect(await rejection('ghost')).toBe('no object named ghost in the open workspace')
+  expect(await rejection('ghost')).toBe('no project named ghost in the open workspace')
   expect(await rejection('unknown')).toBe('no scan S9; scans: S1')
   // What the import process itself says of a file it cannot read.
   mkdirSync(join(downloads, 'more'))
@@ -179,7 +179,7 @@ test('an alignment is kept with how the layout was spread, and dropped when the 
   expect(Object.keys(alignment.frame).sort()).toEqual([...parts].sort())
   expect(Number.isNaN(Date.parse(alignment.at))).toBe(false)
   expect(scansOnDisk().scans[0].alignments[layout]).toEqual(alignment)
-  expect(await rejection('nowhere')).toBe('no build of this object has a layout named nowhere: there is nothing to align the scan to')
+  expect(await rejection('nowhere')).toBe('no build of this project has a layout named nowhere: there is nothing to align the scan to')
   // Task 5: an alignment is of the build it was made on, and one that is rough is kept only with a yes; what main says of it is main's.
   const revision = (await state()).revision
   expect(await rejection('otherBuild')).toBe(`that alignment was made on r${revision + 1}, the build is r${revision}: align again`)
@@ -218,7 +218,7 @@ test('a scans file that cannot be read is said to the window, until it is dismis
   writeFileSync(join(root, 'hollow', '.torno', 'scans.json'), '{"next": 4, "scans": [')
   await openListed(page, 'hollow')
   const problem = page.locator('[data-part="problem"]')
-  await expect(problem).toContainText('The scans file of this object could not be read')
+  await expect(problem).toContainText('The scans file of this project could not be read')
   await expect(problem).toContainText('still in .torno/scans/')
   expect(await page.evaluate(() => window.torno.scans.problem('hollow'))).toContain('scans.json.corrupt-')
   await problem.getByRole('button', { name: 'Dismiss' }).click()

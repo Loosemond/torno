@@ -19,7 +19,7 @@ export const PROMPTS = {
     description: 'Go through every open mark and every unmet dimension against the current build: measure, look, and resolve the marks that are done.',
     text: (toolName: ToolName): string =>
       [
-        `Review the open marks and the dimensions of this object against the current build.`,
+        `Review the open marks and the dimensions of this project against the current build.`,
         ``,
         `1. Call ${toolName('scene')} for the build status and revision, and ${toolName('marks')} for every open mark and every dimension that fails or is not measured.`,
         `2. For each open mark, read its note and its anchor, then say whether the current build meets it. Where it is about a size, a fit or a wall, measure it with ${toolName('measure')} (or ${toolName('check')} for a clearance or an overlap) rather than reading it off the model's code; ${toolName('describe')} tells what a ref is.`,
@@ -42,7 +42,7 @@ export const PROMPTS = {
             ? `4. Bed: "${bed}" is not a bed size in mm such as 256x256x256. Ask the person for it, then call ${toolName('check')} with {"kind": "bed", "size": [x, y, z]}.`
             : `4. Bed: no bed size was given. Give the size of the print layout from ${toolName('scene')}, and ask the person for their bed (such as 256x256x256) before saying it fits.`
       return [
-        `Check whether this object is ready to 3D print, on its print layout (layout "print"; if there is none, say so and use the layout it has).`,
+        `Check whether this project is ready to 3D print, on its print layout (layout "print"; if there is none, say so and use the layout it has).`,
         ``,
         `1. Call ${toolName('scene')} for the parts of the layout and their sizes.`,
         `2. Walls: for each part call ${toolName('check')} with {"kind": "thin", "a": <part>, "min": 0.8} (or the least wall the person's nozzle can print); where that kind is not offered, ${toolName('measure')} the thickness of the thinnest-looking walls at a point of a face.`,
@@ -64,7 +64,7 @@ export const PROMPTS = {
         `2. Read the model's code for what each part is for and how the Params drive it.`,
         `3. ${toolName('look')} at it from a view or two that show how the parts go together; ${toolName('check')} with {"kind": "clearance"} where parts meet, if it helps.`,
         ``,
-        `Say, in plain words: what the object is, each part and its role, each Param and what changing it does, and how the parts relate (what sits on, in or against what). Give sizes in mm as the tools give them. Change nothing.`
+        `Say, in plain words: what the project is, each part and its role, each Param and what changing it does, and how the parts relate (what sits on, in or against what). Give sizes in mm as the tools give them. Change nothing.`
       ].join('\n')
   }
 } as const

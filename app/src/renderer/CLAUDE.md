@@ -360,14 +360,14 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   the monospace face, and a note in the muted face under it. When every line is ready it folds to one quiet line ("Claude
   Code and build123d 0.13.0 are ready") that a click opens; a kernel that is only starting, its environment there, does
   not keep it open. Nothing is claimed until main has said. It is under the tagline of the first screen, in the empty
-  workspace below "New object" and the example, on the page of a new object above Create in the `missing` form (only the lines that
+  workspace below "New project" and the example, on the page of a new object above Create in the `missing` form (only the lines that
   say something is amiss, none when none does, and for Claude Code a failure adds that the object will be made but the agent
   cannot start in it), and in the sheet of the folder menu ("Check what torno needs", a dialog over the window asked afresh,
   with "Check again"). "Make it now" is on the kernel's line when torno's own environment is not made, no workspace's kernel is
   starting and uv is there, and "Try again" when it failed. The status line says "Making torno's Python environment, first
   time only" in place of `Building N s` while the kernel is starting over an environment that was not made.
 - A workspace with no object leads with making one (`ui/EmptyWorkspace.tsx`, in `ui/ShowPage.tsx`): "Make your first
-  object" and a line on what it takes, "New object" (primary), under it "or open the example to look around" (only
+  project" and a line on what it takes, "New project" (primary), under it "or open the example to look around" (only
   where `hasExample`), the readiness block, a line on scope (printed parts and small assemblies), and a fold,
   "Already have build123d models?", closed, which holds the folder rule (`part/part.py`) and, for a folder without a
   `pyproject.toml`, that its models are built with torno's own build123d. torno runs no `uv` command there: the note
@@ -418,15 +418,15 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 
 - `ui/ShowPage.tsx`, over the 3D view (`store.page`: `'object' | 'objects'`; the view stays mounted under it,
   `inert` and not painted, and the open object keeps its selection, camera and note). A workspace of several
-  objects, or of none, starts on it; one object alone is shown itself. `W` outside a field or "All objects"
+  objects, or of none, starts on it; one object alone is shown itself. `W` outside a field or "All projects"
   brings it up (not while a button of the pointer is held: a drag in the view is not over); a card, or Escape,
-  leaves it, and what had the focus has it again. "All objects" is the first row of the list while no object is
+  leaves it, and what had the focus has it again. "All projects" is the first row of the list while no object is
   open, and beside the list's title while one is (`ofObject` in `ui/ObjectList.tsx`), the page up or not: the one
   control, so the focus it had comes back to it.
 - **The left column gives the room to the marks** (`styles/panels.css`, `state/column.ts`). Objects, Layers,
   Parameters and Scans each have a title that folds them (`ui/SectionTitle.tsx`, `aria-expanded`; folded with the pointer, the
   keys go back to the view); folded, a section is its title row, which says what matters (`ui/sectionSaid.ts`, and `ParamsPanel`'s own count:
-  `Layers 12 · 3 hidden`, `Parameters 5`, `Scans 1 · unaligned`, `Objects 17`), and Scans keeps only what is said of an import
+  `Layers 12 · 3 hidden`, `Parameters 5`, `Scans 1 · unaligned`, `Projects 17`), and Scans keeps only what is said of an import
   and the question it asks. Parameters, under the layers, starts folded. Marks never folds: it keeps `--marks-floor` (`MARKS_FLOOR`: its title, a group's
   heading and five rows), and every section above gives way before it, each down to its title. The splitter
   above Marks (`ui/ColumnSplit.tsx`, `role="separator"`, `column.resize` Up/Down) gives Marks more: its drag writes
@@ -439,7 +439,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   and written in try/catch), never the workspace's.
 - **Objects folds to a switcher by default** (`switcherShown`): folded, with an object open or a new one being
   made, in a workspace of more than one object, the list is one row, the open object's name in ink
-  (`ObjectSwitcher`; "New object", pressed, on the page of a new object). Its accessible name is the object's
+  (`ObjectSwitcher`; "New project", pressed, on the page of a new object). Its accessible name is the object's
   name, as a row's is; what the sessions do is its `aria-description`. A click or Enter opens a menu
   (`role="menu"`, the keys of `FolderMenu`: `menu.next`, `menu.previous`, `menu.ends`, `menu.close`) of every
   object as the rows (the item's name is the object's; a muted one has its reason as a second line), then "New
@@ -477,13 +477,13 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 
 - `ui/onboard/NewObject.tsx` is a page in place of the viewport (`store.page`: `'new'`; the view is `covered` and
   inert under it as under the page of objects, and the layers, parameters, scans and marks are hidden). No row of the list is
-  current (the "New object" button is pressed; folded, the switcher reads "New object", pressed), and the status line is "New object" and the build123d version alone:
+  current (the "New project" button is pressed; folded, the switcher reads "New project", pressed), and the status line is "New project" and the build123d version alone:
   no Rebuild, revision, parts or Export. The session pane shows `ui/onboard/DraftPane.tsx` (from `draftSummary`):
   what Claude Code will start with, live; unless the open object's session is live, which stays whole (see Agents).
   All of it reads `store.page`, and nothing under the page changes, so leaving it brings everything back as it was.
-  The page is opened from "New object" at the foot of the list, in the head of the page of objects and in its empty
+  The page is opened from "New project" at the foot of the list, in the head of the page of objects and in its empty
   state (`openNewObject`). It takes the focus (the name field) when it comes and gives it back to where it was when it goes. Leaving the workspace
-  (opening another folder) asks when the draft has something: "A new object is set up here and not made yet".
+  (opening another folder) asks when the draft has something: "A new project is set up here and not made yet".
 - **The draft** (`state/onboard.ts`) lives in the window, for the workspace it was begun in, until the object is made
   or the person throws it away; nothing of it is on disk, and it is dropped when the workspace root changes. Caps
   are `MOST_REFERENCES` (shared with main), a photo or scan is refused as a duplicate by path and an object by id.
@@ -493,7 +493,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 - **Keys** are rows of `shared/keys.ts`: `new.back` (Esc) in the scope `newobject`, and the board's `board.undo` (Ctrl+Z) in the scope `sheet`. The
   page listens in the capture phase and takes every key not meant for a field, so no tool of the view is handed
   one. In a field Esc leaves the field (the keys go back to the page) when the draft has something, and the page
-  when it has not; elsewhere it leaves the page, asking first ("Discard this new object?") when there is something in
+  when it has not; elsewhere it leaves the page, asking first ("Discard this new project?") when there is something in
   it. A sheet or question asked over the page (the sheet of keys, the closing question) keeps its own keys.
   `export` and `rebuild` keys do nothing on this page.
 - **Images are scaled in the window** (`images.ts`): the window decodes (WebP too), scales to a long edge of 1280

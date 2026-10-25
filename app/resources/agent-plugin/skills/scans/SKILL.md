@@ -1,6 +1,6 @@
 ---
 name: scans
-description: How to read and ask about the scans (S1, S2) and region marks of a torno object, and what is refused. Use when the object has scans, when a prompt names a scan or a region mark, or when a part must fit something real.
+description: How to read and ask about the scans (S1, S2) and region marks of a torno project, and what is refused. Use when the project has scans, when a prompt names a scan or a region mark, or when a part must fit something real.
 ---
 
 # Scans in torno

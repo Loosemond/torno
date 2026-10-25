@@ -152,7 +152,7 @@ describe('creating an object', () => {
     await expect(make(request({ photos: Array.from({ length: 13 }, (_, i) => photo(i)) }))).rejects.toThrow(/photos/)
     await expect(make(request({ doodles: Array.from({ length: 7 }, () => ({ png: PNG, note: '' })) }))).rejects.toThrow(/doodles/)
     await expect(make(request({ scans: Array.from({ length: 5 }, () => ({ path: '/x/a.stl', note: '' })) }))).rejects.toThrow(/scans/)
-    await expect(make(request({ objects: Array.from({ length: 9 }, () => ({ id: 'lid', note: '' })) }), ['lid'])).rejects.toThrow(/objects/)
+    await expect(make(request({ objects: Array.from({ length: 9 }, () => ({ id: 'lid', note: '' })) }), ['lid'])).rejects.toThrow(/projects/)
     expect(readdirSync(ws)).toEqual(['lid'])
   })
 

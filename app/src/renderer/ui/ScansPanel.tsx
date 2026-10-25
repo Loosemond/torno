@@ -408,7 +408,7 @@ function ScanRow({ objectId, scan, open, onToggle }: { objectId: string; scan: S
             void asked(objectId, window.torno.scans.remove(objectId, id))
           }}
         >
-          Remove <span className="num">{id}</span> from this object? Its source file is not touched.
+          Remove <span className="num">{id}</span> from this project? Its source file is not touched.
           {regions > 0 && (
             <>
               {' '}

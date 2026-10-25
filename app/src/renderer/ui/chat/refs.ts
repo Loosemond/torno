@@ -27,7 +27,7 @@ export type RefState = Pick<TornoState, 'marks' | 'scene' | 'layers' | 'layout' 
 export function refInfo(s: RefState, value: string): RefInfo {
   if (/^M\d+$/.test(value)) {
     const mark = s.marks.find((m) => m.id === value)
-    if (!mark) return { kind: 'mark', live: false, lights: [], plain: true, title: `${value} is not among the marks of this object` }
+    if (!mark) return { kind: 'mark', live: false, lights: [], plain: true, title: `${value} is not among the marks of this project` }
     if (mark.kind !== 'region' && s.scene !== null && !s.scene.layouts.includes(mark.layout)) {
       return { kind: 'mark', live: false, lights: [], plain: false, author: mark.author, title: `${value} is on the layout ${mark.layout}, which this build does not have` }
     }

@@ -629,8 +629,8 @@ export function ViewportPane() {
             </>
           ) : name === null ? (
             <>
-              <h2>No object open</h2>
-              <p>Choose an object in the left column to see its parts here.</p>
+              <h2>No project open</h2>
+              <p>Choose a project in the left column to see its parts here.</p>
             </>
           ) : error ? (
             <>

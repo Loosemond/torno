@@ -60,7 +60,7 @@ usage() {
   echo "usage: torno [workspace]"
   echo "       torno --print-command [workspace]"
   echo "       torno --print-desktop | --install-desktop | --uninstall-desktop"
-  echo "  workspace            a folder of objects to open (default: the one opened last)"
+  echo "  workspace            a folder of projects to open (default: the one opened last)"
   echo "  --print-command      print the command that would be started, one argument a line, and start nothing"
   echo "  --print-desktop      Linux only: print the desktop entry for this script, and write nothing"
   echo "  --install-desktop    Linux only: write that entry to \${XDG_DATA_HOME:-~/.local/share}/applications/torno.desktop"

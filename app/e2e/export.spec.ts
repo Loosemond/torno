@@ -365,7 +365,7 @@ test('a cancelled dialog writes nothing, and a folder that is not there is said,
 
 test('several objects go into one file from the page of objects, each unpacked when it is first shown', async () => {
   await open('bracket')
-  await page.getByRole('button', { name: 'All objects' }).click()
+  await page.getByRole('button', { name: 'All projects' }).click()
   await expect.poll(async () => (await state()).page).toBe('objects')
   const out = join(outDir, 'both.html')
   await setSave(out)
@@ -560,7 +560,7 @@ test('parts named like what every object has are parts like any other, and a fil
 })
 
 test('one object is exported from its card on the page of objects', async () => {
-  await page.getByRole('button', { name: 'All objects' }).click()
+  await page.getByRole('button', { name: 'All projects' }).click()
   await expect.poll(async () => (await state()).page).toBe('objects')
   // Only an object with a build of this run has the action; it is there for the keyboard as for the pointer.
   await expect(page.getByRole('button', { name: 'Export plain', exact: true })).toHaveCount(0)

@@ -8,7 +8,7 @@
  */
 
 /** Where the sheet lists a row. */
-export type KeyContext = 'Everywhere' | 'Viewport' | 'With a tool in hand' | 'With a shape in hand' | 'Page of objects' | 'New object' | 'Session' | 'In a field, a menu or a sheet' | 'For working on torno'
+export type KeyContext = 'Everywhere' | 'Viewport' | 'With a tool in hand' | 'With a shape in hand' | 'Page of projects' | 'New project' | 'Session' | 'In a field, a menu or a sheet' | 'For working on torno'
 
 /**
  * Where a key is listened to. Two rows of one scope would answer the same press.
@@ -113,8 +113,8 @@ export function capsOf(keys: readonly string[]): string[] {
 const ROWS = [
   row('keys', ['?'], 'This sheet of keys, outside a field and the terminal', 'Everywhere', 'window'),
   row('session.focus', ['Ctrl+`'], 'To the session, and from it back to the view', 'Everywhere', 'global'),
-  row('export', ['Ctrl+Shift+E'], 'Export to one HTML file, or to STEP, STL or 3MF: the open object, or from the page of objects any of them', 'Everywhere', 'global'),
-  row('rebuild', ['Ctrl+Shift+B'], 'Rebuild: build the open object again, as the button in the status line does', 'Everywhere', 'global'),
+  row('export', ['Ctrl+Shift+E'], 'Export to one HTML file, or to STEP, STL or 3MF: the open project, or from the page of projects any of them', 'Everywhere', 'global'),
+  row('rebuild', ['Ctrl+Shift+B'], 'Rebuild: build the open project again, as the button in the status line does', 'Everywhere', 'global'),
   row('reload', ['F5', 'Ctrl+R'], 'Reload the window, under the dev server only', 'Everywhere', 'dev', true),
 
   ...TOOL_KEYS.map((t) => row(`tool.${t.name}`, [t.key], t.does, 'Viewport', 'viewport')),
@@ -122,7 +122,7 @@ const ROWS = [
   row('fit', ['F'], 'Fit the parts in view', 'Viewport', 'viewport'),
   row('ortho', ['O'], 'Perspective or orthographic', 'Viewport', 'viewport'),
   row('explode', ['E'], 'Draw the parts apart, or together again', 'Viewport', 'viewport'),
-  row('page', ['W'], 'All objects of the folder, on one page (there a letter filters them by name)', 'Viewport', 'viewport'),
+  row('page', ['W'], 'All projects of the folder, on one page (there a letter filters them by name)', 'Viewport', 'viewport'),
   row('escape', ['Esc'], 'Step back: what is under way, then the tool in hand, then the selection', 'Viewport', 'viewport'),
 
   row('measure.wall', ['T'], 'Measure: the wall under the pointer', 'With a tool in hand', 'measure'),
@@ -141,15 +141,15 @@ const ROWS = [
 
   row('gizmo', GIZMO_KEYS.map((g) => g.key), 'Move, rotate or size the shape with its handles', 'With a shape in hand', 'shape'),
 
-  row('page.move', [...ARROWS, 'Home', 'End'], 'Move among the cards', 'Page of objects', 'page'),
-  row('page.open', ['Enter'], 'Open the card in focus', 'Page of objects', 'page'),
-  row('page.filter', ['/'], 'Filter by name: a letter or a figure does too', 'Page of objects', 'page'),
-  row('page.back', ['Esc'], 'Clear the filter, then back to the open object', 'Page of objects', 'page'),
-  row('page.tab', ['Tab'], 'The next control, as everywhere', 'Page of objects', 'page', true),
-  row('filter.first', ['Enter'], 'In the filter: open the first card', 'Page of objects', 'filter'),
-  row('filter.down', ['Down'], 'In the filter: down to the cards', 'Page of objects', 'filter'),
+  row('page.move', [...ARROWS, 'Home', 'End'], 'Move among the cards', 'Page of projects', 'page'),
+  row('page.open', ['Enter'], 'Open the card in focus', 'Page of projects', 'page'),
+  row('page.filter', ['/'], 'Filter by name: a letter or a figure does too', 'Page of projects', 'page'),
+  row('page.back', ['Esc'], 'Clear the filter, then back to the open project', 'Page of projects', 'page'),
+  row('page.tab', ['Tab'], 'The next control, as everywhere', 'Page of projects', 'page', true),
+  row('filter.first', ['Enter'], 'In the filter: open the first card', 'Page of projects', 'filter'),
+  row('filter.down', ['Down'], 'In the filter: down to the cards', 'Page of projects', 'filter'),
 
-  row('new.back', ['Esc'], 'Leave the page, asking first when something is in it; on the doodle board, put the board away', 'New object', 'newobject'),
+  row('new.back', ['Esc'], 'Leave the page, asking first when something is in it; on the doodle board, put the board away', 'New project', 'newobject'),
 
   row('session.newline', ['Shift+Enter'], 'A new line in the prompt, not a send', 'Session', 'session'),
   row('session.copy', ['Ctrl+Shift+C'], 'Copy what is selected in the terminal', 'Session', 'session'),
@@ -188,8 +188,8 @@ export const CONTEXTS: ReadonlyArray<{ name: KeyContext; when: string }> = [
   { name: 'Viewport', when: 'Outside a field and the terminal' },
   { name: 'With a tool in hand', when: 'The tool has the key before the viewport' },
   { name: 'With a shape in hand', when: 'While a shape of yours is the active mark, after the tool in hand' },
-  { name: 'Page of objects', when: 'While the cards are up' },
-  { name: 'New object', when: 'While the page of a new object is up' },
+  { name: 'Page of projects', when: 'While the cards are up' },
+  { name: 'New project', when: 'While the page of a new project is up' },
   { name: 'Session', when: 'With the terminal in focus' },
   { name: 'In a field, a menu or a sheet', when: 'Where something is typed, chosen or asked' },
   { name: 'For working on torno', when: 'Where torno runs from its repository' }

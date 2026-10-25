@@ -103,7 +103,7 @@ export function referencesLine(files: readonly string[]): string {
   if (files.length === 0) return ''
   const named = files.slice(0, MOST_REFERENCES_NAMED).join(', ')
   const more = files.length > MOST_REFERENCES_NAMED ? ` and ${files.length - MOST_REFERENCES_NAMED} more` : ''
-  return `The person's references for this object are in reference/: ${named}${more}. Read them when they matter.`
+  return `The person's references for this project are in reference/: ${named}${more}. Read them when they matter.`
 }
 
 /**

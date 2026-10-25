@@ -242,7 +242,7 @@ export function NewObject({ onOpen }: { onOpen: (id: string) => Promise<void> })
     <section
       ref={page}
       className="show new-object"
-      aria-label="New object"
+      aria-label="New project"
       tabIndex={-1}
       data-dragging={dragging ? '' : undefined}
       onDragOver={(e) => {
@@ -262,7 +262,7 @@ export function NewObject({ onOpen }: { onOpen: (id: string) => Promise<void> })
     >
       <div className="new-column">
         <header className="new-head">
-          <h2>New object</h2>
+          <h2>New project</h2>
           <p className="new-lead">Say what it is and give what you have. Claude Code starts with all of it.</p>
         </header>
 
@@ -335,7 +335,7 @@ export function NewObject({ onOpen }: { onOpen: (id: string) => Promise<void> })
                   </>
                 )}
                 , opens it and starts Claude Code with all of this.
-                {draft.scans.length > 0 && <> {draft.scans.length === 1 ? 'The scan is' : 'The scans are'} imported into the object, not copied.</>}
+                {draft.scans.length > 0 && <> {draft.scans.length === 1 ? 'The scan is' : 'The scans are'} imported into the project, not copied.</>}
               </>
             ) : (
               'Give it a name and say what it is to create it.'
@@ -362,7 +362,7 @@ export function NewObject({ onOpen }: { onOpen: (id: string) => Promise<void> })
       {asking && (
         <div className="new-confirm">
           <Confirm
-            label="Discard this new object?"
+            label="Discard this new project?"
             accept="Discard"
             cancel="Keep editing"
             onCancel={() => {
@@ -375,7 +375,7 @@ export function NewObject({ onOpen }: { onOpen: (id: string) => Promise<void> })
               leaveNewObject()
             }}
           >
-            Discard this new object? What you wrote and gave is not kept anywhere else.
+            Discard this new project? What you wrote and gave is not kept anywhere else.
           </Confirm>
         </div>
       )}

@@ -175,7 +175,7 @@ describe('scan_clash', () => {
     const tub = data(await scanClashTool(deps, 'box', { part: 'tub' }))
     expect(tub).toMatchObject({ layout: 'print', inside: { count: 2168 }, note: 'layout print poses the parts for the bed: a part is where it is mounted only if the model leaves it there' })
     expect(await scanClashTool(deps, 'box', { part: 'lid' })).toEqual(
-      refused("In layout print torno moved lid for display (the parts overlapped as the model placed them), so where the scan is against it there is torno's, not the model's. This object has no layout that places lid as it is mounted: add one to the model (def assembly(p)) and let it build; the user then aligns S1 in that layout with the Align tool (an alignment is of one layout: the one in print is not carried over), and only then is this answered there. Or check a part torno did not move (tub).")
+      refused("In layout print torno moved lid for display (the parts overlapped as the model placed them), so where the scan is against it there is torno's, not the model's. This project has no layout that places lid as it is mounted: add one to the model (def assembly(p)) and let it build; the user then aligns S1 in that layout with the Align tool (an alignment is of one layout: the one in print is not carried over), and only then is this answered there. Or check a part torno did not move (tub).")
     )
     const both = fake([scan('S1', { print: BY_PAIRS })], undefined, { layout: 'print' })
     expect(await scanClashTool(both, 'box', { part: 'lid' })).toEqual(
@@ -258,7 +258,7 @@ describe('scan_clash', () => {
     expect(await scanClashTool(two, 'box', { part: 'tub' })).toEqual(refused('name the scan: S1 (S1.glb), S2 (S2.glb)'))
     expect(await scanClashTool(two, 'box', { part: 'tub', scan: 'S9' })).toEqual(refused('no scan S9; scans: S1, S2'))
     expect((await scanClashTool(two, 'box', { part: 'tub', scan: 'S2' })).isError).toBeUndefined()
-    expect(await scanClashTool(fake([]), 'box', { part: 'tub' })).toEqual(refused('this object has no scans: the user imports one in the Scans panel of the torno window'))
+    expect(await scanClashTool(fake([]), 'box', { part: 'tub' })).toEqual(refused('this project has no scans: the user imports one in the Scans panel of the torno window'))
     expect(await scanClashTool(fake([scan('S1', { assembly: BY_PAIRS }, { meshState: 'missing' })]), 'box', { part: 'tub' })).toEqual(
       refused("S1's mesh is gone from /ws/box/.torno/scans/S1/mesh.bin: the user imports it again from its row in the Scans panel")
     )
@@ -269,8 +269,8 @@ describe('scan_clash', () => {
   it('refuses a scan whose files are being written, and says of an import that it is still running', async () => {
     const converting = fake([scan('S1', { assembly: BY_PAIRS })], undefined, { busy: ['S1'] })
     expect(await scanClashTool(converting, 'box', { part: 'tub' })).toEqual(refused('S1 is being converted or imported again: ask again when that is done'))
-    expect(await scanClashTool(fake([], undefined, { busy: ['S1'] }), 'box', { part: 'tub' })).toEqual(refused('S1 is still being imported into this object: ask again when that is done'))
-    expect(await scanClashTool(fake([scan('S1', { assembly: BY_PAIRS })], undefined, { busy: ['S2'] }), 'box', { part: 'tub', scan: 'S2' })).toEqual(refused('S2 is still being imported into this object: ask again when that is done'))
+    expect(await scanClashTool(fake([], undefined, { busy: ['S1'] }), 'box', { part: 'tub' })).toEqual(refused('S1 is still being imported into this project: ask again when that is done'))
+    expect(await scanClashTool(fake([scan('S1', { assembly: BY_PAIRS })], undefined, { busy: ['S2'] }), 'box', { part: 'tub', scan: 'S2' })).toEqual(refused('S2 is still being imported into this project: ask again when that is done'))
     expect(converting.queries).toEqual([])
   })
 
@@ -450,7 +450,7 @@ describe('scans before anything is built', () => {
     expect(said.scans).toMatchObject([{ id: 'S1', triangles: 1607144, alignedIn: ['print'] }, { id: 'S2', alignedIn: [] }])
     expect(said.scans[0].alignment).toBeUndefined()
     expect(said.reading).toBe('Nothing is built yet. S1 S1.glb: 1,607,144 triangles, 2518 × 2351 × 1494 mm, from m, Y up (assumed), aligned in: print, shown at 60 %. S2 S2.glb: 1,607,144 triangles, 2518 × 2351 × 1494 mm, from m, Y up (assumed), aligned in no layout, shown at 60 %.')
-    expect(text(await scansTool(fake([]), 'nowhere', {}))).toBe('unknown object: nowhere')
+    expect(text(await scansTool(fake([]), 'nowhere', {}))).toBe('unknown project: nowhere')
   })
 })
 

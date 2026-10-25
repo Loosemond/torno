@@ -65,13 +65,13 @@ export async function loadScansFile(dir: string, now: () => Date = () => new Dat
     await copyFile(path, join(dir, FOLDER, aside))
     const file = past({ next: salvagedNext(text, parsed), scans: [] })
     await writeOwn(dir, NAME, textOf(file))
-    return { file, problem: `The scans file of this object could not be read. It was kept as ${FOLDER}/${aside}, and a new list was started. The meshes of its scans are still in ${FOLDER}/scans/.` }
+    return { file, problem: `The scans file of this project could not be read. It was kept as ${FOLDER}/${aside}, and a new list was started. The meshes of its scans are still in ${FOLDER}/scans/.` }
   }
   const aside = `${NAME}.dropped-${stamp}`
   await copyFile(path, join(dir, FOLDER, aside))
   const file = past(read.file)
   await writeOwn(dir, NAME, textOf(file))
-  const what = read.dropped === 1 ? '1 scan in the scans file of this object was' : `${read.dropped} scans in the scans file of this object were`
+  const what = read.dropped === 1 ? '1 scan in the scans file of this project was' : `${read.dropped} scans in the scans file of this project were`
   return { file, problem: `${what} not one this version of torno can read, and left out. The file as it was is kept as ${FOLDER}/${aside}, and the meshes are still in ${FOLDER}/scans/.` }
 }
 

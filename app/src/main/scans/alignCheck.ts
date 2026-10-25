@@ -83,7 +83,7 @@ export function tiedToMoved(alignment: Pick<ScanAlignment, 'steps' | 'pairs' | '
 export async function heldNow(deps: Pick<AlignCheckDeps, 'scene' | 'nearest'>, objectId: string, layout: string, alignment: ScanAlignment): Promise<{ revision: number; frame: Record<string, Vec3>; held: Array<Vec3 | null> }> {
   const last = deps.scene(objectId)
   const parts = last?.scene.parts.filter((part) => part.layout === layout) ?? []
-  if (!last || parts.length === 0) throw new Error(`no build of this object has a layout named ${layout}: there is nothing to hold the alignment against`)
+  if (!last || parts.length === 0) throw new Error(`no build of this project has a layout named ${layout}: there is nothing to hold the alignment against`)
   const frame = Object.fromEntries(parts.map((part): [string, Vec3] => [part.name, part.arranged ? [...part.arranged] : [...NOT_SPREAD]]))
   const points = anchoredPoints(alignment)
   if (points.length === 0) return { revision: last.revision, frame, held: [] }

@@ -22,7 +22,7 @@ type Vec3 = [number, number, number]
 
 export const SCAN_APPROXIMATE = 'a scan is a mesh measured by a phone or a scanner: nothing from it is exact'
 export const PRINT_NOTE = 'layout print poses the parts for the bed: a part is where it is mounted only if the model leaves it there'
-export const NO_SCANS = 'this object has no scans: the user imports one in the Scans panel of the torno window'
+export const NO_SCANS = 'this project has no scans: the user imports one in the Scans panel of the torno window'
 
 /** How far round a part scan points are looked at, mm: the kernel's own default and limits (`scanclash.clash`). */
 const MARGIN = { least: 0, most: 50, usual: 5 }
@@ -61,7 +61,7 @@ export const regionLost = (id: string, scan: string): string => `${id} no longer
 
 /** The scans of an object, or the error to answer with: the object is not in the workspace, or its scans cannot be read. */
 async function scansOf(deps: ToolDeps, objectId: string): Promise<ScanInfo[] | ToolResult> {
-  if (!deps.object(objectId)) return failure(`unknown object: ${objectId}`)
+  if (!deps.object(objectId)) return failure(`unknown project: ${objectId}`)
   try {
     return await deps.scans(objectId)
   } catch (e) {
@@ -95,7 +95,7 @@ export async function scanFor(deps: ToolDeps, objectId: string, layout: string, 
   const busy = deps.scansBusy(objectId)
   // A first import has its number before it is a scan: asked for meanwhile, it is neither unknown nor there.
   const coming = busy.filter((id) => !scans.some((scan) => scan.id === id))
-  const importing = (id: string): ToolResult => failure(`${id} is still being imported into this object: ask again when that is done`)
+  const importing = (id: string): ToolResult => failure(`${id} is still being imported into this project: ask again when that is done`)
   if (asked !== undefined && coming.includes(asked)) return importing(asked)
   if (scans.length === 0) return coming.length > 0 ? importing(coming.join(', ')) : failure(NO_SCANS)
   if (asked === undefined && scans.length > 1) return failure(`name the scan: ${scans.map((scan) => `${scan.id} (${scan.name})`).join(', ')}`)
@@ -148,7 +148,7 @@ export function scanSpread(scene: Scene, layout: string, part: string, scan?: Pi
   const aligns = `the user then aligns ${id} in that layout with the Align tool (an alignment is of one layout: the one in ${layout} is not carried over)`
   const where =
     placed.length === 0
-      ? `This object has no layout that places ${part} as it is mounted: add one to the model (def assembly(p)) and let it build; ${aligns}, and only then is this answered there.`
+      ? `This project has no layout that places ${part} as it is mounted: add one to the model (def assembly(p)) and let it build; ${aligns}, and only then is this answered there.`
       : there.length > 0
         ? `Ask in a layout that places ${part} as the model does and in which ${id} is aligned (${there.join(', ')}).`
         : `A layout that places ${part} as the model does is there (${placed.join(', ')}), but ${id} is not aligned in it: ${aligns}, and only then is this answered there.`
@@ -206,7 +206,7 @@ export function noteOf(aligned: AlignmentSaid, layout: string): { note?: string 
 const NOT_BUILT = 'nothing is built yet: how a scan is aligned is told for a layout of a build'
 
 export async function scansTool(deps: ToolDeps, objectId: string, args: ScansArgs): Promise<ToolResult> {
-  if (!deps.object(objectId)) return failure(`unknown object: ${objectId}`)
+  if (!deps.object(objectId)) return failure(`unknown project: ${objectId}`)
   // Scans are there whether or not anything is built: before the first build they are listed with the layouts each is aligned in.
   const found = deps.scene(objectId) ? built(deps, objectId) : null
   if (found && 'content' in found) return found

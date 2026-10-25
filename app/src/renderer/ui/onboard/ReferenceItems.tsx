@@ -88,7 +88,7 @@ function ObjectCard({ id, itemKey, note }: { id: string; itemKey: string; note: 
   return (
     <Card
       kind="objects"
-      word="Object"
+      word="Project"
       itemKey={itemKey}
       file={id}
       note={note}
@@ -156,14 +156,14 @@ export function ObjectMenu({ ids, disabled, onChoose }: { ids: string[]; disable
 
   return (
     <div className="ref-menu" ref={holder}>
-      <button ref={button} type="button" className="button" disabled={disabled || ids.length === 0} aria-haspopup="menu" aria-expanded={open} title={ids.length === 0 ? 'No other object here to refer to' : undefined} onClick={() => setOpen((was) => !was)}>
-        Refer to an object…
+      <button ref={button} type="button" className="button" disabled={disabled || ids.length === 0} aria-haspopup="menu" aria-expanded={open} title={ids.length === 0 ? 'No other project here to refer to' : undefined} onClick={() => setOpen((was) => !was)}>
+        Refer to a project…
       </button>
       {open && (
         <ul
           className="ref-menu-list"
           role="menu"
-          aria-label="Objects of this workspace"
+          aria-label="Projects of this workspace"
           onKeyDown={(e) => {
             const items = [...e.currentTarget.querySelectorAll<HTMLElement>('[role="menuitem"]')]
             const at = items.indexOf(document.activeElement as HTMLElement)

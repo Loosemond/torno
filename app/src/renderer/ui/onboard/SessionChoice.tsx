@@ -37,7 +37,7 @@ export function SessionChoice({ choice, disabled, onChange }: { choice: AgentCho
       <select
         className="new-select num"
         aria-label="Model"
-        title="The model of this object's first session. It does not change your settings"
+        title="The model of this project's first session. It does not change your settings"
         value={choice.model ?? ''}
         disabled={disabled}
         {...pointerChoice}

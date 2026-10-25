@@ -109,24 +109,24 @@ export function onboardPrompt(input: PromptInput, toolName: (tool: string) => st
       const after =
         scan.id === null
           ? `It could not be imported (${said(scan.problem ?? 'for a reason torno did not get')}); the file is the person's to give again.`
-          : `It is imported into this object and is not aligned yet: the person aligns it in torno. ${toolName('scans')} says how it stands; once it is aligned, ${toolName('section')} with "scan" cuts it, and ${toolName('scan_clash')} and ${toolName('scan_deviation')} measure against it.`
+          : `It is imported into this project and is not aligned yet: the person aligns it in torno. ${toolName('scans')} says how it stands; once it is aligned, ${toolName('section')} with "scan" cuts it, and ${toolName('scan_clash')} and ${toolName('scan_deviation')} measure against it.`
       lines.push(`- ${named}${note === '' ? '.' : `: ${note}.`} ${after}`)
     }
     input.objects.forEach((other, i) => {
       const name = said(other.name)
       const picture = !other.thumb ? '' : held ? `; its picture: ../${name}/.torno/thumb.png` : pictured[i] !== null ? `; its picture is attached: picture ${pictured[i]}` : '; its picture is not attached'
       const note = said(other.note)
-      lines.push(`- ../${name}/ (another object of this workspace: ${other.summary}${picture})${note === '' ? '' : `: ${note}`}`)
+      lines.push(`- ../${name}/ (another project of this workspace: ${other.summary}${picture})${note === '' ? '' : `: ${note}`}`)
     })
     return [
-      `This is a new object, ${input.name}, made in torno just now. What it is, in the person's words:`,
+      `This is a new project, ${input.name}, made in torno just now. What it is, in the person's words:`,
       '',
       input.description.trim(),
       '',
       ...(lines.length > 0 ? ['What they gave (all of it is also in brief.md; files are in reference/):', ...lines, ''] : []),
       `${moduleName(input.name)}.py is torno's placeholder (a 20 mm cube). Read brief.md and look at what was given. Then:`,
       '',
-      "1. List the sizes that decide fit or function (overall size, wall, the sizes of the parts it mates with, hole and fastener sizes, clearances), and say where each comes from: brief.md, a reference picture's note, a scan (≈, to a few mm), another object, or nowhere.",
+      "1. List the sizes that decide fit or function (overall size, wall, the sizes of the parts it mates with, hole and fastener sizes, clearances), and say where each comes from: brief.md, a reference picture's note, a scan (≈, to a few mm), another project, or nowhere.",
       '2. For those from nowhere, ask in one round, before you build, with AskUserQuestion: at most 4 questions, each with 2 to 4 options, one of them a typical value labelled as typical ("0.2 mm per side, usual for PLA at a 0.4 mm nozzle"); the person may answer "build with assumptions". Do not ask about what you can choose freely (a fillet radius, a chamfer). If every size has a source, ask nothing.',
       '3. Replace the placeholder with the real model, built with the answers. A size still unknown is built as assumed (a field of Params commented "assumed"), and your reply lists the assumptions.'
     ].join('\n')
@@ -166,9 +166,10 @@ async function checked(deps: OnboardDeps, obj: ObjectInfo, draft: OnboardDraft):
   if (typeof draft !== 'object' || draft === null) throw new Error('No draft to onboard.')
   if (typeof draft.description !== 'string' || draft.description.length > MAX_DESCRIPTION) throw new Error('The description is not text of at most 20,000 characters.')
   const lists = { items: MOST.photos + MOST.doodles, scans: MOST.scans, objects: MOST.objects }
+  const named = { items: 'items', scans: 'scans', objects: 'projects' }
   for (const kind of ['items', 'scans', 'objects'] as const) {
-    if (!Array.isArray(draft[kind])) throw new Error(`The ${kind} are not a list.`)
-    if (draft[kind].length > lists[kind]) throw new Error(`At most ${lists[kind]} ${kind}.`)
+    if (!Array.isArray(draft[kind])) throw new Error(`The ${named[kind]} are not a list.`)
+    if (draft[kind].length > lists[kind]) throw new Error(`At most ${lists[kind]} ${named[kind]}.`)
   }
   for (const item of draft.items) {
     if (typeof item?.file !== 'string' || !REFERENCE_FILE.test(item.file)) throw new Error('A photo or a doodle is a file of reference/ that torno made.')
@@ -185,12 +186,12 @@ async function checked(deps: OnboardDeps, obj: ObjectInfo, draft: OnboardDraft):
     oneLine(scan.note, 'scan')
   }
   for (const other of draft.objects) {
-    if (typeof other?.id !== 'string' || deps.object(other.id) === undefined) throw new Error(`There is no object ${JSON.stringify(other?.id)} in this workspace.`)
-    if (other.id === obj.id) throw new Error('An object cannot refer to itself.')
-    if (typeof other.note !== 'string') throw new Error('The note of an object is not text.')
-    oneLine(other.note, 'object')
+    if (typeof other?.id !== 'string' || deps.object(other.id) === undefined) throw new Error(`There is no project ${JSON.stringify(other?.id)} in this workspace.`)
+    if (other.id === obj.id) throw new Error('A project cannot refer to itself.')
+    if (typeof other.note !== 'string') throw new Error('The note of a project is not text.')
+    oneLine(other.note, 'project')
   }
-  for (const [kind, keys] of [['file', draft.items.map((i) => i.file)], ['scan', draft.scans.map((s) => s.path)], ['object', draft.objects.map((o) => o.id)]] as const) {
+  for (const [kind, keys] of [['file', draft.items.map((i) => i.file)], ['scan', draft.scans.map((s) => s.path)], ['project', draft.objects.map((o) => o.id)]] as const) {
     if (new Set(keys).size !== keys.length) throw new Error(`The same ${kind} is given twice.`)
   }
 }
@@ -203,7 +204,7 @@ async function checked(deps: OnboardDeps, obj: ObjectInfo, draft: OnboardDraft):
  */
 export async function onboardObject(deps: OnboardDeps, objectId: string, draft: OnboardDraft): Promise<Onboarded> {
   const obj = deps.object(objectId)
-  if (!obj) throw new Error(`There is no object ${JSON.stringify(objectId)} in the open workspace.`)
+  if (!obj) throw new Error(`There is no project ${JSON.stringify(objectId)} in the open workspace.`)
   if (onboarding.has(obj.id)) throw new Error(`${obj.id} is being onboarded already.`)
   if (deps.running(obj.id)) throw new Error(`${obj.id} has a session already.`)
   onboarding.add(obj.id)

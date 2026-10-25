@@ -33,7 +33,7 @@ export function moduleName(name: string): string {
  * tell `Clip` from `clip`, and the kernel takes `a-b` and `a_b` for the same model.
  */
 export function objectNameProblem(name: string, existing: readonly string[]): string | null {
-  if (name === '') return 'Give the object a name.'
+  if (name === '') return 'Give the project a name.'
   if (name.length > MAX_OBJECT_NAME) return `A name is at most ${MAX_OBJECT_NAME} characters.`
   if (!/^[A-Za-z0-9]/.test(name)) return 'A name starts with a letter or a digit.'
   if (!/^[A-Za-z0-9_-]+$/.test(name)) return 'A name has only letters, digits, `-` and `_`; a dot would make the model file a different name.'

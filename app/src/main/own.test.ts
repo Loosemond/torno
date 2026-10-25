@@ -55,7 +55,7 @@ describe('ownTorno', () => {
 
   it('refuses a link in its place, and a file, with a plain reason', async () => {
     symlinkSync('..', join(obj, FOLDER))
-    await expect(ownTorno(obj)).rejects.toThrow(`${join(obj, FOLDER)} is a link, not a folder of torno's own inside the object: torno writes nothing there. Put a real folder in its place.`)
+    await expect(ownTorno(obj)).rejects.toThrow(`${join(obj, FOLDER)} is a link, not a folder of torno's own inside the project: torno writes nothing there. Put a real folder in its place.`)
     rmSync(join(obj, FOLDER))
     writeFileSync(join(obj, FOLDER), '')
     await expect(ownTorno(obj)).rejects.toThrow(`${join(obj, FOLDER)} is a file, not a folder: torno writes nothing there. Remove it.`)
@@ -115,7 +115,7 @@ describe('the scans\' guard', () => {
     const told: string[] = []
     onNotOwn((_dir, message) => told.push(message))
     symlinkSync('..', join(obj, FOLDER))
-    await expect(ownFolders(obj)).rejects.toThrow('is a link, not a folder of torno\'s own inside the object')
+    await expect(ownFolders(obj)).rejects.toThrow('is a link, not a folder of torno\'s own inside the project')
     await expect(ownFolders(obj, 'S1')).rejects.toThrow('is a link')
     expect(told).toHaveLength(1)
   })
@@ -126,7 +126,7 @@ describe('the scans\' guard', () => {
     onNotOwn((dir, message, inside) => told.push([dir, message, inside]))
     mkdirSync(join(obj, FOLDER))
     symlinkSync('..', join(obj, FOLDER, 'scans'))
-    const words = `${join(obj, FOLDER, 'scans')} is a link, not a folder of torno's own inside the object: torno writes nothing there and deletes nothing through it. Take the link away.`
+    const words = `${join(obj, FOLDER, 'scans')} is a link, not a folder of torno's own inside the project: torno writes nothing there and deletes nothing through it. Take the link away.`
     await expect(ownFolders(obj)).rejects.toThrow(words)
     await expect(ownFolders(obj, 'S1')).rejects.toThrow(words)
     expect(told).toEqual([[obj, words, 'scans']])
@@ -137,7 +137,7 @@ describe('the scans\' guard', () => {
     mkdirSync(join(obj, FOLDER, 'scans'), { recursive: true })
     symlinkSync('..', join(obj, FOLDER, 'scans', 'S1'))
     await ownFolders(obj)
-    await expect(ownFolders(obj, 'S1')).rejects.toThrow(`${join(obj, FOLDER, 'scans', 'S1')} is a link, not a folder of torno's own inside the object`)
+    await expect(ownFolders(obj, 'S1')).rejects.toThrow(`${join(obj, FOLDER, 'scans', 'S1')} is a link, not a folder of torno's own inside the project`)
   })
 })
 
@@ -150,7 +150,7 @@ describe('a link in the place of one of torno\'s folders under .torno', () => {
     symlinkSync(target, join(obj, FOLDER, name))
     return target
   }
-  const WORDS = (name: string): string => `${join(obj, FOLDER, name)} is a link, not a folder of torno's own inside the object: torno writes nothing there and deletes nothing through it. Take the link away.`
+  const WORDS = (name: string): string => `${join(obj, FOLDER, name)} is a link, not a folder of torno's own inside the project: torno writes nothing there and deletes nothing through it. Take the link away.`
 
   it('is refused by ownTorno, which answers with the folder when it is a real one or not there yet', async () => {
     expect(await ownTorno(obj, 'views')).toBe(join(obj, FOLDER, 'views'))

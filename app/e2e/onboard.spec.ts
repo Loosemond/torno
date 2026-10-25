@@ -46,7 +46,7 @@ test.describe('a new object', () => {
   const plate = () => join(files, 'plate.stl')
 
   const state = (): Promise<TornoState> => page.evaluate(() => window.__tornoTest!.state())
-  const newPage = () => page.getByRole('region', { name: 'New object' })
+  const newPage = () => page.getByRole('region', { name: 'New project' })
   const cards = (kind: string) => newPage().locator(`.ref-card[data-kind="${kind}"]`)
   const board = () => page.getByRole('dialog', { name: 'Doodle board' })
 
@@ -114,7 +114,7 @@ test.describe('a new object', () => {
     await page.keyboard.press('Escape')
     await expect(page.getByLabel('What is it?')).not.toBeFocused()
     await page.keyboard.press('Escape')
-    const ask = page.getByRole('alertdialog', { name: 'Discard this new object?' })
+    const ask = page.getByRole('alertdialog', { name: 'Discard this new project?' })
     await expect(ask).toBeVisible()
     await ask.getByRole('button', { name: 'Keep editing' }).click()
     await expect(ask).toHaveCount(0)
@@ -131,7 +131,7 @@ test.describe('a new object', () => {
     await expect(page.getByLabel('What is it?')).toHaveValue(/6 mm cable/)
     // A close of the window with a draft in it is asked about.
     await app.evaluate(({ BrowserWindow }) => void BrowserWindow.getAllWindows()[0].close())
-    await expect(page.getByRole('alertdialog', { name: 'Close torno?' })).toContainText('New object: it is set up and not made yet')
+    await expect(page.getByRole('alertdialog', { name: 'Close torno?' })).toContainText('New project: it is set up and not made yet')
     await page.getByRole('alertdialog', { name: 'Close torno?' }).getByRole('button', { name: 'Keep it open' }).click()
   })
 
@@ -167,7 +167,7 @@ test.describe('a new object', () => {
 
   test('a file dropped with no place on the disk, or that is neither a picture nor a scan, is said and nothing is added', async () => {
     const said = await page.evaluate(() => {
-      const section = document.querySelector('section[aria-label="New object"]')!
+      const section = document.querySelector('section[aria-label="New project"]')!
       const dataTransfer = new DataTransfer()
       dataTransfer.items.add(new File(['x'], 'sketch.png'))
       dataTransfer.items.add(new File(['x'], 'notes.txt'))
@@ -182,7 +182,7 @@ test.describe('a new object', () => {
     await expect(cards('photos')).toHaveCount(2)
     // A file over 25 MB is refused before it is read.
     await page.evaluate(() => {
-      const section = document.querySelector('section[aria-label="New object"]')!
+      const section = document.querySelector('section[aria-label="New project"]')!
       const dataTransfer = new DataTransfer()
       dataTransfer.items.add(new File([new ArrayBuffer(26 * 1024 * 1024)], 'huge.png'))
       section.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer }))
@@ -193,7 +193,7 @@ test.describe('a new object', () => {
       const dataTransfer = new DataTransfer()
       dataTransfer.setData('text/plain', 'lid')
       const over = new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer })
-      document.querySelector('section[aria-label="New object"]')!.dispatchEvent(over)
+      document.querySelector('section[aria-label="New project"]')!.dispatchEvent(over)
       return over.defaultPrevented
     })
     expect(text).toBe(false)
@@ -263,15 +263,15 @@ test.describe('a new object', () => {
     await expect(newPage()).toContainText('plate.stl is there already')
     await expect(cards('scans')).toHaveCount(1)
 
-    await newPage().getByRole('button', { name: 'Refer to an object…' }).click()
-    const menu = page.getByRole('menu', { name: 'Objects of this workspace' })
+    await newPage().getByRole('button', { name: 'Refer to a project…' }).click()
+    const menu = page.getByRole('menu', { name: 'Projects of this workspace' })
     await expect(menu.getByRole('menuitem', { name: 'plain' })).toBeVisible()
     await menu.getByRole('menuitem', { name: 'plain' }).click()
     await expect(menu).toHaveCount(0)
     await expect(cards('objects')).toHaveCount(1)
     await cards('objects').first().getByLabel(/^Note for /).fill('same style')
     // It is not offered twice.
-    await newPage().getByRole('button', { name: 'Refer to an object…' }).click()
+    await newPage().getByRole('button', { name: 'Refer to a project…' }).click()
     await expect(page.getByRole('menuitem', { name: 'plain' })).toHaveCount(0)
     await page.keyboard.press('Escape')
     await expect(menu).toHaveCount(0)
@@ -306,7 +306,7 @@ test.describe('a new object', () => {
     // The chat: one prompt, with the photos and the doodle as pictures scaled to 1280 px at most, and the agent answered.
     const dock = page.locator('[data-region="session"]')
     await expect(dock.locator('.chat')).toBeVisible({ timeout: 30_000 })
-    await expect(dock.locator('.chat-user').first()).toContainText('This is a new object, cable-clip')
+    await expect(dock.locator('.chat-user').first()).toContainText('This is a new project, cable-clip')
     await expect(dock.locator('.chat-user').first()).toContainText('the desk edge, 18 mm thick')
     await expect(dock.locator('.chat-thumb img')).toHaveCount(3)
     const widths = await dock.locator('.chat-thumb img').evaluateAll((imgs) => imgs.map((img) => (img as HTMLImageElement).naturalWidth))
@@ -370,7 +370,7 @@ test.describe('a new object', () => {
     await newFromList(page)
     await page.getByLabel('Name', { exact: true }).fill('lid')
     await newPage().getByRole('button', { name: 'Cancel' }).click()
-    const ask = page.getByRole('alertdialog', { name: 'Discard this new object?' })
+    const ask = page.getByRole('alertdialog', { name: 'Discard this new project?' })
     await expect(ask).toBeVisible()
     // Escape in the question keeps the page.
     await page.keyboard.press('Escape')
@@ -386,7 +386,7 @@ test.describe('a new object', () => {
   })
 
   test('the page of objects has the way in too, and Escape goes back to it', async () => {
-    await page.getByRole('button', { name: 'All objects' }).click()
+    await page.getByRole('button', { name: 'All projects' }).click()
     await expect.poll(async () => (await state()).page).toBe('objects')
     await page.locator('.show-new').click()
     await expect(newPage()).toBeVisible()
@@ -409,7 +409,7 @@ test.describe('a new object whose agent cannot be started', () => {
       await newFromList(page)
       await page.getByLabel('Name', { exact: true }).fill('latch')
       await page.getByLabel('What is it?').fill('A latch for a box lid.')
-      await page.getByRole('region', { name: 'New object' }).getByRole('button', { name: 'Create' }).click()
+      await page.getByRole('region', { name: 'New project' }).getByRole('button', { name: 'Create' }).click()
       await expect.poll(async () => (await page.evaluate(() => window.__tornoTest!.state())).objectId, { timeout: 30_000 }).toBe('latch')
       const dock = page.locator('[data-region="session"]')
       await expect(dock.locator('.session-held')).toContainText('was not found on PATH')
@@ -420,7 +420,7 @@ test.describe('a new object whose agent cannot be started', () => {
       writeFileSync(command, `#!/bin/sh\nexec node ${fakeAgent} "$@"\n`)
       chmodSync(command, 0o755)
       await dock.getByRole('button', { name: 'New session' }).click()
-      await expect(dock.locator('[data-chat-composer]')).toHaveValue(/This is a new object, latch/, { timeout: 30_000 })
+      await expect(dock.locator('[data-chat-composer]')).toHaveValue(/This is a new project, latch/, { timeout: 30_000 })
       await expect(dock.locator('.session-held')).toContainText('It is in the box below')
       await expect(dock.locator('.chat-turn')).toHaveCount(0)
       await dock.locator('.session-held').getByRole('button', { name: 'Dismiss' }).click()
@@ -442,7 +442,7 @@ test.describe('the window while a new object is made', () => {
   let page: Page
   const state = (): Promise<TornoState> => page.evaluate(() => window.__tornoTest!.state())
   const dock = () => page.locator('[data-region="session"]')
-  const list = () => page.getByRole('navigation', { name: 'Objects' })
+  const list = () => page.getByRole('navigation', { name: 'Projects' })
   const marks = () => page.locator('section[aria-label="Marks"]')
   const status = () => page.locator('[data-region="status"]')
 
@@ -465,22 +465,22 @@ test.describe('the window while a new object is made', () => {
     await expect(dock().getByRole('button', { name: 'New session' })).toBeVisible()
     await expect(status().getByRole('button', { name: 'Rebuild' })).toBeVisible({ timeout: 30_000 })
     await newFromList(page)
-    await expect(dock()).toContainText('Claude Code starts here once you create the object.')
+    await expect(dock()).toContainText('Claude Code starts here once you create the project.')
     await expect(dock()).toContainText('No name yet')
     await expect(dock()).toContainText('Nothing yet')
     await expect(dock().getByRole('button', { name: 'New session' })).toHaveCount(0)
     await expect(dock().getByRole('button', { name: 'Resume' })).toHaveCount(0)
     await page.getByLabel('Name', { exact: true }).fill('cable-clip')
     await hook(app, { pickPhotos: [join(files, 'desk.png')] })
-    await page.getByRole('region', { name: 'New object' }).getByRole('button', { name: 'Add photos…' }).click()
+    await page.getByRole('region', { name: 'New project' }).getByRole('button', { name: 'Add photos…' }).click()
     await expect(dock().locator('.draft-pane')).toContainText('cable-clip')
     await expect(dock().locator('.draft-pane')).toContainText('1 photo')
     // The list folded to its switcher: no object is current, and the switcher reads "New object", pressed.
     await expect(list().locator('[aria-current="true"]')).toHaveCount(0)
-    await expect(switcher(page)).toHaveText('New object')
+    await expect(switcher(page)).toHaveText('New project')
     await expect(switcher(page)).toHaveAttribute('aria-pressed', 'true')
     await expect(marks()).toHaveCount(0)
-    await expect(status()).toContainText('New object')
+    await expect(status()).toContainText('New project')
     await expect(status().getByRole('button', { name: 'Rebuild' })).toHaveCount(0)
     await expect(status().getByRole('button', { name: 'Export…' })).toHaveCount(0)
     // Escape leaves the field, then asks: the draft has something.
@@ -488,7 +488,7 @@ test.describe('the window while a new object is made', () => {
     await page.keyboard.press('Escape')
     await expect(page.getByLabel('Name', { exact: true })).not.toBeFocused()
     await page.keyboard.press('Escape')
-    const ask = page.getByRole('alertdialog', { name: 'Discard this new object?' })
+    const ask = page.getByRole('alertdialog', { name: 'Discard this new project?' })
     await ask.getByRole('button', { name: 'Discard' }).click()
     await expect.poll(async () => (await state()).page).toBe('object')
     await expect(switcher(page)).toHaveAttribute('data-object', 'bracket')

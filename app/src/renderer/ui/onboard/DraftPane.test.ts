@@ -8,7 +8,7 @@ const html = (summary: Parameters<typeof DraftPane>[0]['summary']): string => re
 describe('the session pane while a new object is made', () => {
   it('says what Claude Code will start with', () => {
     const out = html({ name: 'cable-clip', described: true, given: [[3, 'photos'], [1, 'doodle']] })
-    expect(out).toContain('Claude Code starts here once you create the object.')
+    expect(out).toContain('Claude Code starts here once you create the project.')
     expect(out).toContain('<span class="num">cable-clip</span>')
     expect(out).toContain('<span class="num">3</span> photos')
     expect(out).toContain('<span class="num">1</span> doodle')

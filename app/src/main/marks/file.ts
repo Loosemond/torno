@@ -50,12 +50,12 @@ export async function loadMarksFile(dir: string, now: () => Date = () => new Dat
     await copyFile(path, join(dir, FOLDER, aside))
     const file: MarksFile = { next: salvagedNext(text, parsed), marks: [] }
     await writeOwn(dir, NAME, textOf(file))
-    return { file, problem: `The marks file of this object could not be read. It was kept as ${FOLDER}/${aside}, and a new list was started.` }
+    return { file, problem: `The marks file of this project could not be read. It was kept as ${FOLDER}/${aside}, and a new list was started.` }
   }
   const aside = `${NAME}.dropped-${stamp}`
   await copyFile(path, join(dir, FOLDER, aside))
   await writeOwn(dir, NAME, textOf(read.file))
-  const what = read.dropped === 1 ? '1 mark in the marks file of this object was' : `${read.dropped} marks in the marks file of this object were`
+  const what = read.dropped === 1 ? '1 mark in the marks file of this project was' : `${read.dropped} marks in the marks file of this project were`
   return { file: read.file, problem: `${what} not of a kind this version of torno can read, and left out. The file as it was is kept as ${FOLDER}/${aside}.` }
 }
 

@@ -156,5 +156,5 @@ Two fixtures were recorded from the real CLI and scrubbed: `app/test/fixtures/cl
   captures of the page, one launch each.
 - A spec opens an object as a person does, through `openListed(page, name)` of `e2e/objects.ts`: the row of the
   list, or, with the list folded to its switcher (an object open in a workspace of several, the default), the
-  switcher's menu, whose items have the objects' names; `newFromList` is "New object" alike. Never a row by its
+  switcher's menu, whose items have the objects' names; `newFromList` is "New project" alike. Never a row by its
   name alone: while an object is open there is none.

@@ -10,16 +10,16 @@ export function EmptyWorkspace({ name, hasProject, hasExample, onNew, onExample 
   return (
     <div className="show-empty">
       <Logo />
-      <h3>Make your first object</h3>
+      <h3>Make your first project</h3>
       <p>Say what it is, add photos or a sketch, and Claude Code writes the model.</p>
-      <p className="show-empty-where">No objects in {name} yet.</p>
+      <p className="show-empty-where">No projects in {name} yet.</p>
       <button type="button" className="button button-primary show-empty-new" onClick={onNew}>
-        New object
+        New project
       </button>
       {hasExample && (
         <p className="show-empty-example">
           or{' '}
-          <button type="button" className="show-empty-link" title="Four small objects of torno's own, copied to a temporary folder: nothing of the repository is opened or written" onClick={onExample}>
+          <button type="button" className="show-empty-link" title="Four small projects of torno's own, copied to a temporary folder: nothing of the repository is opened or written" onClick={onExample}>
             open the example to look around
           </button>
         </p>

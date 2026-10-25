@@ -109,8 +109,8 @@ describe('adding marks', () => {
   })
 
   it('rejects an object whose folder is not known, with a plain message', async () => {
-    await expect(store.list('ghost')).rejects.toThrow('no object named ghost in the open workspace')
-    await expect(store.add('ghost', pin())).rejects.toThrow('no object named ghost in the open workspace')
+    await expect(store.list('ghost')).rejects.toThrow('no project named ghost in the open workspace')
+    await expect(store.add('ghost', pin())).rejects.toThrow('no project named ghost in the open workspace')
     expect(saves).not.toHaveBeenCalled()
   })
 
@@ -658,7 +658,7 @@ describe('what is on disk', () => {
     expect(await store.problem('two')).toBeNull()
     await store.dismissProblem('bracket')
     expect(await store.problem('bracket')).toBeNull()
-    await expect(store.problem('ghost')).rejects.toThrow('no object named ghost')
+    await expect(store.problem('ghost')).rejects.toThrow('no project named ghost')
   })
 
   it('a problem found while the workspace was being left is not told, and is still there to be asked for', async () => {

@@ -66,8 +66,8 @@ export async function ownTorno(dir: string, ...inside: string[]): Promise<string
         path,
         name,
         name === null
-          ? `${path} is a link, not a folder of torno's own inside the object: torno writes nothing there. Put a real folder in its place.`
-          : `${path} is a link, not a folder of torno's own inside the object: torno writes nothing there and deletes nothing through it. Take the link away.`
+          ? `${path} is a link, not a folder of torno's own inside the project: torno writes nothing there. Put a real folder in its place.`
+          : `${path} is a link, not a folder of torno's own inside the project: torno writes nothing there and deletes nothing through it. Take the link away.`
       )
     }
     if (!what.isDirectory()) throw refused(dir, path, name, `${path} is a file, not a folder: torno writes nothing there. Remove it.`)

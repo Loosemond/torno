@@ -131,10 +131,10 @@ describe('onboarding a new object', () => {
     const user = userItem(sessions, out.sessionId!)
     expect(user.text).toBe(out.prompt)
     expect(user.images).toHaveLength(3)
-    expect(user.text).toContain('This is a new object, cable-clip')
+    expect(user.text).toContain('This is a new project, cable-clip')
     for (const note of ['the desk', 'the shape', 'the edge', 'mounts on this']) expect(user.text).toContain(note)
     expect(user.text).toContain('Scan S1 "edge.stl"')
-    expect(user.text).toContain('../lid/ (another object of this workspace: not built in this run; its picture is attached: picture 3)')
+    expect(user.text).toContain('../lid/ (another project of this workspace: not built in this run; its picture is attached: picture 3)')
     expect(sessions.history(out.sessionId!)!.items.filter((i) => i.kind === 'user')).toHaveLength(1)
 
     // The hook answered this prompt with the context, like any other.
@@ -159,7 +159,7 @@ describe('onboarding a new object', () => {
       const { objectId, draft } = await made('signed-out')
       const out = await onboardObject(depsOf(sessions), objectId, draft)
       expect(out.problem).toMatch(/Claude Code stopped \(exit code 1\): error: not logged in/)
-      expect(out.held).toContain('This is a new object, signed-out')
+      expect(out.held).toContain('This is a new project, signed-out')
       expect(out.held).not.toContain('attached: picture')
     } finally {
       delete process.env.FAKE_AGENT_FAIL
@@ -173,7 +173,7 @@ describe('onboarding a new object', () => {
       const out = await onboardObject(depsOf(lost), objectId, draft)
       expect(out.sessionId).toBeNull()
       expect(out.problem).toMatch(/not found on PATH/)
-      expect(out.prompt).toContain('This is a new object, no-agent')
+      expect(out.prompt).toContain('This is a new project, no-agent')
       expect(out.prompt).toContain('Scan S1 "edge.stl"')
       expect(out.held).not.toContain('attached: picture')
       expect(lost.current(objectId)).toBeNull()

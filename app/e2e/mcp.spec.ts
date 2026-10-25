@@ -142,7 +142,7 @@ test('before an object has been built, scene and look say there is no build', as
   // The marks are the object's, built or not: there are none yet.
   expect(await call(bracket, 'marks')).toMatchObject({ isError: false, text: '{"revision":null,"marks":[]}' })
   const nothing = await call(await connect('no such object'), 'scene')
-  expect(nothing).toMatchObject({ isError: true, text: 'unknown object: no such object' })
+  expect(nothing).toMatchObject({ isError: true, text: 'unknown project: no such object' })
 })
 
 test('scene reports the build, the parts and what the window shows', async () => {
@@ -578,10 +578,10 @@ test('state.md says the same to an agent without the tools, and writing it start
 test('for an object that is not the one open, look refuses and scene says what it cannot know', async () => {
   await openObject('plain')
   const look = await call(bracket, 'look', { view: 'iso' })
-  expect(look).toMatchObject({ isError: true, text: 'bracket is not the object open in the torno window (open: plain). Ask the user to open it.' })
+  expect(look).toMatchObject({ isError: true, text: 'bracket is not the project open in the torno window (open: plain). Ask the user to open it.' })
   // Nor is the user shown anything of an object they are not looking at.
   for (const [name, args] of [['show', { view: 'top' }], ['highlight', { refs: ['base'] }]] as const) {
-    expect(await call(bracket, name, args)).toMatchObject({ isError: true, text: 'bracket is not the object open in the torno window (open: plain). Ask the user to open it.' })
+    expect(await call(bracket, name, args)).toMatchObject({ isError: true, text: 'bracket is not the project open in the torno window (open: plain). Ask the user to open it.' })
   }
   await expect(page.locator('.agent-line')).toHaveCount(0)
   // Its marks and its geometry are still there to ask about.
@@ -589,7 +589,7 @@ test('for an object that is not the one open, look refuses and scene says what i
   expect(JSON.parse((await call(bracket, 'describe', { ref: 'post' })).text)).toMatchObject({ layout: 'assembly', kind: 'part' })
   const scene = JSON.parse((await call(bracket, 'scene')).text)
   expect(scene).toMatchObject({ object: 'bracket', build: { status: 'ok', revision: 1 }, layout: null, camera: null })
-  expect(scene.note).toContain('not the object open in the torno window (open: plain)')
+  expect(scene.note).toContain('not the project open in the torno window (open: plain)')
   expect(scene.parts).toHaveLength(4)
   expect(scene.parts[0]).not.toHaveProperty('visible')
 
@@ -959,7 +959,7 @@ test('in a print layout torno spread, nothing between two parts is told as the m
   expect(moved.length).toBeGreaterThan(0)
   const [a, b] = scene.parts.filter((p) => p.layout === 'print').map((p) => p.name)
   const others = scene.layouts.filter((l) => l !== 'print')
-  const where = others.length > 0 ? `Ask in a layout that places the parts as assembled (layouts: ${others.join(', ')}), or check each part by itself.` : 'This object has no layout that places its parts as assembled: check each part by itself.'
+  const where = others.length > 0 ? `Ask in a layout that places the parts as assembled (layouts: ${others.join(', ')}), or check each part by itself.` : 'This project has no layout that places its parts as assembled: check each part by itself.'
   for (const [kind, what] of [['overlap', 'what is shared between'], ['clearance', 'the distance between']] as const) {
     const refused = await call(spread, 'check', { kind, a, b, layout: 'print' })
     expect(refused).toMatchObject({ isError: true, text: `In layout print torno spread these parts apart for display (they overlapped as the model placed them), so ${what} ${a} and ${b} there is torno's, not the model's. ${where}` })

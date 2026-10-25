@@ -564,7 +564,7 @@ export function registerIpc(
     if (newest()) ws.info = { ...scanned, objects: scanned.objects.map((o) => ws.builds.choice(o)), ...(ws.info.example ? { example: true as const } : {}) }
     cardsChanged()
     const obj = ws.info.objects.find((o) => o.id === id)
-    if (!obj) throw new Error(`no object named ${id} in ${ws.info.root}`)
+    if (!obj) throw new Error(`no project named ${id} in ${ws.info.root}`)
     const state = ws.builds.open(obj)
     ws.opened.add(id)
     // A renderer that subscribes after a build has missed its scene event.
@@ -606,14 +606,14 @@ export function registerIpc(
 
   handle('session:start', async (_event, objectId: string, opts?: { resume?: boolean; cols?: number; rows?: number; skills?: false }) => {
     const obj = findObject(objectId)
-    if (!obj) throw new Error(`no object named ${objectId} in the open workspace`)
+    if (!obj) throw new Error(`no project named ${objectId} in the open workspace`)
     return requireSessions().start(obj, { resume: opts?.resume === true, cols: opts?.cols, rows: opts?.rows, ...(opts?.skills === false ? { skills: false as const } : {}) })
   })
 
   // The person said to start the chat in a folder that has Claude Code settings of its own (the question `session:start` refused with).
   handle('session:trust', async (_event, objectId: string) => {
     const obj = findObject(objectId)
-    if (!obj) throw new Error(`no object named ${objectId} in the open workspace`)
+    if (!obj) throw new Error(`no project named ${objectId} in the open workspace`)
     await requireSessions().trust(obj)
   })
 
@@ -637,7 +637,7 @@ export function registerIpc(
   // The view is of the sessions to come: the one that runs is of the view it was started in, and is ended first.
   handle('session:chooseView', async (_event, objectId: string, view: AgentView) => {
     const obj = findObject(String(objectId))
-    if (!obj) throw new Error(`no object named ${objectId} in the open workspace`)
+    if (!obj) throw new Error(`no project named ${objectId} in the open workspace`)
     if (view !== 'chat' && view !== 'terminal') throw new Refusal(`no view named ${String(view).slice(0, 40)}`)
     if (sessions?.current(obj.id) || sessions?.isStarting(obj.id)) throw new Refusal('End the session first')
     await writeChoice(obj.dir, view)
@@ -854,7 +854,7 @@ export function registerIpc(
     if (alignment === null || alignment === undefined) return requireScans().align(String(objectId), String(id), layout, null)
     const last = lastScene(String(objectId))
     const frame = frameOf(last?.scene, layout)
-    if (!last || !frame) throw new Refusal(`no build of this object has a layout named ${String(layout)}: there is nothing to align the scan to`)
+    if (!last || !frame) throw new Refusal(`no build of this project has a layout named ${String(layout)}: there is nothing to align the scan to`)
     const revision = Object(made).revision
     if (typeof revision !== 'number' || !Number.isSafeInteger(revision)) throw new Refusal('an alignment says which build it was made on')
     if (revision !== last.revision) throw new Refusal(`that alignment was made on r${revision}, the build is r${last.revision}: align again`)

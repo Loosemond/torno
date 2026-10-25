@@ -406,7 +406,7 @@ describe('scene', () => {
     const scene = JSON.parse(textOf(sceneTool(fake({ openObjectId: () => 'helmet-stand' }), 'bracket')))
     expect(scene.camera).toBeNull()
     expect(scene.layout).toBeNull()
-    expect(scene.note).toBe('bracket is not the object open in the torno window (open: helmet-stand), so what is visible, the camera and the section are not known.')
+    expect(scene.note).toBe('bracket is not the project open in the torno window (open: helmet-stand), so what is visible, the camera and the section are not known.')
     expect(scene.parts.map((p: { name: string }) => p.name)).toEqual(['base', 'post', 'base', 'post'])
     for (const p of scene.parts) expect(p).not.toHaveProperty('visible')
     expect(scene.build.revision).toBe(3)
@@ -424,14 +424,14 @@ describe('scene', () => {
     // Said together with the other note, when there is one.
     const elsewhere = JSON.parse(textOf(sceneTool(fake({ scene: () => ({ revision: 3, scene: spread }), openObjectId: () => 'helmet-stand' }), 'bracket')))
     expect(elsewhere.note).toBe(
-      'bracket is not the object open in the torno window (open: helmet-stand), so what is visible, the camera and the section are not known. The parts of the print layout overlapped as the model placed them, so they were spread along X for display; arranged is how far each was moved.'
+      'bracket is not the project open in the torno window (open: helmet-stand), so what is visible, the camera and the section are not known. The parts of the print layout overlapped as the model placed them, so they were spread along X for display; arranged is how far each was moved.'
     )
   })
 
   it('is an error for an object the workspace does not have', () => {
     const result = sceneTool(fake(), 'nothing')
     expect(result.isError).toBe(true)
-    expect(textOf(result)).toBe('unknown object: nothing')
+    expect(textOf(result)).toBe('unknown project: nothing')
   })
 
   it('is an error before the first successful build, saying where the build is', () => {
@@ -556,7 +556,7 @@ describe('look', () => {
     const deps = fake()
     const result = await lookTool(deps, 'nothing', {})
     expect(result.isError).toBe(true)
-    expect(textOf(result)).toBe('unknown object: nothing')
+    expect(textOf(result)).toBe('unknown project: nothing')
     expect(deps.looks).toEqual([])
   })
 
@@ -573,11 +573,11 @@ describe('look', () => {
     const deps = fake({ openObjectId: () => 'helmet-stand' })
     const result = await lookTool(deps, 'bracket', { view: 'iso' })
     expect(result.isError).toBe(true)
-    expect(textOf(result)).toBe('bracket is not the object open in the torno window (open: helmet-stand). Ask the user to open it.')
+    expect(textOf(result)).toBe('bracket is not the project open in the torno window (open: helmet-stand). Ask the user to open it.')
     expect(deps.looks).toEqual([])
 
     expect(textOf(await lookTool(fake({ openObjectId: () => null }), 'bracket', {}))).toBe(
-      'bracket is not the object open in the torno window (open: none). Ask the user to open it.'
+      'bracket is not the project open in the torno window (open: none). Ask the user to open it.'
     )
   })
 
@@ -586,7 +586,7 @@ describe('look', () => {
     const deps = fake({ look: async () => ({ ...PICTURE, objectId: 'helmet-stand' }) })
     const result = await lookTool(deps, 'bracket', {})
     expect(result.isError).toBe(true)
-    expect(textOf(result)).toBe('bracket is not the object open in the torno window (open: helmet-stand). Ask the user to open it.')
+    expect(textOf(result)).toBe('bracket is not the project open in the torno window (open: helmet-stand). Ask the user to open it.')
     expect(deps.saved).toEqual([])
   })
 
@@ -885,7 +885,7 @@ describe('marks', () => {
     const unbuilt = jsonOf(await marksTool(fake({ state: null, noScene: true }), 'bracket', {}))
     expect(unbuilt.marks).toHaveLength(4)
     expect(unbuilt.revision).toBeNull()
-    expect(await marksTool(fake(), 'nothing', {})).toEqual({ isError: true, content: [{ type: 'text', text: 'unknown object: nothing' }] })
+    expect(await marksTool(fake(), 'nothing', {})).toEqual({ isError: true, content: [{ type: 'text', text: 'unknown project: nothing' }] })
     const unreadable = fake({ marks: async () => Promise.reject(new Error('EACCES: permission denied')) })
     expect(await marksTool(unreadable, 'bracket', {})).toMatchObject({ isError: true, content: [{ text: 'EACCES: permission denied' }] })
   })
@@ -985,7 +985,7 @@ describe('describe', () => {
     const failing = fake({ describe: async () => Promise.reject(new Error('the kernel did not answer within 30 s')) })
     expect(await describeTool(failing, 'bracket', { ref: 'base' })).toMatchObject({ isError: true, content: [{ text: 'the kernel did not answer within 30 s' }] })
     expect(textOf(await describeTool(fake({ state: null, noScene: true }), 'bracket', { ref: 'base' }))).toBe('no build yet: bracket has not been opened in the torno window')
-    expect(textOf(await describeTool(fake(), 'nothing', { ref: 'base' }))).toBe('unknown object: nothing')
+    expect(textOf(await describeTool(fake(), 'nothing', { ref: 'base' }))).toBe('unknown project: nothing')
   })
 })
 
@@ -1051,7 +1051,7 @@ describe('highlight', () => {
 
   it('refuses an object that is not the one open in the window, an unknown layout, and no build', async () => {
     const elsewhere = fake({ openObjectId: () => 'helmet-stand' })
-    expect(textOf(await highlightTool(elsewhere, 'bracket', { refs: ['base'] }))).toBe('bracket is not the object open in the torno window (open: helmet-stand). Ask the user to open it.')
+    expect(textOf(await highlightTool(elsewhere, 'bracket', { refs: ['base'] }))).toBe('bracket is not the project open in the torno window (open: helmet-stand). Ask the user to open it.')
     expect(elsewhere.w.highlights).toEqual([])
     expect(textOf(await highlightTool(fake(), 'bracket', { refs: ['base'], layout: 'exploded' }))).toBe("no layout 'exploded'; layouts: assembly, print")
     expect((await highlightTool(fake({ state: null, noScene: true }), 'bracket', { refs: ['base'] })).isError).toBe(true)
@@ -1069,7 +1069,7 @@ describe('highlight', () => {
       content: [{ type: 'text', text: 'nothing was highlighted: post is hidden, so the user would see nothing of it. Call show with parts ["base","post"] first, which changes what the user sees' }]
     })
     const moved = fake({ highlight: async (_id, layout, refs) => ({ objectId: 'helmet-stand', layout, refs, revision: 1 }) })
-    expect(textOf(await highlightTool(moved, 'bracket', { refs: ['base'] }))).toBe('bracket is not the object open in the torno window (open: helmet-stand). Ask the user to open it.')
+    expect(textOf(await highlightTool(moved, 'bracket', { refs: ['base'] }))).toBe('bracket is not the project open in the torno window (open: helmet-stand). Ask the user to open it.')
     const newer = fake({ highlight: async (objectId, layout, refs) => ({ objectId, layout, refs, revision: 4 }) })
     expect(textOf(await highlightTool(newer, 'bracket', { refs: ['base'] }))).toContain('The window shows r4, not r3: check the refs with describe.')
   })
@@ -1103,7 +1103,7 @@ describe('show', () => {
 
   it('refuses an object that is not the one open in the window', async () => {
     const deps = fake({ openObjectId: () => null })
-    expect(textOf(await showTool(deps, 'bracket', { view: 'top' }))).toBe('bracket is not the object open in the torno window (open: none). Ask the user to open it.')
+    expect(textOf(await showTool(deps, 'bracket', { view: 'top' }))).toBe('bracket is not the project open in the torno window (open: none). Ask the user to open it.')
     expect(deps.w.shows).toEqual([])
   })
 
@@ -1483,7 +1483,7 @@ describe('resolve_mark', () => {
       expect(await resolveMarkTool(deps, 'bracket', { id })).toEqual({ isError: true, content: [{ type: 'text', text: `no mark ${id}; marks: M1, M2, M3, M4` }] })
     }
     expect(deps.w.updates).toEqual([])
-    expect(textOf(await resolveMarkTool(deps, 'nothing', { id: 'M1' }))).toBe('unknown object: nothing')
+    expect(textOf(await resolveMarkTool(deps, 'nothing', { id: 'M1' }))).toBe('unknown project: nothing')
   })
 })
 
@@ -1576,7 +1576,7 @@ describe('scans in scene, look and show', () => {
     expect(deps.looks.map((look) => look.req)).toEqual([{ view: 'current', size: 1280, scans: false, explode: 'current' }, { view: 'current', size: 1280, explode: 'current' }, { view: 'current', size: 1280, scans: ['S1'], explode: 'current' }])
     expect(await said(lookTool(deps, 'bracket', { scans: ['S9'] }))).toBe('no scan S9; scans: S1, S2')
     expect(await said(lookTool(deps, 'bracket', { scans: 'S1' as never }))).toBe('scans is true for the scans on the user\'s screen, false for none, or a list of their numbers: {"scans": ["S1"]}')
-    expect(await said(lookTool(fake(), 'bracket', { scans: ['S1'] }))).toBe('this object has no scans: the user imports one in the Scans panel of the torno window')
+    expect(await said(lookTool(fake(), 'bracket', { scans: ['S1'] }))).toBe('this project has no scans: the user imports one in the Scans panel of the torno window')
     expect(deps.looks).toHaveLength(3)
   })
 
@@ -1844,12 +1844,12 @@ describe('saved views', () => {
     expect(d.savedViews[1]).toEqual({ objectId: 'bracket', name: 'Cut', section: { origin: [0, 0, 3], normal: [0, 0, 1] } })
     expect(textOf(cut)).toContain('layout assembly, parts base, post, section plane normal +Z at z = 3, perspective.')
     const full = fake({ saveView: async (objectId, req) => ({ objectId, revision: 3, replaced: true, dropped: 'Oldest', view: { name: req.name, author: 'agent', proposed: true, layout: 'assembly', camera: CAMERA, hidden: [], explode: { amount: 0.5, scale: 1, axis: 'centre' }, at: '' } }) })
-    expect(textOf(await saveViewTool(full, 'bracket', { name: 'Apart', explode: 0.5 }))).toBe('saved "Apart" as a view you propose, in place of your earlier proposal of that name: layout assembly, parts base, post, exploded 50 % from the centre, perspective. The user sees it in their views, marked proposed, until they keep or discard it. Your oldest proposal, "Oldest", was dropped to make room: an object holds 12 proposals at most.\nrevision r3')
+    expect(textOf(await saveViewTool(full, 'bracket', { name: 'Apart', explode: 0.5 }))).toBe('saved "Apart" as a view you propose, in place of your earlier proposal of that name: layout assembly, parts base, post, exploded 50 % from the centre, perspective. The user sees it in their views, marked proposed, until they keep or discard it. Your oldest proposal, "Oldest", was dropped to make room: a project holds 12 proposals at most.\nrevision r3')
     // The window may refuse what main let through: its words are the answer.
     const refusing = fake({ saveView: () => Promise.reject(new Error('the user has a view named "X": choose another name')) })
     expect(textOf(await saveViewTool(refusing, 'bracket', { name: 'X' }))).toBe('the user has a view named "X": choose another name')
     // Not for an object the window does not show.
-    expect(textOf(await saveViewTool(fake({ openObjectId: () => 'helmet-stand' }), 'bracket', { name: 'X' }))).toBe('bracket is not the object open in the torno window (open: helmet-stand). Ask the user to open it.')
+    expect(textOf(await saveViewTool(fake({ openObjectId: () => 'helmet-stand' }), 'bracket', { name: 'X' }))).toBe('bracket is not the project open in the torno window (open: helmet-stand). Ask the user to open it.')
   })
 
   it('refuses a key save_view does not take, and takes those it names', () => {

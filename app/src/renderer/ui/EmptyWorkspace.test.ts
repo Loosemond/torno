@@ -10,15 +10,15 @@ describe('the empty workspace', () => {
   it('leads with making an object, then the example, and keeps the manual route in a fold', () => {
     const page = html()
     const at = (s: string): number => page.indexOf(s)
-    expect(at('Make your first object')).toBeGreaterThan(-1)
+    expect(at('Make your first project')).toBeGreaterThan(-1)
     expect(page).toContain('Say what it is, add photos or a sketch, and Claude Code writes the model.')
-    expect(at('Make your first object')).toBeLessThan(at('New object'))
-    expect(at('New object')).toBeLessThan(at('open the example to look around'))
+    expect(at('Make your first project')).toBeLessThan(at('New project'))
+    expect(at('New project')).toBeLessThan(at('open the example to look around'))
     expect(at('open the example to look around')).toBeLessThan(at('Already have build123d models?'))
     expect(at('Already have build123d models?')).toBeLessThan(at('part/part.py'))
     expect(at('Already have build123d models?')).toBeLessThan(at('pyproject.toml'))
     expect(page).toContain('Works best for printed parts and small assemblies. Organic shapes are hard.')
-    expect(page).toContain('No objects in bench yet')
+    expect(page).toContain('No projects in bench yet')
   })
 
   it('has the manual route only inside the closed fold', () => {

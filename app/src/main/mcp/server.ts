@@ -21,7 +21,7 @@ export function mountMcp(http: HttpRouter, deps: ToolDeps): void {
       res.writeHead(status, { 'content-type': 'application/json', ...headers })
       res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message }, id: null }))
     }
-    if (rest.length !== 1) return rpcError(404, 'Not found: the address torno gave ends in the id of an object')
+    if (rest.length !== 1) return rpcError(404, 'Not found: the address torno gave ends in the id of a project')
     // Without sessions there is no stream to open with GET and nothing to end with DELETE.
     if (req.method !== 'POST') return rpcError(405, 'Method not allowed: POST only', { allow: 'POST' })
 

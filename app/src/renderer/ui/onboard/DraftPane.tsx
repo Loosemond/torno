@@ -8,7 +8,7 @@ export function DraftPane({ summary }: { summary: DraftSummary }) {
   const given = summary.given.map(([n, word]) => `${n} ${word}`).join(', ')
   return (
     <div className="draft-pane" role="note">
-      <p className="draft-pane-lead">{AGENT_LABEL} starts here once you create the object.</p>
+      <p className="draft-pane-lead">{AGENT_LABEL} starts here once you create the project.</p>
       <p>It works in the new folder with what you give it:</p>
       <ul>
         <li>

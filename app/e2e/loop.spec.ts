@@ -115,12 +115,12 @@ test('the object list shows the objects; one that cannot be built is muted, with
   await expect(two).toHaveAttribute('data-problem', '')
   await expect(page.getByRole('button', { name: 'bracket', exact: true })).not.toHaveAttribute('data-problem')
   await expect(page.locator('[data-region="left"] .workspace-name')).toHaveAttribute('title', root)
-  await expect(page.locator('[data-region="viewport"]')).toContainText('No object open')
+  await expect(page.locator('[data-region="viewport"]')).toContainText('No project open')
 })
 
 test('asked for a picture with no object open, the window says so at once', async () => {
   const started = Date.now()
-  expect(await mainLook({ view: 'iso' })).toEqual({ error: 'no object open in the torno window' })
+  expect(await mainLook({ view: 'iso' })).toEqual({ error: 'no project open in the torno window' })
   // Not the ten seconds main would wait for an answer.
   expect(Date.now() - started).toBeLessThan(3000)
 })

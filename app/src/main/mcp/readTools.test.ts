@@ -220,7 +220,7 @@ describe('measure', () => {
     // A dimension is between two ends: its number stands for neither.
     const dim: Mark = { ...MARK, id: 'M8', kind: 'dimension', measure: 'distance', a: { point: [0, 0, 3], part: 'tub', ref: 'tub/F5' }, b: { point: [0, 0, -3], part: 'tub', ref: 'tub/F0' } }
     expect(await measureTool(fake(undefined, { marks: async () => [dim] }), 'box', { kind: 'radius', a: 'M8' })).toEqual(refused('M8 is a dimension: name the ref or point of the end you mean'))
-    expect(await measureTool(fake(), 'bracket', { kind: 'radius', a: 'tub' })).toEqual(refused('unknown object: bracket'))
+    expect(await measureTool(fake(), 'bracket', { kind: 'radius', a: 'tub' })).toEqual(refused('unknown project: bracket'))
     expect(deps.queries).toEqual([])
   })
 
@@ -263,7 +263,7 @@ describe('measure', () => {
     expect(deps.queries[0].args).toEqual({ kind: 'distance', a: { layout: 'assembly', point: [0, 0, 15.5] }, b: { ref: 'assembly:tub/F5' } })
     expect(data(result)).toMatchObject({ exact: false, scan: 'S1', alignment: { state: 'aligned', by: 'by hand (typed values)' }, approximate: 'a scan is a mesh measured by a phone or a scanner: nothing from it is exact', reading: 'S1 was placed by hand: no fit says how well. ≈ 12.5 mm point to plane, approximate (S1 is a scan), (0, 0, 15.5) given as a point of S1 to tub/F5. S1 is aligned by hand (typed values) (tied to no point of the model: not checked against builds).' })
     expect(text(await measureTool(deps, 'box', { kind: 'angle', a: { scan: 'S1', point: [0, 0, 1] }, b: 'tub/F5' }))).toBe('only a distance is measured to a point of a scan')
-    expect(text(await measureTool(fake(), 'box', { kind: 'distance', a: { scan: 'S1', point: [0, 0, 1] }, b: 'tub/F5' }))).toBe('this object has no scans: the user imports one in the Scans panel of the torno window')
+    expect(text(await measureTool(fake(), 'box', { kind: 'distance', a: { scan: 'S1', point: [0, 0, 1] }, b: 'tub/F5' }))).toBe('this project has no scans: the user imports one in the Scans panel of the torno window')
     // A way that already says it is approximate is not followed by the word twice.
     const rough = fake(() => ({ kind: 'distance', value: 1, unit: 'mm', how: 'minimum, approximate', exact: false }), scanned(TWO_PAIRS, { checks: { assembly: { revision: 4, of: 2, off: 0, worst: 0, moved: [] } } }))
     expect(data(await measureTool(rough, 'box', { kind: 'distance', a: 'tub/F5', b: { scan: 'S1', point: [0, 0, 1] } })).reading).toBe(
@@ -463,7 +463,7 @@ describe('section', () => {
     expect(result.reading).toMatch(/^plane through \(0, 5, 0\), normal \(0, 0\.6, 0\.8\) · layout assembly: /)
     expect(await sectionTool(fake(), 'box', { plane: 'current' })).toEqual(refused('the user has no section on screen: give a plane, as {origin, normal} or {axis, at}'))
     expect(await sectionTool(fake(undefined, { openObjectId: () => 'stand' }), 'box', { plane: 'current' })).toEqual(
-      refused("box is not the object open in the torno window (open: stand), so the user's section of it is not known: give a plane")
+      refused("box is not the project open in the torno window (open: stand), so the user's section of it is not known: give a plane")
     )
   })
 
@@ -634,7 +634,7 @@ describe('section', () => {
     // Drawn without the object being open: in the colours the parts have by default, and that is said.
     const elsewhere = fake(() => CUT, { sectionDrawing: async () => ({ png: new Uint8Array([1]), width: 800, height: 700, colours: 'palette', vDown: true }) })
     expect(data(await sectionTool(elsewhere, 'box', { plane: { axis: 'z', at: 3 } })).image).toBe(
-      '800×700, the parts in their default colours (box is not the object open in the torno window), v runs down the sheet so that what is up in the world is up on it, saved as /ws/box/.torno/views/1.png'
+      '800×700, the parts in their default colours (box is not the project open in the torno window), v runs down the sheet so that what is up in the world is up on it, saved as /ws/box/.torno/views/1.png'
     )
   })
 
@@ -680,7 +680,7 @@ describe('a layout whose parts torno spread apart for display', () => {
     expect(deps.queries).toEqual([])
     // With no other layout, that is said.
     const only: Scene = { ...SPREAD, layouts: ['print'], parts: SPREAD.parts.filter((p) => p.layout === 'print') }
-    expect(await checkTool(spread(undefined, only), 'box', { kind: 'clearance', a: 'lid', b: 'tub' })).toEqual(refusal('the distance between', 'This object has no layout that places its parts as assembled: check each part by itself.'))
+    expect(await checkTool(spread(undefined, only), 'box', { kind: 'clearance', a: 'lid', b: 'tub' })).toEqual(refusal('the distance between', 'This project has no layout that places its parts as assembled: check each part by itself.'))
   })
 
   it('answers the same questions in the layout that was not spread, and in one whose parts did not have to be moved', async () => {
@@ -1003,7 +1003,7 @@ describe('try_fillet', () => {
     const said = data(result)
     expect(said).toMatchObject({ layout: 'assembly', revision: 4, part: 'lid', works: false, together: { worksUpTo: 1.999 } })
     expect(said.reading).toBe(
-      'Tried on r4 and thrown away, nothing changed: fillet R3 of 2 edges: each works alone; 1 pair of adjacent edges fails (lid/E4-lid/E9: 4 mm apart, two R3 need more); the 2 together work up to R1.999 (fail at R2, bisected to 0.001 mm).\nEdges (in the frame of the object):\nlid/E4: line, 20 mm, along X, between 2 planes, (-10, -10, 3) to (10, -10, 3)\nlid/E9: line, 12 mm, along X, between 2 planes, (-6, -6, 3) to (6, -6, 3)'
+      'Tried on r4 and thrown away, nothing changed: fillet R3 of 2 edges: each works alone; 1 pair of adjacent edges fails (lid/E4-lid/E9: 4 mm apart, two R3 need more); the 2 together work up to R1.999 (fail at R2, bisected to 0.001 mm).\nEdges (in the frame of the project):\nlid/E4: line, 20 mm, along X, between 2 planes, (-10, -10, 3) to (10, -10, 3)\nlid/E9: line, 12 mm, along X, between 2 planes, (-6, -6, 3) to (6, -6, 3)'
     )
   })
 

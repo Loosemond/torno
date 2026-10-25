@@ -125,7 +125,7 @@ describe('and besides', () => {
     // Tied to nothing: nothing is asked.
     expect(await heldNow({ ...deps, nearest: async () => Promise.reject(new Error('not asked')) }, 'box', 'print', { ...ALIGNED, pairs: undefined })).toEqual({ revision: 12, frame: { tray: [0, 0, 0] }, held: [] })
     await expect(heldNow({ ...deps, nearest: async () => Promise.reject(new Error('the kernel exited')) }, 'box', 'print', ALIGNED)).rejects.toThrow('the model could not be asked where its points are now (the kernel exited): try again')
-    await expect(heldNow({ ...deps, scene: () => undefined, nearest: async () => [] }, 'box', 'print', ALIGNED)).rejects.toThrow('no build of this object has a layout named print')
+    await expect(heldNow({ ...deps, scene: () => undefined, nearest: async () => [] }, 'box', 'print', ALIGNED)).rejects.toThrow('no build of this project has a layout named print')
   })
 
   it('is to be asked for again when an alignment of a layout the build has was not checked against it', () => {

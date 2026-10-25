@@ -239,7 +239,7 @@ export function Composer({ sessionId, live, working, onSent }: { sessionId: stri
         // Of the object this chat is of: the window may show another one by now.
         if (store.getState().sessions[made.objectId]?.sessionId !== sessionId) {
           unattach()
-          setProblem('The view shown was of another object: attach it again')
+          setProblem('The view shown was of another project: attach it again')
           return
         }
         viewPng = made.png

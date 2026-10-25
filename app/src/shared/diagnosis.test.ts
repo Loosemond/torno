@@ -72,6 +72,6 @@ describe('diagnosisText', () => {
     }
     const text = diagnosisText(told)
     expect(text).toContain('1 pair of adjacent edges fails (plate/E4-plate/E9: 4 mm apart, two R6 need more)')
-    expect(text).toContain('Edges (in the frame of the object):\nplate/E4: line, 20 mm, along X')
+    expect(text).toContain('Edges (in the frame of the project):\nplate/E4: line, 20 mm, along X')
   })
 })

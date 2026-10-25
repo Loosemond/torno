@@ -130,13 +130,13 @@ test('after each step of a session of work, P takes the pin tool', async () => {
   await pinIsInHand('a part switched off and on')
   // A section of the left column folded and unfolded by its title, and the list of objects unfolded and folded again.
   const fold = (name: string) => page.locator('.section-fold').and(page.getByRole('button', { name, exact: true }))
-  for (const name of ['Layers', 'Scans', 'Objects']) {
+  for (const name of ['Layers', 'Scans', 'Projects']) {
     await fold(name).click()
     await pinIsInHand(`${name} folded or unfolded`)
     await fold(name).click()
     await pinIsInHand(`${name} as it was`)
   }
-  await expect(fold('Objects')).toHaveAttribute('aria-expanded', 'false')
+  await expect(fold('Projects')).toHaveAttribute('aria-expanded', 'false')
   // The marks given more room by the line above them, and the shares put back with a double click.
   const line = page.getByRole('separator', { name: 'Resize marks' })
   const from = (await line.boundingBox())!
@@ -168,7 +168,7 @@ test('after each step of a session of work, P takes the pin tool', async () => {
   // Another object chosen in the switcher's menu with the pointer, and back.
   for (const name of ['hollow', 'bracket']) {
     await page.locator('.object-switcher').click()
-    await page.getByRole('menu', { name: 'Objects' }).getByRole('menuitem', { name, exact: true }).click()
+    await page.getByRole('menu', { name: 'Projects' }).getByRole('menuitem', { name, exact: true }).click()
     await expect.poll(async () => (await state()).build, { timeout: 30_000 }).toMatchObject({ objectId: name, status: 'ok' })
     await pinIsInHand(`${name} chosen in the switcher`)
   }

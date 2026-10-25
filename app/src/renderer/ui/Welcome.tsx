@@ -6,14 +6,14 @@ import { Readiness } from './Readiness'
 
 /** The idea of a folder of objects, drawn: the folder opened, an object in it, and its model. */
 const TREE: readonly (readonly [name: string, label: string])[] = [
-  ['objects/', 'the folder you open'],
-  ['bracket/', 'an object'],
+  ['projects/', 'the folder you open'],
+  ['bracket/', 'a project'],
   ['bracket.py', 'its model, in build123d'],
 ]
 
 function Tree() {
   return (
-    <figure className="welcome-tree" aria-label="How a folder of objects is laid out">
+    <figure className="welcome-tree" aria-label="How a folder of projects is laid out">
       {TREE.map(([name, label], depth) => (
         <div key={name} className="tree-row" style={{ '--depth': depth } as CSSProperties}>
           <span className="num">{name}</span>
@@ -113,10 +113,10 @@ export function Welcome({ onPick, onOpened }: { onPick: () => void; onOpened: (i
         <button type="button" className="button button-primary" disabled={busy} onClick={onPick}>
           Open folder
         </button>
-        {!returning && <p className="welcome-note">An empty folder is fine: torno helps you make the first object.</p>}
+        {!returning && <p className="welcome-note">An empty folder is fine: torno helps you make the first project.</p>}
         {example && (
           <div className="welcome-example">
-            <button type="button" className="button button-quiet" disabled={busy} title="Four small objects of torno's own, copied to a temporary folder: nothing of the repository is opened or written" onClick={() => open(() => window.torno.workspace.openExample(), 'The example')}>
+            <button type="button" className="button button-quiet" disabled={busy} title="Four small projects of torno's own, copied to a temporary folder: nothing of the repository is opened or written" onClick={() => open(() => window.torno.workspace.openExample(), 'The example')}>
               Open the example
             </button>
             <span className="welcome-note">A temporary copy, removed when torno quits.</span>
@@ -129,7 +129,7 @@ export function Welcome({ onPick, onOpened }: { onPick: () => void; onOpened: (i
         </p>
       )}
       <p className="welcome-foot">
-        torno writes only into a <span className="num">.torno</span> folder inside each object.
+        torno writes only into a <span className="num">.torno</span> folder inside each project.
       </p>
     </div>
   )

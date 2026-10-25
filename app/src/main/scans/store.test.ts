@@ -89,7 +89,7 @@ describe('ScanStore', () => {
     await expect(store().import('bracket', 'relative.stl')).rejects.toThrow('give the whole path of the file')
     await expect(store().import('bracket', join(root, 'downloads', 'part.3mf'))).rejects.toThrow('part.3mf is not a scan torno reads: .glb, .gltf, .obj, .ply or .stl')
     await expect(store('This workspace has a pyproject.toml but no .venv. Run `uv sync` in /ws once, then reopen it.').import('bracket', source)).rejects.toThrow('no .venv')
-    await expect(store().import('nothing', source)).rejects.toThrow('no object named nothing')
+    await expect(store().import('nothing', source)).rejects.toThrow('no project named nothing')
     expect(existsSync(join(dir, '.torno'))).toBe(false)
   })
 
@@ -206,7 +206,7 @@ describe('ScanStore', () => {
     mkdirSync(join(dir, '.torno', 'scans', 'S1'), { recursive: true })
     const own = join(dir, '.torno', 'scans', 'S1', 'copy.stl')
     writeFileSync(own, stl(box()))
-    await expect(store().import('bracket', own)).rejects.toThrow("copy.stl is in this object's .torno folder")
+    await expect(store().import('bracket', own)).rejects.toThrow("copy.stl is in this project's .torno folder")
     expect(ran).toEqual([])
     expect(existsSync(join(dir, '.torno', 'scans.json'))).toBe(false)
   })
@@ -829,7 +829,7 @@ describe('ScanStore, after its review', () => {
     await store().import('bracket', source)
     const link = join(root, 'downloads', 'link.stl')
     symlinkSync(join(scansDir(), 'S1', 'mesh.bin'), link)
-    await expect(store().import('bracket', link)).rejects.toThrow("link.stl is in this object's .torno folder")
+    await expect(store().import('bracket', link)).rejects.toThrow("link.stl is in this project's .torno folder")
   })
 
   it('rejects, and does not throw, for an object the workspace has not', async () => {
@@ -837,7 +837,7 @@ describe('ScanStore, after its review', () => {
     for (const ask of [() => scans.list('nothing'), () => scans.rename('nothing', 'S1', 'x'), () => scans.remove('nothing', 'S1'), () => scans.convert('nothing', 'S1', { unit: 'm', up: 'z' }), () => scans.align('nothing', 'S1', 'print', null), () => scans.checked('nothing', 'S1', 'print', null), () => scans.mesh('nothing', 'S1'), () => scans.problem('nothing')]) {
       let asked!: Promise<unknown>
       expect(() => (asked = ask())).not.toThrow()
-      await expect(asked).rejects.toThrow('no object named nothing in the open workspace')
+      await expect(asked).rejects.toThrow('no project named nothing in the open workspace')
     }
   })
 
@@ -978,7 +978,7 @@ describe('ScanStore, after its second review', () => {
     const scans = store()
     await scans.import('bracket', source)
     const kept = file()
-    for (const [path, why] of [['relative/Box.STL', 'give the whole path of the file'], ['/etc/passwd', 'passwd is not a scan torno reads'], [join(scansDir(), 'S1', 'x.stl'), "is in this object's .torno folder"]] as const) {
+    for (const [path, why] of [['relative/Box.STL', 'give the whole path of the file'], ['/etc/passwd', 'passwd is not a scan torno reads'], [join(scansDir(), 'S1', 'x.stl'), "is in this project's .torno folder"]] as const) {
       writeFileSync(jsonPath(), JSON.stringify({ ...kept, scans: [{ ...kept.scans[0], source: { ...kept.scans[0].source, path } }] }))
       const runs = ran.length
       await expect(store().reimport('bracket', 'S1')).rejects.toThrow(why)
@@ -1163,7 +1163,7 @@ describe('the masks of regions', () => {
     mkdirSync(elsewhere)
     renameSync(folder(), join(root, 'S1-kept'))
     symlinkSync(elsewhere, folder())
-    await expect(scans.writeMask('bracket', 'S1', 'M7', bits(0))).rejects.toThrow(`${folder()} is a link, not a folder of torno's own inside the object: torno writes nothing there and deletes nothing through it. Take the link away.`)
+    await expect(scans.writeMask('bracket', 'S1', 'M7', bits(0))).rejects.toThrow(`${folder()} is a link, not a folder of torno's own inside the project: torno writes nothing there and deletes nothing through it. Take the link away.`)
     await expect(scans.reimport('bracket', 'S1')).rejects.toThrow('is a link')
     await expect(scans.convert('bracket', 'S1', { unit: 'cm', up: 'z' })).rejects.toThrow()
     expect(readdirSync(elsewhere)).toEqual([])
@@ -1185,8 +1185,8 @@ describe('the masks of regions', () => {
     writeFileSync(join(elsewhere, 'M7.mask'), 'x')
     rmSync(folder(), { recursive: true })
     symlinkSync(elsewhere, folder())
-    await expect(scans.removeMask('bracket', 'S1', 'M7')).rejects.toThrow(`${folder()} is a link, not a folder of torno's own inside the object: torno writes nothing there and deletes nothing through it. Take the link away.`)
-    await expect(scans.remove('bracket', 'S1')).rejects.toThrow(`${folder()} is a link, not a folder of torno's own inside the object: torno writes nothing there and deletes nothing through it. Take the link away.`)
+    await expect(scans.removeMask('bracket', 'S1', 'M7')).rejects.toThrow(`${folder()} is a link, not a folder of torno's own inside the project: torno writes nothing there and deletes nothing through it. Take the link away.`)
+    await expect(scans.remove('bracket', 'S1')).rejects.toThrow(`${folder()} is a link, not a folder of torno's own inside the project: torno writes nothing there and deletes nothing through it. Take the link away.`)
     expect(readFileSync(join(elsewhere, 'M7.mask'), 'utf8')).toBe('x')
     // It is refused before anything is changed: the scan is still the object's, and the link is as it was.
     expect((await scans.list('bracket')).map((scan) => scan.id)).toEqual(['S1'])
@@ -1204,7 +1204,7 @@ describe('the masks of regions', () => {
     mkdirSync(join(elsewhere, 'S9'))
     writeFileSync(join(elsewhere, 'S9', 'importing'), 'left over')
     symlinkSync(elsewhere, all)
-    await expect(scans.removeMask('bracket', 'S1', 'M7')).rejects.toThrow(`${all} is a link, not a folder of torno's own inside the object: torno writes nothing there and deletes nothing through it. Take the link away.`)
+    await expect(scans.removeMask('bracket', 'S1', 'M7')).rejects.toThrow(`${all} is a link, not a folder of torno's own inside the project: torno writes nothing there and deletes nothing through it. Take the link away.`)
     await expect(scans.remove('bracket', 'S1')).rejects.toThrow(`${all} is a link`)
     // A store that reads the folder afresh sweeps it: not through the link.
     await store().list('bracket')

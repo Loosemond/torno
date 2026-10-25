@@ -219,7 +219,7 @@ export function proposeView(viewport: Pick<Viewport, 'cameraGoal' | 'canvas'>, r
 /** The state of the window, when the object it shows is the one asked about and has been built. Throws otherwise. */
 function openObject(objectId: string) {
   const s = store.getState()
-  if (s.objectId !== objectId) throw new Error(`${objectId} is not the object open in the torno window (open: ${s.objectId ?? 'none'}). Ask the user to open it.`)
+  if (s.objectId !== objectId) throw new Error(`${objectId} is not the project open in the torno window (open: ${s.objectId ?? 'none'}). Ask the user to open it.`)
   if (!s.scene) throw new Error('no build yet')
   return { ...s, scene: s.scene }
 }
@@ -342,7 +342,7 @@ export function setPictures(of: ((req: LookRequest) => Promise<LookResult>) | nu
  * 3D view could not start). Main never waits out its ten seconds for those.
  */
 export function picture(req: LookRequest): Promise<LookResult> {
-  if (store.getState().objectId === null) return Promise.reject(new Error('no object open in the torno window'))
+  if (store.getState().objectId === null) return Promise.reject(new Error('no project open in the torno window'))
   if (!draw) return Promise.reject(new Error('the torno window has no 3D view to draw it with'))
   return draw(req)
 }

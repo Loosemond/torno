@@ -63,7 +63,7 @@ async function typeLine(line: string, p: Page = page): Promise<void> {
 }
 
 test('with no object open the dock says what to do; with one, it offers a new session', async () => {
-  await expect(dock()).toContainText('Claude Code works here, one session per object. Make or open an object to start.')
+  await expect(dock()).toContainText('Claude Code works here, one session per project. Make or open a project to start.')
   await expect(dock().getByRole('button')).toHaveCount(0)
 
   await openObject('bracket')

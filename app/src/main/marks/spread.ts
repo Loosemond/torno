@@ -53,7 +53,7 @@ export function spreadApart(scene: Scene, layout: string, a: string | undefined,
   const where =
     assembled.length > 0
       ? `Ask in a layout that places the parts as assembled (layouts: ${assembled.join(', ')}), or check each part by itself.`
-      : 'This object has no layout that places its parts as assembled: check each part by itself.'
+      : 'This project has no layout that places its parts as assembled: check each part by itself.'
   return `In layout ${layout} torno spread these parts apart for display (they overlapped as the model placed them), so ${what} ${a} and ${b} there is torno's, not the model's. ${where}`
 }
 

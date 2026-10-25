@@ -241,7 +241,7 @@ function Sheet({ of }: { of: string[] | 'all' }) {
           </div>
           <p className="export-lead">{FORMATS[format].lead}</p>
 
-          <h3 className="section-title">{model ? 'Object' : 'Objects'}</h3>
+          <h3 className="section-title">{model ? 'Project' : 'Projects'}</h3>
           <ul className="export-list">
             {can.map((object) => (
               <li key={object.id}>
@@ -466,7 +466,7 @@ function Sheet({ of }: { of: string[] | 'all' }) {
             ))}
             {plan?.over && !plan.refusal && (
               <p data-tone="warn">
-                The parts alone are over the <span className="num">{megabytes(plan.budget)}</span> torno keeps a file to. Export fewer objects, or go ahead.
+                The parts alone are over the <span className="num">{megabytes(plan.budget)}</span> torno keeps a file to. Export fewer projects, or go ahead.
               </p>
             )}
             {said?.saved && (

@@ -33,7 +33,7 @@ export interface ClosingState {
   heldPrompts?: readonly string[]
 }
 
-const NEW_OBJECT: Reason = { objectId: null, label: 'New object', page: 'new', what: 'it is set up and not made yet' }
+const NEW_OBJECT: Reason = { objectId: null, label: 'New project', page: 'new', what: 'it is set up and not made yet' }
 
 function busySessions(sessions: ClosingState['sessions']): Reason[] {
   return sessions.flatMap((s) => {

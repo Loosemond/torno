@@ -614,7 +614,7 @@ export async function saveViewTool(deps: ToolDeps, objectId: string, args: SaveV
   const { view } = saved
   const shown = scene.parts.filter((part) => part.layout === view.layout && !view.hidden.includes(part.name)).map((part) => part.name)
   const holds = view.section ? `section ${planeText(view.section)}, ` : view.explode ? `${explodeText(view.explode)}, ` : ''
-  const dropped = saved.dropped === undefined ? '' : ` Your oldest proposal, "${saved.dropped}", was dropped to make room: an object holds ${MAX_PROPOSALS} proposals at most.`
+  const dropped = saved.dropped === undefined ? '' : ` Your oldest proposal, "${saved.dropped}", was dropped to make room: a project holds ${MAX_PROPOSALS} proposals at most.`
   return { content: [{ type: 'text', text: `saved "${view.name}" as a view you propose${saved.replaced ? ', in place of your earlier proposal of that name' : ''}: layout ${view.layout}, parts ${shown.join(', ') || 'none'}, ${holds}${view.camera.ortho ? 'orthographic' : 'perspective'}. The user sees it in their views, marked proposed, until they keep or discard it.${dropped}\nrevision r${saved.revision}` }] }
 }
 

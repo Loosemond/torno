@@ -25,7 +25,7 @@ describe('what a ref in the chat can do', () => {
   })
 
   it('says a mark the object does not have is not among its marks, and does nothing', () => {
-    expect(refInfo(store.getState(), 'M9')).toMatchObject({ kind: 'mark', live: false, lights: [], title: 'M9 is not among the marks of this object' })
+    expect(refInfo(store.getState(), 'M9')).toMatchObject({ kind: 'mark', live: false, lights: [], title: 'M9 is not among the marks of this project' })
   })
 
   it('says a mark of a layout the build no longer has cannot be shown', () => {

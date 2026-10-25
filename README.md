@@ -18,7 +18,7 @@
 
 <!-- Screenshot: the whole window. See docs/images/README.md, shot 1.
 <p align="center">
-  <img src="docs/images/hero.png" alt="torno with a part open: the objects on the left, the part in 3D in the middle with two marks on it, the chat with Claude Code on the right" width="900">
+  <img src="docs/images/hero.png" alt="torno with a part open: the projects on the left, the part in 3D in the middle with two marks on it, the chat with Claude Code on the right" width="900">
 </p>
 -->
 
@@ -55,11 +55,11 @@ the Python file, and torno shows it.
   name.
 - **Scans.** Import a phone or scanner mesh of the place the part has to fit, align it, and check clashes and
   deviation against it. torno always marks scan numbers as approximate.
-- **Start from what you have.** A new object can start from a description, photos, doodles, scans and other
-  objects in the workspace. Claude gets all of it with its first prompt.
+- **Start from what you have.** A new project can start from a description, photos, doodles, scans and other
+  projects in the workspace. Claude gets all of it with its first prompt.
 - **Export.** A single HTML file anyone can open in a browser without installing anything, or STEP, STL and 3MF.
 - **Local.** torno itself uploads nothing. The agent is your own `claude`, under your own login, and torno
-  leaves its settings alone. In your folders, torno writes only under `<object>/.torno/`.
+  leaves its settings alone. In your folders, torno writes only under `<project>/.torno/`.
 
 <!-- Screenshots: three side by side. See docs/images/README.md, shots 2–4.
 <table>
@@ -88,10 +88,10 @@ flowchart LR
     agent -- "MCP: look, measure, section…" --> torno
 ```
 
-A **workspace** is a folder of **objects**. Each object is a folder with one build123d model in it:
+A **workspace** is a folder of **projects**. Each project is a folder with one build123d model in it:
 
 ```
-objects/
+projects/
 ├── bracket/
 │   └── bracket.py
 └── hollow/
@@ -119,8 +119,8 @@ def assembly(p):
 ```
 
 The app is Electron and three.js. The kernel is a Python package that loads models and tessellates them in
-forked workers. Each object gets its own Claude Code session, in the object's folder, connected to torno's MCP
-server on `127.0.0.1`. See [Objects and builds](docs/manual.md#objects-and-builds) for the full rules.
+forked workers. Each project gets its own Claude Code session, in the project's folder, connected to torno's MCP
+server on `127.0.0.1`. See [Projects and builds](docs/manual.md#projects-and-builds) for the full rules.
 
 ## Getting started
 
@@ -147,12 +147,12 @@ pnpm install
 ### Run
 
 ```sh
-scripts/torno ~/objects     # open a folder as the workspace
+scripts/torno ~/projects    # open a folder as the workspace
 scripts/torno               # the workspace you opened last, or the first screen
 ```
 
 The launcher rebuilds the app when the sources change, so `git pull` and run it again. On the first screen,
-**Open the example** opens a few small objects in a temporary copy, so you can try everything without touching
+**Open the example** opens a few small projects in a temporary copy, so you can try everything without touching
 your own files.
 
 On Linux, `scripts/torno --install-desktop` adds torno to your application launcher. On macOS,

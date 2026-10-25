@@ -123,7 +123,7 @@ test('a change made through the bridge reaches the window and the file', async (
 })
 
 test('what cannot be done is refused in plain words, and changes nothing', async () => {
-  expect(await rejection('unknownObject')).toBe('no object named ghost in the open workspace')
+  expect(await rejection('unknownObject')).toBe('no project named ghost in the open workspace')
   expect(await rejection('unknownMark')).toBe('no mark M9; marks: M1')
   expect(await rejection('notAMark')).toMatch(/^that is not a mark/)
   expect(marksOnDisk().next).toBe(2)

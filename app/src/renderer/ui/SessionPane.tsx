@@ -786,7 +786,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
       {held !== undefined && objectId && !creating && (
         <div className="session-held" role="status">
           <p>
-            The first prompt of this object was not sent: {held.reason.replace(/\.$/, '')}. {held.taken ? 'It is in the box below.' : held.text !== '' ? 'It is kept, and is in the box of the next chat.' : 'What was given is in brief.md and reference/.'}
+            The first prompt of this project was not sent: {held.reason.replace(/\.$/, '')}. {held.taken ? 'It is in the box below.' : held.text !== '' ? 'It is kept, and is in the box of the next chat.' : 'What was given is in brief.md and reference/.'}
           </p>
           <button type="button" className="button button-quiet" onClick={() => onboarding.dismiss(objectId)}>
             Dismiss
@@ -796,7 +796,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
 
       {creating && live && (
         <p className="session-aside" role="note">
-          This is the session of {objectName}. It goes on; the new object gets its own when you create it.
+          This is the session of {objectName}. It goes on; the new project gets its own when you create it.
         </p>
       )}
 
@@ -848,7 +848,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
         {drafting ? (
           <DraftPaneLive />
         ) : !objectId ? (
-          <p className="panel-note">Claude Code works here, one session per object. Make or open an object to start.</p>
+          <p className="panel-note">Claude Code works here, one session per project. Make or open a project to start.</p>
         ) : (
           !session && (
             <div className="session-empty">

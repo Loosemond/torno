@@ -1,7 +1,7 @@
 # Screws, nuts and inserts without bd_warehouse
 
 `bd_warehouse` (fasteners, nuts, `ClearanceHole`, `HeatSetNut`) is **not in torno's kernel environment**: a model
-that imports it fails the build with `ModuleNotFoundError`. It works only where the object's own workspace has it
+that imports it fails the build with `ModuleNotFoundError`. It works only where the project's own workspace has it
 (a `pyproject.toml` that lists it, with a `.venv`); if the model must be built by torno elsewhere, do not import it.
 Make the hole from the sizes below, each a field of `Params` with the source in a comment.
 

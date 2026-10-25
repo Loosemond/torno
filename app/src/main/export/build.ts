@@ -57,9 +57,9 @@ export const EXPORT_MOST = 64 * 1024 * 1024
 export const SCAN_TRIANGLES = [60_000, 30_000, 15_000] as const
 
 export const NOT_BUILT = 'Open it first: torno exports the last build of this run'
-export const NO_OBJECT = 'There is no object of that name'
-export const NOTHING_CHOSEN = 'Choose an object to export'
-export const ONE_OBJECT = 'A STEP, STL or 3MF file is of one object: tick one'
+export const NO_OBJECT = 'There is no project of that name'
+export const NOTHING_CHOSEN = 'Choose a project to export'
+export const ONE_OBJECT = 'A STEP, STL or 3MF file is of one project: tick one'
 
 /** The meshes packed of a build, by the blob they were read from: a plan and the save that follows pack once. */
 const packed = new WeakMap<Buffer, Map<string, PackedMesh>>()
@@ -342,7 +342,7 @@ async function produce(deps: ExportDeps, req: ExportRequest, assets: PageAssets)
     const scans = data.objects.flatMap((object) => (object.scans ?? []).map((scan) => ({ key: `${object.id}/${scan.id}`, of: object.name, scan })))
     const largest = scans.sort((a, b) => b.scan.data.length - a.scan.data.length)[0]
     if (bytes <= budget || !largest) {
-      const refusal = bytes > most ? `The export would be ${megabytes(bytes)}: more than the ${megabytes(most)} torno writes in one file. Export fewer objects.` : undefined
+      const refusal = bytes > most ? `The export would be ${megabytes(bytes)}: more than the ${megabytes(most)} torno writes in one file. Export fewer projects.` : undefined
       return { html, bytes, dropped: data.dropped, over: bytes > budget, ...(refusal ? { refusal } : {}) }
     }
     const next = SCAN_TRIANGLES.find((level) => level < largest.scan.triangles && level < (levels[largest.key] ?? SCAN_TRIANGLES[0])) ?? null

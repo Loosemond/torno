@@ -54,7 +54,7 @@ it('has its table of the pointer from the one table of it', () => {
   if (process.env.TORNO_README === 'write') writeFileSync(path, `${readme.slice(0, from + POINTER_BEGIN.length)}\n${table}\n${readme.slice(to)}`)
   else expect(readme.slice(from + POINTER_BEGIN.length, to).trim()).toBe(table)
   // The walk-through says where the window shows it.
-  expect(readme.slice(readme.indexOf('## Five minutes with torno'), readme.indexOf('## Objects and builds'))).toContain('the sheet of keys (`?`), where the pointer is the first group')
+  expect(readme.slice(readme.indexOf('## Five minutes with torno'), readme.indexOf('## Projects and builds'))).toContain('the sheet of keys (`?`), where the pointer is the first group')
 })
 
 it('names every tool the agent has, and no tool there is not', () => {
@@ -74,14 +74,14 @@ it('is laid out for a first-time reader: what it is, how to start it, a walk-thr
     '## Install',
     '## Run',
     '## Five minutes with torno',
-    '## Objects and builds',
+    '## Projects and builds',
     '## The agent',
     '## Marks',
     '## Measuring and dimensions',
     '## Section',
     '## Scans',
     '## Explode and saved views',
-    '## The page of objects',
+    '## The page of projects',
     '## Export',
     '## Keys',
     '## Files torno writes',

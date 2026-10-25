@@ -157,7 +157,7 @@ describe('the status line on the New object page', () => {
   it('says New object and nothing of the object that was open', () => {
     store.setState({ page: 'new', objectId: 'bracket', build: { status: 'ok', revision: 1, seconds: 1 } as never, scene: SCENE, revision: 1, marks: [] })
     const out = line()
-    expect(out).toContain('New object')
+    expect(out).toContain('New project')
     for (const gone of ['Rebuild', 'Export', 'r1', 'part', 'bracket']) expect(out).not.toContain(gone)
     store.setState({ page: 'object' })
     expect(line()).toContain('Rebuild')

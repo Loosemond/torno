@@ -103,7 +103,7 @@ export function draftSummary(d: Draft): DraftSummary {
     ['photos', 'photo', 'photos'],
     ['doodles', 'doodle', 'doodles'],
     ['scans', 'scan', 'scans'],
-    ['objects', 'object', 'objects']
+    ['objects', 'project', 'projects']
   ]
   return {
     name: d.name.trim() || null,

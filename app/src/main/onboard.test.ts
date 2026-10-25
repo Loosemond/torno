@@ -32,7 +32,7 @@ const ASK_FIRST = (m: string): string =>
   [
     `${m}.py is torno's placeholder (a 20 mm cube). Read brief.md and look at what was given. Then:`,
     '',
-    '1. List the sizes that decide fit or function (overall size, wall, the sizes of the parts it mates with, hole and fastener sizes, clearances), and say where each comes from: brief.md, a reference picture\'s note, a scan (≈, to a few mm), another object, or nowhere.',
+    '1. List the sizes that decide fit or function (overall size, wall, the sizes of the parts it mates with, hole and fastener sizes, clearances), and say where each comes from: brief.md, a reference picture\'s note, a scan (≈, to a few mm), another project, or nowhere.',
     '2. For those from nowhere, ask in one round, before you build, with AskUserQuestion: at most 4 questions, each with 2 to 4 options, one of them a typical value labelled as typical ("0.2 mm per side, usual for PLA at a 0.4 mm nozzle"); the person may answer "build with assumptions". Do not ask about what you can choose freely (a fillet radius, a chamfer). If every size has a source, ask nothing.',
     '3. Replace the placeholder with the real model, built with the answers. A size still unknown is built as assumed (a field of Params commented "assumed"), and your reply lists the assumptions.'
   ].join('\n')
@@ -114,17 +114,17 @@ describe('onboardPrompt', () => {
     const { text, blocks } = onboardPrompt(full())
     expect(text).toBe(
       [
-        'This is a new object, cable-clip, made in torno just now. What it is, in the person\'s words:',
+        'This is a new project, cable-clip, made in torno just now. What it is, in the person\'s words:',
         '',
         'A clip that holds a 6 mm cable\nto the edge of a desk.',
         '',
         'What they gave (all of it is also in brief.md; files are in reference/):',
         '- reference/photo-1.jpg: the desk edge (attached: picture 1)',
         '- reference/doodle-1.png: the shape I want (attached: picture 2)',
-        '- Scan S1 "desk.stl": the edge, scanned. It is imported into this object and is not aligned yet: the person aligns it in torno. mcp__torno__scans says how it stands; once it is aligned, mcp__torno__section with "scan" cuts it, and mcp__torno__scan_clash and mcp__torno__scan_deviation measure against it.',
+        '- Scan S1 "desk.stl": the edge, scanned. It is imported into this project and is not aligned yet: the person aligns it in torno. mcp__torno__scans says how it stands; once it is aligned, mcp__torno__section with "scan" cuts it, and mcp__torno__scan_clash and mcp__torno__scan_deviation measure against it.',
         '- Scan "bad.stl": another try. It could not be imported (the file has no triangles); the file is the person\'s to give again.',
-        '- ../lid/ (another object of this workspace: 1 part: lid; box 40 x 20 x 5 mm, exact; its picture is attached: picture 3): mounts on this',
-        '- ../base/ (another object of this workspace: not built in this run)',
+        '- ../lid/ (another project of this workspace: 1 part: lid; box 40 x 20 x 5 mm, exact; its picture is attached: picture 3): mounts on this',
+        '- ../base/ (another project of this workspace: not built in this run)',
         '',
         ASK_FIRST('cable_clip')
       ].join('\n')
@@ -161,7 +161,7 @@ describe('onboardPrompt', () => {
     expect(held).toContain('- reference/photo-1.jpg: the desk edge (not attached: read reference/photo-1.jpg)')
     expect(held).toContain('- reference/doodle-1.png: the shape I want (not attached: read reference/doodle-1.png)')
     expect(held).toContain('; its picture: ../lid/.torno/thumb.png): mounts on this')
-    expect(held).toContain('- ../base/ (another object of this workspace: not built in this run)')
+    expect(held).toContain('- ../base/ (another project of this workspace: not built in this run)')
   })
 
   it('attaches the pictures in order: photos and doodles, then the pictures of the objects, and no more than 6', () => {
@@ -176,7 +176,7 @@ describe('onboardPrompt', () => {
     const widths = images.map((b) => new DataView(new Uint8Array(Buffer.from((b as { source: { data: string } }).source.data, 'base64')).buffer).getUint32(16))
     expect(widths).toEqual([10, 11, 12, 13, 14, 99])
     expect(text).toContain('- reference/doodle-2.png: beyond (not attached: read reference/doodle-2.png)')
-    expect(text).toContain('- ../lid/ (another object of this workspace: 1 part: lid; box 40 x 20 x 5 mm, exact; its picture is not attached): mounts on this')
+    expect(text).toContain('- ../lid/ (another project of this workspace: 1 part: lid; box 40 x 20 x 5 mm, exact; its picture is not attached): mounts on this')
   })
 
   it('names an item with no usable picture as not attached, and takes every note as one line', () => {
@@ -197,7 +197,7 @@ describe('onboardPrompt', () => {
   it('leaves out the list of what they gave when they gave nothing', () => {
     const { text } = onboardPrompt({ name: 'x', description: 'A thing.', items: [], scans: [], objects: [] })
     expect(text).toBe(
-      'This is a new object, x, made in torno just now. What it is, in the person\'s words:\n\nA thing.\n\n' + ASK_FIRST('x')
+      'This is a new project, x, made in torno just now. What it is, in the person\'s words:\n\nA thing.\n\n' + ASK_FIRST('x')
     )
   })
 
@@ -298,8 +298,8 @@ describe('onboardObject', () => {
     expect(out.held).not.toContain('attached: picture')
     for (const note of ['desk', 'shape', 'the edge', 'mounts on this']) expect(text).toContain(note)
     expect(text).toContain('Scan S1 "desk.stl"')
-    expect(text).toContain('../lid/ (another object of this workspace: 1 part: lid; box 40 x 20 x 5 mm, exact; its picture is attached: picture 3)')
-    expect(text).toContain('../base/ (another object of this workspace: not built in this run)')
+    expect(text).toContain('../lid/ (another project of this workspace: 1 part: lid; box 40 x 20 x 5 mm, exact; its picture is attached: picture 3)')
+    expect(text).toContain('../base/ (another project of this workspace: not built in this run)')
   })
 
   it('starts the session on the model and effort chosen on the page, and on the person\'s defaults for what is not one', async () => {
@@ -334,7 +334,7 @@ describe('onboardObject', () => {
   it('holds the prompt again, with the reason, when the session ends without having taken it up', async () => {
     const out = await onboardObject(deps({ began: async () => ({ began: false as const, why: 'Claude Code stopped (exit code 1): not logged in' }) }), 'cable-clip', draft())
     expect(out).toMatchObject({ sessionId: 'sess', problem: 'Claude Code stopped (exit code 1): not logged in' })
-    expect(out.held).toContain('This is a new object, cable-clip')
+    expect(out.held).toContain('This is a new project, cable-clip')
     const fine = await onboardObject(deps({ began: async () => ({ began: true as const }) }), 'cable-clip', draft())
     expect(fine.problem).toBeUndefined()
   })
@@ -347,7 +347,7 @@ describe('onboardObject', () => {
   })
 
   it('refuses an object that is not of the workspace, or has a session already, and does nothing', async () => {
-    await expect(onboardObject(deps(), 'nope', draft({ scans: [{ path: '/s/a.stl', note: '' }] }))).rejects.toThrow(/no object/i)
+    await expect(onboardObject(deps(), 'nope', draft({ scans: [{ path: '/s/a.stl', note: '' }] }))).rejects.toThrow(/no project/i)
     await expect(onboardObject(deps({ running: () => true }), 'cable-clip', draft({ scans: [{ path: '/s/a.stl', note: '' }] }))).rejects.toThrow(/session/)
     expect(calls).toEqual([])
     expect(sent).toEqual([])
@@ -364,7 +364,7 @@ describe('onboardObject', () => {
       [{ ...draft(), scans: Array.from({ length: 5 }, () => ({ path: '/s/a.stl', note: '' })) }, /scans/],
       [{ ...draft(), objects: [{ id: 'nope', note: '' }] }, /nope/],
       [{ ...draft(), objects: [{ id: 'cable-clip', note: '' }] }, /itself/],
-      [{ ...draft(), objects: Array.from({ length: 9 }, () => ({ id: 'lid', note: '' })) }, /objects/],
+      [{ ...draft(), objects: Array.from({ length: 9 }, () => ({ id: 'lid', note: '' })) }, /projects/],
       [null, /draft/]
     ]
     for (const [d, why] of bad) await expect(onboardObject(deps(), 'cable-clip', d as OnboardDraft), JSON.stringify(d)).rejects.toThrow(why)
@@ -410,6 +410,6 @@ describe('onboardObject', () => {
   it('keeps the session and the prompt, and says why, when the prompt cannot be sent', async () => {
     const out = await onboardObject(deps({ prompt: () => { throw new Error('This session has ended') } }), 'cable-clip', draft())
     expect(out).toMatchObject({ sessionId: 'sess', problem: 'This session has ended' })
-    expect(out.prompt).toContain('This is a new object')
+    expect(out.prompt).toContain('This is a new project')
   })
 })

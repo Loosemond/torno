@@ -115,13 +115,13 @@ test('a file that names an agent torno does not know is said, and choosing a vie
 
 test('a session at work or waiting for the answer shows on the switcher, on its object\'s item of the menu and in the status line while another object is open, with the dock shown or hidden; ended, it shows nothing', async () => {
   // The list is folded to the switcher of the object open; the menu has an item for each object, as a row.
-  const item = (name: string) => page.getByRole('menu', { name: 'Objects' }).getByRole('menuitem', { name, exact: true })
+  const item = (name: string) => page.getByRole('menu', { name: 'Projects' }).getByRole('menuitem', { name, exact: true })
   /** The menu opened, what is said of an object's item looked at, and the menu put away. */
   const inMenu = async (look: () => Promise<void>): Promise<void> => {
     await switcher(page).click()
     await look()
     await page.keyboard.press('Escape')
-    await expect(page.getByRole('menu', { name: 'Objects' })).toHaveCount(0)
+    await expect(page.getByRole('menu', { name: 'Projects' })).toHaveCount(0)
   }
   const needs = () => page.locator('.status-needs')
   const toggle = () => page.locator('.dock-toggle')

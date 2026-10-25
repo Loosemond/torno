@@ -147,7 +147,7 @@ test('the model is chosen again even when another folder\'s change was scanned f
 
 test('an unknown object is refused by name', async () => {
   const message = await page.evaluate(() => window.torno.object.open('nope').catch((e: Error) => e.message))
-  expect(message).toContain('no object named nope')
+  expect(message).toContain('no project named nope')
 })
 
 test('the renderer can reload itself, and cannot navigate elsewhere', async () => {

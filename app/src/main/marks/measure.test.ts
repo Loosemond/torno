@@ -378,7 +378,7 @@ describe('adding a dimension', () => {
     const across = (more: object = {}): NewMark =>
       distance({ layout: 'print', a: { point: [0, 0, 4], part: 'tray', ref: 'tray/F5' }, b: { point: [30, 0, 2], part: 'lid', ref: 'lid/F5' }, ...more })
     const FULL =
-      "In layout print torno spread these parts apart for display (they overlapped as the model placed them), so the distance between tray and lid there is torno's, not the model's. This object has no layout that places its parts as assembled: check each part by itself."
+      "In layout print torno spread these parts apart for display (they overlapped as the model placed them), so the distance between tray and lid there is torno's, not the model's. This project has no layout that places its parts as assembled: check each part by itself."
 
     it('a distance is not kept, for the person or the agent, and the kernel is not asked', async () => {
       const k = { ...kernel(() => SIX), scene: () => ({ revision: 3, scene: spreadScene }) }

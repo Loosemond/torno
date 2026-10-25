@@ -5,7 +5,7 @@ import { expect, type Page } from '@playwright/test'
 // the rows do.
 
 /** The navigation of the objects in the left column. */
-export const objectList = (page: Page) => page.getByRole('navigation', { name: 'Objects' })
+export const objectList = (page: Page) => page.getByRole('navigation', { name: 'Projects' })
 
 /** The switcher the list is folded to, while it is. */
 export const switcher = (page: Page) => objectList(page).locator('.object-switcher')
@@ -18,7 +18,7 @@ export async function openListed(page: Page, name: string): Promise<void> {
   if (await switcher(page).isVisible()) {
     if ((await switcher(page).getAttribute('aria-pressed')) !== 'true' && (await switcherName(page)) === name) return
     await switcher(page).click()
-    await page.getByRole('menu', { name: 'Objects' }).getByRole('menuitem', { name, exact: true }).click()
+    await page.getByRole('menu', { name: 'Projects' }).getByRole('menuitem', { name, exact: true }).click()
   } else await list.getByRole('button', { name, exact: true }).click()
 }
 
@@ -30,8 +30,8 @@ export async function newFromList(page: Page): Promise<void> {
     // The page of the new object is up already: the switcher says so, pressed.
     if ((await switcher(page).getAttribute('aria-pressed')) === 'true') return
     await switcher(page).click()
-    await page.getByRole('menu', { name: 'Objects' }).getByRole('menuitem', { name: 'New object' }).click()
-  } else await list.getByRole('button', { name: 'New object' }).click()
+    await page.getByRole('menu', { name: 'Projects' }).getByRole('menuitem', { name: 'New project' }).click()
+  } else await list.getByRole('button', { name: 'New project' }).click()
 }
 
 const switcherName = (page: Page): Promise<string> => switcher(page).locator('.row-name').innerText()

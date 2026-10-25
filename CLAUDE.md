@@ -12,6 +12,10 @@ introduces it and says how to run it; `docs/manual.md` says everything it does; 
   the renderer may ask of main. `src/export` is the page an export writes: its
   style and its viewer, which `app/scripts/build-viewer.mjs` bundles into
   `out/viewer/viewer.js` as part of `pnpm build`.
+- A **project** is what the code and these files call an *object*: a folder of the workspace with one model in it
+  (`ObjectInfo`, `objectId`). Everything a person or the agent reads says "project" (the window, the manual, the
+  README, the prompts, the tool descriptions, the skills); identifiers, IPC channels, environment variables, file
+  names and the keys of files on disk keep `object`. A 3MF's "object", a JSON object and build123d's objects are not it.
 - `kernel/`: the Python package `torno_kernel` (uv). It loads build123d models
   and tessellates them, in forked workers, and imports scans, in a process of
   its own (`python -m torno_kernel.scans`).

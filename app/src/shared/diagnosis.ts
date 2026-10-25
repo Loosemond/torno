@@ -97,7 +97,7 @@ const nameOf = (edge: number | string): string => String(edge)
  */
 export function diagnosisText(d: FilletDiagnosis, limit = Number.POSITIVE_INFINITY): string {
   const first = firstLine(d)
-  const head = d.frame === 'local' ? `Edges (local: numbered by their place in the ${d.operation} call, from 0; ends in the frame of the shape filleted):` : 'Edges (in the frame of the object):'
+  const head = d.frame === 'local' ? `Edges (local: numbered by their place in the ${d.operation} call, from 0; ends in the frame of the shape filleted):` : 'Edges (in the frame of the project):'
   if (d.edges.length === 0 || first.length + 1 + head.length > limit) return cutEnd(first, limit)
   const lines = [first, head]
   let used = first.length + 1 + head.length

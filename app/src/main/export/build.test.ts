@@ -188,7 +188,7 @@ describe('exportFile and exportPlan', () => {
     expect(tight.html).toContain('S1 of hollow reduced to at most 15,000 triangles')
     expect(tight.html).not.toContain('30,000')
     await expect(exportFile(deps({ most: 1000 }), { objects: ['hollow'], marks: false, scans: [] }, ASSETS)).rejects.toThrow('more than the')
-    await expect(exportFile(deps(), { objects: [], marks: false, scans: [] }, ASSETS)).rejects.toThrow('Choose an object to export')
+    await expect(exportFile(deps(), { objects: [], marks: false, scans: [] }, ASSETS)).rejects.toThrow('Choose a project to export')
   })
 
   it('says when the parts alone are over the budget, and writes them all the same', async () => {
@@ -210,13 +210,13 @@ describe('exportFile and exportPlan', () => {
         ]
       },
       { id: 'never-built', exportable: false, why: 'Open it first: torno exports the last build of this run', scans: [] },
-      { id: 'nobody', exportable: false, why: 'There is no object of that name', scans: [] }
+      { id: 'nobody', exportable: false, why: 'There is no project of that name', scans: [] }
     ])
     expect(plan.bytes).toBeGreaterThan(500)
     expect(plan).toMatchObject({ dropped: [], over: false })
     expect(plan.refusal).toBeUndefined()
     const none = await exportPlan(deps(), { objects: [], marks: false, scans: [] }, ASSETS, ['hollow'])
-    expect(none).toMatchObject({ bytes: 0, budget: 12 * 1024 * 1024, refusal: 'Choose an object to export' })
+    expect(none).toMatchObject({ bytes: 0, budget: 12 * 1024 * 1024, refusal: 'Choose a project to export' })
     // A file of the model is made when it is saved: nothing is weighed, and it is of one object.
     const step = await exportPlan(deps(), { objects: ['hollow'], marks: false, scans: [], format: 'step' }, ASSETS, ['hollow'])
     expect(step).toMatchObject({ bytes: 0, dropped: [] })
@@ -224,7 +224,7 @@ describe('exportFile and exportPlan', () => {
     const two = await exportPlan(deps(), { objects: ['hollow', 'hollow2'], marks: false, scans: [], format: '3mf' }, ASSETS, ['hollow'])
     expect(two.refusal).toBeUndefined() // one of them is no object: one is chosen
     const most = await exportPlan(deps({ most: 1000 }), { objects: ['hollow'], marks: false, scans: [] }, ASSETS, ['hollow'])
-    expect(most.refusal).toMatch(/^The export would be .* more than the .* torno writes in one file\. Export fewer objects\.$/)
+    expect(most.refusal).toMatch(/^The export would be .* more than the .* torno writes in one file\. Export fewer projects\.$/)
   })
 })
 

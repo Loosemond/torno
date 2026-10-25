@@ -268,7 +268,7 @@ const marks: MarkStore = new MarkStore({ dirOf: (id) => findObject(id)?.dir, mes
 // the rest of the object is kept.
 onNotOwn((dir, message, inside) => {
   const obj = openWorkspaceInfo()?.objects.find((one) => one.dir === dir)
-  if (obj) void marks.report(obj.id, inside === null ? `${message} Nothing of this object is kept until then: no mark, no view, no picture.` : message).catch(() => {})
+  if (obj) void marks.report(obj.id, inside === null ? `${message} Nothing of this project is kept until then: no mark, no view, no picture.` : message).catch(() => {})
 })
 
 /** What runs the import process in the open workspace, once a scan was imported there: one at a time, and stopped when it is left. */
@@ -345,7 +345,7 @@ const toolDeps: ToolDeps = {
   },
   saveImage(objectId, png) {
     const obj = findObject(objectId)
-    return obj ? saveView(obj.dir, png) : Promise.reject(new Error(`unknown object: ${objectId}`))
+    return obj ? saveView(obj.dir, png) : Promise.reject(new Error(`unknown project: ${objectId}`))
   },
   marks: (objectId) => marks.list(objectId),
   // A mark made through the tools is the agent's, and it knows of it: there is nothing to send it.
@@ -376,7 +376,7 @@ const toolDeps: ToolDeps = {
   views: savedViews,
   saveView(objectId, req) {
     const obj = findObject(objectId)
-    if (!obj) return Promise.reject(new Error(`unknown object: ${objectId}`))
+    if (!obj) return Promise.reject(new Error(`unknown project: ${objectId}`))
     // The name is the agent's to propose until the window has answered, and the answer waits for the file to be on the disk (`proposing`).
     return proposing(obj.dir, req.name, () => theWindow().then((win) => requestSaveView(win, req)), (e) => e instanceof NoAnswer)
   }
@@ -611,7 +611,7 @@ void app.whenReady().then(async () => {
   if (isTest) testHooks.mcpFor = (id) => ({ url: mcpUrlFor(id), token: http.grant([new URL(mcpUrlFor(id)).pathname]) })
   if (isTest) Object.assign(globalThis, { __tornoMain: testHooks })
   // An address holds no secret: a request needs the token of a session as well.
-  if (isDebug) console.error(`[torno] MCP server of an object: ${mcpUrlFor('<object id>')}`)
+  if (isDebug) console.error(`[torno] MCP server of a project: ${mcpUrlFor('<project id>')}`)
   // What a torno that crashed left in the temporary folder: only copies of the example its own marker names.
   if (exampleFrom !== null) void sweepExamples(realpathSync(tmpdir())).catch(() => {})
   const named = process.env.TORNO_WORKSPACE
@@ -621,7 +621,7 @@ void app.whenReady().then(async () => {
     const source = named ? 'TORNO_WORKSPACE' : configPath
     await openWorkspace(root)
       .then((info) => {
-        if (isDebug) console.error(`[torno] workspace ${info.root}: ${info.objects.length} objects`)
+        if (isDebug) console.error(`[torno] workspace ${info.root}: ${info.objects.length} projects`)
         // A folder torno was started with is one opened lately, as one chosen in the window is. What is opened
         // at the next start stays the one chosen there. (Under test there is no config but one the test names.)
         if (named) void changeConfig((config) => ({ ...config, recent: recentWith(config.recent, info.root) }))

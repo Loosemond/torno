@@ -422,7 +422,7 @@ for (const theme of ['light', 'dark'] as const) {
           // cannot be built says why on a second line.
           for (const name of ['Layers', 'Scans']) await page.locator('.section-fold').and(page.getByRole('button', { name, exact: true })).click()
           await switcher(page).click()
-          await expect(page.getByRole('menu', { name: 'Objects' }).getByRole('menuitem', { name: 'two', exact: true })).toContainText('more than one model file')
+          await expect(page.getByRole('menu', { name: 'Projects' }).getByRole('menuitem', { name: 'two', exact: true })).toContainText('more than one model file')
         } else if (shot === 'folded') {
           // A scan in, and the layers and the scans folded: each title row says what matters of what it holds.
           await scan()
@@ -512,7 +512,7 @@ for (const theme of ['light', 'dark'] as const) {
           }
         } else if (shot === 'onboard' || shot === 'onboard-board') {
           // The page of a new object with something of every kind given, and, for the second, the doodle board open on a drawing.
-          const new_ = page.getByRole('region', { name: 'New object' })
+          const new_ = page.getByRole('region', { name: 'New project' })
           await newFromList(page)
           await page.getByLabel('Name', { exact: true }).fill('cable-clip')
           await page.getByLabel('What is it?').fill('A clip that holds a 6 mm cable to the edge of a desk, printed in PETG. The desk is 18 mm thick; the cable must come out downwards.')
@@ -543,7 +543,7 @@ for (const theme of ['light', 'dark'] as const) {
           writeFileSync(sheet, stl(grid(30, 1, (x, y) => 41 + 0.4 * Math.sin(x / 3) * Math.cos(y / 4))))
           await app.evaluate((_electron, path) => void ((globalThis as unknown as { __tornoMain: Main }).__tornoMain.pickFile = path), sheet)
           await new_.getByRole('button', { name: 'Add a scan…' }).click()
-          await new_.getByRole('button', { name: 'Refer to an object…' }).click()
+          await new_.getByRole('button', { name: 'Refer to a project…' }).click()
           await page.getByRole('menuitem', { name: 'plain' }).click()
           await new_.locator('.ref-card[data-kind="objects"]').first().getByLabel(/^Note for /).fill('mounts on this')
           if (shot === 'onboard-board') {
@@ -560,7 +560,7 @@ for (const theme of ['light', 'dark'] as const) {
           await expect(page.getByRole('dialog', { name: 'What torno needs' })).toBeVisible()
         } else if (shot === 'onboard-missing') {
           // The page of a new object when Claude Code is not found: the line above Create.
-          await page.locator('.show-empty').getByRole('button', { name: 'New object' }).click()
+          await page.locator('.show-empty').getByRole('button', { name: 'New project' }).click()
           await page.getByLabel('Name', { exact: true }).fill('cable-clip')
           await page.getByLabel('What is it?').fill('A clip that holds a 6 mm cable to the edge of a desk, printed in PETG.')
           await expect(page.locator('.new-foot .ready[data-variant="missing"]')).toBeVisible()

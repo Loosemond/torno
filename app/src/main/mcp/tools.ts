@@ -158,7 +158,7 @@ export function failure(text: string): ToolResult {
   return { content: [{ type: 'text', text }], isError: true }
 }
 
-export const notOpen = (obj: ObjectInfo, open: string | null): string => `${obj.name} is not the object open in the torno window (open: ${open ?? 'none'})`
+export const notOpen = (obj: ObjectInfo, open: string | null): string => `${obj.name} is not the project open in the torno window (open: ${open ?? 'none'})`
 
 /**
  * The last successful build of an object, or the error to answer with: the
@@ -166,7 +166,7 @@ export const notOpen = (obj: ObjectInfo, open: string | null): string => `${obj.
  */
 export function built(deps: ToolDeps, objectId: string): { obj: ObjectInfo; build: BuildState; revision: number; scene: Scene } | ToolResult {
   const obj = deps.object(objectId)
-  if (!obj) return failure(`unknown object: ${objectId}`)
+  if (!obj) return failure(`unknown project: ${objectId}`)
   const build = deps.build(objectId)
   const last = deps.scene(objectId)
   if (build && last) return { obj, build, ...last }
@@ -193,7 +193,7 @@ export const MARK_ID = /^M\d+$/
 
 /** The marks of an object, or the error to answer with: the object is not in the workspace, or its marks cannot be read. */
 export async function marksOf(deps: ToolDeps, objectId: string): Promise<Mark[] | ToolResult> {
-  if (!deps.object(objectId)) return failure(`unknown object: ${objectId}`)
+  if (!deps.object(objectId)) return failure(`unknown project: ${objectId}`)
   try {
     return await deps.marks(objectId)
   } catch (e) {

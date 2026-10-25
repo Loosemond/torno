@@ -158,7 +158,7 @@ function TerminalOffer({ item }: { item: Of<'note'> }) {
     <p className="chat-item chat-note chat-offer" data-kind="note" data-tone={item.tone}>
       <span>{numbered(item.text)}</span>
       {terminal && (
-        <button type="button" className="button button-quiet" disabled={terminal.disabled} title="Run this object's sessions in Claude Code's own terminal. The same conversation goes on." onClick={terminal.take}>
+        <button type="button" className="button button-quiet" disabled={terminal.disabled} title="Run this project's sessions in Claude Code's own terminal. The same conversation goes on." onClick={terminal.take}>
           Use the terminal
         </button>
       )}

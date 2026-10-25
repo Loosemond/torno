@@ -197,10 +197,10 @@ export function ShowPage({ onOpen, onExample }: { onOpen: (id: string) => void; 
   const name = root ? root.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || root : ''
 
   return (
-    <section ref={page} className="show" aria-label={`Objects of ${name}`}>
+    <section ref={page} className="show" aria-label={`Projects of ${name}`}>
       <header className="show-head">
         <div className="show-title">
-          <h2>Objects</h2>
+          <h2>Projects</h2>
           {cards && cards.length > 0 && (
             <p className="show-count">
               {typed.trim() !== '' && (
@@ -213,18 +213,18 @@ export function ShowPage({ onOpen, onExample }: { onOpen: (id: string) => void; 
           )}
         </div>
         {cards && cards.length > 0 && (
-          <button type="button" className="button show-new" title="Make a new object: say what it is and give what you have" onClick={openNewObject}>
-            New object
+          <button type="button" className="button show-new" title="Make a new project: say what it is and give what you have" onClick={openNewObject}>
+            New project
           </button>
         )}
         {cards && cards.length > 0 && (
-          <button type="button" className="button show-export" title="Export objects to one HTML file that opens by itself, or one of them to a STEP, STL or 3MF file" onClick={() => actions.exportSheet('all')}>
+          <button type="button" className="button show-export" title="Export projects to one HTML file that opens by itself, or one of them to a STEP, STL or 3MF file" onClick={() => actions.exportSheet('all')}>
             Export…
           </button>
         )}
         {cards && cards.length > 0 && (
           <label className="show-filter">
-            <input ref={field} type="text" value={typed} placeholder="Filter by name" aria-label="Filter the objects by name" spellCheck={false} onChange={(e) => setTyped(e.target.value)} />
+            <input ref={field} type="text" value={typed} placeholder="Filter by name" aria-label="Filter the projects by name" spellCheck={false} onChange={(e) => setTyped(e.target.value)} />
             <kbd aria-hidden="true">{hint('page.filter')}</kbd>
           </label>
         )}
@@ -232,7 +232,7 @@ export function ShowPage({ onOpen, onExample }: { onOpen: (id: string) => void; 
       {cards && cards.length === 0 && <EmptyWorkspace name={name} hasProject={hasProject} hasExample={hasExample} onNew={openNewObject} onExample={onExample} />}
       {cards && cards.length > 0 && shown.length === 0 && (
         <p className="show-none">
-          No object is named like <span className="show-typed">{typed.trim()}</span>. Escape shows them all.
+          No project is named like <span className="show-typed">{typed.trim()}</span>. Escape shows them all.
         </p>
       )}
       {shown.length > 0 && (

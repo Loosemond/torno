@@ -5,16 +5,16 @@ description: The contract of a torno model file (Params, assembly, printables, m
 
 # The torno model file
 
-torno imports the model file of the object folder and rebuilds it on every save. Do not run it yourself to
+torno imports the model file of the project folder and rebuilds it on every save. Do not run it yourself to
 preview it: check the build with `mcp__torno__scene` and look with `mcp__torno__look`.
 
 ## Before the first model
 
-Before the first build of a new object, and before a new feature whose key size is not given, settle the sizes:
+Before the first build of a new project, and before a new feature whose key size is not given, settle the sizes:
 
 1. List the sizes that decide fit or function: overall size, wall, the sizes of the parts it mates with, hole and
    fastener sizes, clearances. For each, say where it comes from: `brief.md`, a reference picture's note, a scan
-   (≈, to a few mm), another object, or nowhere.
+   (≈, to a few mm), another project, or nowhere.
 2. For those from nowhere, ask in one round, before you build, with `AskUserQuestion`: at most 4 questions, each with
    2 to 4 options, one of them a typical value labelled as typical ("0.2 mm per side, usual for PLA at a 0.4 mm
    nozzle"); the person may answer "build with assumptions". Do not ask about what you can choose freely (a fillet
@@ -38,11 +38,11 @@ is about another way of working. Follow its advice on how to model, not on how t
 
 ## Which file
 
-- The object folder holds one model file: a top-level `*.py` that is not a test (`test_*.py`, `*_test.py`,
+- The project folder holds one model file: a top-level `*.py` that is not a test (`test_*.py`, `*_test.py`,
   `conftest.py`), not a dotfile and not `__init__.py`.
 - If there are several, the model is the one named after the folder, `-` and `_` counting as the same
   (`helmet-stand/helmet_stand.py`). Otherwise the build fails with `no_model` or as ambiguous.
-- Scratch scripts go outside the object folder or in a `tools/` subfolder of it, so the folder keeps one model
+- Scratch scripts go outside the project folder or in a `tools/` subfolder of it, so the folder keeps one model
   file. Never write in `.torno/`: it is torno's own.
 
 ## What torno takes from it

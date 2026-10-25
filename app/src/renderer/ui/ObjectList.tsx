@@ -27,32 +27,32 @@ export function ObjectList({ onOpen }: { onOpen: (id: string) => void }) {
   const ofObject = objects.length > 1 && (creating || openId !== null)
 
   return (
-    <nav className="section objects" aria-label="Objects" data-switcher={switcher ? '' : undefined}>
+    <nav className="section objects" aria-label="Projects" data-switcher={switcher ? '' : undefined}>
       {ofObject ? (
-        <SectionTitle section="objects" title="Objects" said={`${objects.length}`} still={paged}>
+        <SectionTitle section="objects" title="Projects" said={`${objects.length}`} still={paged}>
           {/* The page of the workspace's objects, over the view; pressed again, back to the object that is open. */}
-          <button type="button" className="button button-quiet page-button" aria-pressed={paged} title={`All objects (${PAGE_KEY})`} onClick={() => actions.showPage(paged ? 'object' : 'objects')}>
+          <button type="button" className="button button-quiet page-button" aria-pressed={paged} title={`All projects (${PAGE_KEY})`} onClick={() => actions.showPage(paged ? 'object' : 'objects')}>
             <PageIcon />
-            All objects
+            All projects
             <kbd aria-hidden="true">{PAGE_KEY}</kbd>
           </button>
         </SectionTitle>
       ) : (
-        <h2 className="section-title">Objects</h2>
+        <h2 className="section-title">Projects</h2>
       )}
       {switcher ? (
         <ObjectSwitcher objects={objects} onOpen={onOpen} />
       ) : objects.length === 0 ? (
         // The page of objects says it in full beside this: it is said once.
-        !paged && <p className="section-note">No objects here yet. An object is a folder with a Python model in it.</p>
+        !paged && <p className="section-note">No projects here yet. A project is a folder with a Python model in it.</p>
       ) : (
         <ul className="rows">
           {!ofObject && (
             <li>
               {/* The page of the workspace's objects, over the view. */}
-              <button type="button" className="row page-row" aria-pressed={paged} title={`All objects (${PAGE_KEY})`} onClick={() => actions.showPage(paged ? 'object' : 'objects')}>
+              <button type="button" className="row page-row" aria-pressed={paged} title={`All projects (${PAGE_KEY})`} onClick={() => actions.showPage(paged ? 'object' : 'objects')}>
                 <PageIcon />
-                <span className="row-name">All objects</span>
+                <span className="row-name">All projects</span>
                 <kbd aria-hidden="true">{PAGE_KEY}</kbd>
               </button>
             </li>
@@ -85,7 +85,7 @@ export function ObjectList({ onOpen }: { onOpen: (id: string) => void }) {
       {!switcher && (
         <button type="button" className="button button-quiet new-object-button" aria-pressed={creating} onClick={openNewObject}>
           <PlusIcon />
-          New object
+          New project
         </button>
       )}
     </nav>
@@ -109,7 +109,7 @@ function ObjectSwitcher({ objects, onOpen }: { objects: readonly ObjectInfo[]; o
   const menu = useRef<HTMLDivElement>(null)
   const items = (): HTMLElement[] => [...(menu.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])]
   const current = creating ? undefined : objects.find((o) => o.id === openId)
-  const name = creating ? 'New object' : (current?.name ?? openId ?? '')
+  const name = creating ? 'New project' : (current?.name ?? openId ?? '')
   const { sign, said, word } = switcherSign(creating ? null : openId, objects, sessions)
 
   useEffect(() => {
@@ -166,7 +166,7 @@ function ObjectSwitcher({ objects, onOpen }: { objects: readonly ObjectInfo[]; o
         aria-expanded={shown}
         aria-pressed={creating ? true : undefined}
         aria-description={said}
-        title={[current?.problem, said && `${name}, ${said}`].filter(Boolean).join('. ') || 'Open another object'}
+        title={[current?.problem, said && `${name}, ${said}`].filter(Boolean).join('. ') || 'Open another project'}
         onClick={() => setShown((was) => !was)}
       >
         <span className="row-name">{name}</span>
@@ -176,7 +176,7 @@ function ObjectSwitcher({ objects, onOpen }: { objects: readonly ObjectInfo[]; o
         </svg>
       </button>
       {shown && (
-        <div ref={menu} className="menu object-menu" role="menu" aria-label="Objects" onKeyDown={onKeyDown}>
+        <div ref={menu} className="menu object-menu" role="menu" aria-label="Projects" onKeyDown={onKeyDown}>
           {objects.map((o) => {
             const itemSign = signOf(sessions[o.id]?.status)
             const itemSaid = rowSaid(itemSign)
@@ -204,7 +204,7 @@ function ObjectSwitcher({ objects, onOpen }: { objects: readonly ObjectInfo[]; o
           <hr className="menu-rule" />
           <button type="button" role="menuitem" className="menu-item object-item-new" onClick={(e) => choose(e.detail, openNewObject)}>
             <PlusIcon />
-            New object
+            New project
           </button>
         </div>
       )}

@@ -106,7 +106,7 @@ export function Readiness({ variant }: { variant: 'block' | 'missing' | 'sheet' 
             <LineRow key={line.id} line={line} onMake={make} problem={problem} />
           ))}
         </ul>
-        {claudeAmiss && <p className="ready-after">The object will be made, but Claude Code cannot start in it until this is put right.</p>}
+        {claudeAmiss && <p className="ready-after">The project will be made, but Claude Code cannot start in it until this is put right.</p>}
       </section>
     )
   }
