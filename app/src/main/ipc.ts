@@ -32,11 +32,12 @@ import { type AlignCheckDeps, checkingAlignments, heldNow, keepChecking, tiedToM
 import { frameOf } from './scans/alignments'
 import type { ScanStore } from './scans/store'
 import { forgetSceneFiles, loadSceneFile, saveSceneFile, sceneFileNow } from './scenefile'
-import type { ChatAnswer } from '../shared/chat'
+import { EFFORTS, isEffort, MODEL_ALIASES, MODEL_NAME, type ChatAnswer } from '../shared/chat'
 import type { AgentView, CreateRequest, OnboardDraft } from '../shared/bridge'
 import { readChoice, writeChoice } from './sessions/choice'
 import { drawingOf } from './sessions/drawing'
 import type { Sessions } from './sessions/manager'
+import type { KnownModels } from './sessions/models'
 import { readReference } from './sessions/reference'
 import { sessionOfWorkspace } from './sessions/status'
 import { type KeepDeps, cardsOf, keepThumbnail, newestPython, thumbnailOnFile } from './show/cards'
@@ -61,7 +62,7 @@ function handle(channel: string, fn: (event: Electron.IpcMainInvokeEvent, ...arg
 //           workspace:recent, workspace:forget, workspace:hasExample, workspace:openExample,
 //           object:open, object:rebuild, object:sceneFile,
 //           session:current, session:start, session:trust, session:instructions, session:revealInstruction, session:stop, session:chooseView,
-//           chat:history, chat:reference, chat:send, chat:interrupt, chat:setModel,
+//           chat:history, chat:reference, chat:send, chat:interrupt, chat:setModel, chat:setEffort, chat:models,
 //           marks:list, marks:add, marks:update, marks:acknowledge, marks:remove, marks:replace, marks:problem (also sent to the renderer),
 //           marks:dismissProblem, geometry:describe, geometry:measure,
 //           scans:list, scans:pick, scans:import, scans:convert, scans:rename, scans:remove, scans:align, scans:mesh,
@@ -77,8 +78,6 @@ function handle(channel: string, fn: (event: Electron.IpcMainInvokeEvent, ...arg
 
 /** The longest prompt the window may send. */
 const MAX_PROMPT_CHARS = 200_000
-/** A model as the CLI names one: an alias (`sonnet`) or an id, possibly with a context suffix (`claude-opus-4-5[1m]`). */
-const MODEL_NAME = /^[A-Za-z0-9._:[\]-]{1,100}$/
 
 interface OpenWorkspace {
   info: WorkspaceInfo // as of the newest scan that has ended
@@ -434,6 +433,8 @@ export function registerIpc(
   opts: {
     onWorkspaceChosen?: (root: string) => void
     sessions?: Sessions
+    /** The models the last chat's CLI offered, for a session not started yet. Absent: Claude Code's aliases. */
+    knownModels?: KnownModels
     marks?: MarkStore
     onBuild?: (state: BuildState) => void
     onMarksChecked?: (objectId: string, revision: number | undefined) => void
@@ -474,7 +475,11 @@ export function registerIpc(
   sessions?.on('status', () => cardsChanged())
   sessions?.on('item', (m) => broadcast('chat:item', { sessionId: m.sessionId, item: m.item, seq: m.seq }))
   sessions?.on('meta', (m) => broadcast('chat:meta', { sessionId: m.sessionId, meta: m.meta, seq: m.seq }))
-  sessions?.on('capabilities', (m) => broadcast('chat:capabilities', { sessionId: m.sessionId, commands: m.commands, models: m.models, seq: m.seq }))
+  sessions?.on('capabilities', (m) => {
+    broadcast('chat:capabilities', { sessionId: m.sessionId, commands: m.commands, models: m.models, seq: m.seq })
+    // What a session can be started on next, before it says its own.
+    void opts.knownModels?.heard(m.models)
+  })
   const requireSessions = (): Sessions => {
     if (!sessions) throw new Error('sessions are not available')
     return sessions
@@ -696,6 +701,12 @@ export function registerIpc(
     if (typeof model !== 'string' || !MODEL_NAME.test(model)) throw new Refusal('Not a model name')
     await requireSessions().control(String(sessionId), { subtype: 'set_model', model })
   })
+  handle('chat:setEffort', async (_event, sessionId: string, effort: string) => {
+    if (!ofThisWorkspace(String(sessionId))) throw new Refusal('This session has ended')
+    if (!isEffort(effort)) throw new Refusal(`Not an effort: Claude Code takes ${EFFORTS.join(', ')}`)
+    await requireSessions().setEffort(String(sessionId), effort)
+  })
+  handle('chat:models', () => opts.knownModels?.list() ?? [...MODEL_ALIASES])
 
   // The renderer names the object; the store finds its folder, and rejects an object the workspace does not have.
   handle('marks:list', (_event, objectId: string) => requireMarks().list(String(objectId)))
@@ -807,7 +818,7 @@ export function registerIpc(
         object: (id) => ws.info.objects.find((o) => o.id === id),
         running: (id) => sessionRunning(sessions, id),
         importScan: (id, path) => requireScans().import(id, path),
-        start: (obj) => requireSessions().start(obj, {}),
+        start: (obj, choice) => requireSessions().start(obj, choice),
         prompt: (sessionId, blocks) => requireSessions().prompt(sessionId, blocks),
         began: (sessionId) => requireSessions().began(sessionId),
         scene: (id) => ws.builds.scene(id)?.scene

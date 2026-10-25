@@ -1,4 +1,5 @@
 import type { CreateRequest, OnboardDraft, Onboarded } from '../../../shared/bridge'
+import type { AgentChoice } from '../../../shared/chat'
 import type { Draft, Held } from '../../state/onboard'
 import { extensionOf } from './images'
 
@@ -38,10 +39,11 @@ let running = false
 const WAS_MADE = /^\S+ was made, but /
 
 /**
- * "Create": makes the folder, shows the object, then hands the first prompt over, once. A second call while one
+ * "Create": makes the folder, shows the object, then hands the first prompt over, once, with the model and effort
+ * chosen for its session (`choice`: empty for the person's defaults). A second call while one
  * runs does nothing. The draft is spent as soon as the folder exists, never before: a refusal leaves the page as it was.
  */
-export async function makeObject(draft: Draft, deps: MakeDeps): Promise<Outcome> {
+export async function makeObject(draft: Draft, deps: MakeDeps, choice: AgentChoice = {}): Promise<Outcome> {
   if (running) return { kind: 'busy' }
   running = true
   try {
@@ -87,7 +89,7 @@ export async function makeObject(draft: Draft, deps: MakeDeps): Promise<Outcome>
     await deps.open(objectId).catch(() => void (shown = false))
     let told: Onboarded
     try {
-      told = await deps.onboard(objectId, { description, items, scans: request.scans, objects: request.objects })
+      told = await deps.onboard(objectId, { description, items, scans: request.scans, objects: request.objects, ...(choice.model || choice.effort ? { choice } : {}) })
     } catch (e) {
       // Nothing is known of the text: the object is made and open, and the reason is said where the chat would be.
       const message = reason(e)

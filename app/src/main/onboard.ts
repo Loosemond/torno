@@ -2,6 +2,7 @@ import { constants } from 'node:fs'
 import { lstat, open } from 'node:fs/promises'
 import { basename, extname, isAbsolute, join } from 'node:path'
 import type { OnboardDraft, Onboarded } from '../shared/bridge'
+import { type AgentChoice, agentChoiceOf } from '../shared/chat'
 import { number } from '../shared/format'
 import { moduleName } from '../shared/objectName'
 import type { Scene } from '../shared/scene'
@@ -142,7 +143,7 @@ export interface OnboardDeps {
   /** Imports a file as a scan of the object (`scans:import`); rejects with a reason. */
   importScan(objectId: string, path: string): Promise<{ id: string; name: string }>
   /** Starts the session of the object's agent; rejects with why it cannot. */
-  start(obj: ObjectInfo): Promise<{ sessionId: string; view: string }>
+  start(obj: ObjectInfo, choice: AgentChoice): Promise<{ sessionId: string; view: string }>
   prompt(sessionId: string, blocks: PromptBlock[]): void
   /** Resolves once the session's CLI has taken the prompt up, or with why it ended without; none when this cannot be known. */
   began?(sessionId: string): Promise<{ began: true } | { began: false; why: string }>
@@ -242,7 +243,8 @@ async function onboarded(deps: OnboardDeps, obj: ObjectInfo, draft: OnboardDraft
 
   let started: { sessionId: string; view: string }
   try {
-    started = await deps.start(obj)
+    // The model and effort the person chose on the page, for this session alone; what is not one is their default.
+    started = await deps.start(obj, agentChoiceOf(draft.choice))
   } catch (e) {
     return { sessionId: null, prompt: text, held, problem: firstLine(e) }
   }

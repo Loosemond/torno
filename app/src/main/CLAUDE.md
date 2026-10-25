@@ -833,7 +833,20 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   session's environment. There is no PTY. The stream is framed by line and a line that is no JSON, or a message
   of a type nobody knows, is passed over: what the CLI prints changes between versions, and nothing here throws
   at it. Torno answers `initialize` (the commands and models, told to the window as a `capabilities` event),
-  `interrupt` and `set_model`, which changes this session's model and nothing of the person's.
+  `interrupt`, `set_model`, which changes this session's model and nothing of the person's, and `apply_flag_settings`
+  for its effort (below).
+- **The model and effort of a session** (`AgentChoice`, `agentChoiceOf`, `MODEL_NAME`, `EFFORTS` in `shared/chat.ts`).
+  `Sessions.start` takes `model` and `effort` (`StartOptions`), for that session alone; `claude.ts` passes them as one
+  argument each, `--model=<name>` and `--effort=<level>`, so that a value can never be read as a flag, and nothing
+  when absent (the person's own default). What the window sends is held to the rule first: a model of `MODEL_NAME`
+  (starts with a letter or digit), an effort of `EFFORTS`; anything else is dropped, never refused. The effort is on
+  the meta (`ChatMeta.effort`: the one started with or set since; absent for the person's default, which the CLI
+  does not say). `Sessions.setEffort` (`chat:setEffort`) sends `apply_flag_settings` with `{ effortLevel }`, the
+  CLI's flag layer, held in its memory as `--effort` is: no settings file is written; once taken the transcript says
+  `Effort: <level>` (`effortSet`). Each model the CLI offers carries the efforts it says it takes (`modelsOf` in
+  `sessions/models.ts`, from `supportedEffortLevels`; empty for `supportsEffort: false`). The last list a chat's CLI
+  offered is kept for the page of a new object (`KnownModels`, `models.json` beside the config file, atomically, or
+  for the run alone with none; `chat:models`), and before any chat Claude Code's aliases (`MODEL_ALIASES`).
 - The transcript (`Transcript`) knows what the stream means and nothing of processes or files: it reduces
   messages and torno's own records (a prompt sent, a hook answered, an ask, the end) to the items of
   `shared/chat.ts`, at most 2,000, and the 40 newest pictures keep their data. Items are never changed once
@@ -1025,7 +1038,8 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   plain files of `reference/`, caps, a scan that is not a scan path, an object that is not of the workspace or is the
   object itself). Then it imports each scan through `ScanStore.import` (one that fails does not stop the rest: the text
   says it could not be imported), starts the chat session (`Sessions.start`, the agent chosen for the object, which
-  has no `agent.json`), and sends one prompt (`Sessions.prompt`): the text of `onboardPrompt`, then the pictures.
+  has no `agent.json`, on the model and effort of `OnboardDraft.choice` held to `agentChoiceOf`), and sends one
+  prompt (`Sessions.prompt`): the text of `onboardPrompt`, then the pictures.
   The text ends in three numbered steps (#111): list the sizes that decide fit or function with the source of each
   (`brief.md`, a picture's note, a scan, another object, or nowhere); ask for those from nowhere in one round with
   `AskUserQuestion` (at most 4 questions, each with 2 to 4 options, one a typical value labelled as such; "build

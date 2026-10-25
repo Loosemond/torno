@@ -579,6 +579,19 @@ test('the model menu lists what the CLI offers, changes the model of the session
   expect(found).toEqual([])
 })
 
+test('the effort menu offers what the model takes, and sets the effort of the session only', async () => {
+  const menu = dock().getByRole('combobox', { name: 'Effort' })
+  // The person's default until one is chosen; the model is Haiku now, which the CLI says takes three.
+  await expect(menu).toHaveValue('')
+  await expect(menu.locator('option')).toHaveText(['Default effort', 'Low', 'Medium', 'High'])
+  await menu.selectOption({ label: 'Medium' })
+  await expect(menu).toHaveValue('medium')
+  await expect(chat().locator('.chat-note').last()).toContainText('Effort: medium')
+  await say('say with the new effort')
+  await expect(turns().last()).toContainText('Done in')
+  await expect(menu).toHaveValue('medium')
+})
+
 test('the foot says, quietly, when a window of the rate limit is half used or more', async () => {
   await expect(chat().locator('.chat-rate')).toHaveCount(0)
   await say('rate 72')

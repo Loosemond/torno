@@ -337,8 +337,47 @@
 
 .new-actions {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   justify-content: flex-end;
   gap: var(--space-2);
+}
+
+/* The model and effort the session starts on: quiet lists at the left of the actions, the same height as the buttons. */
+.new-choice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  min-width: 0;
+}
+
+.new-choice-label {
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.new-select {
+  height: 28px;
+  max-width: 220px;
+  padding: 0 2px 0 var(--space-1);
+  border: var(--divider);
+  border-radius: var(--radius-control);
+  background: var(--panel);
+  color: var(--ink);
+  font-size: var(--text-small);
+}
+
+.new-select:not(.num) {
+  font-family: var(--font-ui);
+}
+
+.new-select:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.new-select:disabled {
+  color: var(--muted);
 }
 
 .new-confirm {

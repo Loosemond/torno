@@ -1,4 +1,5 @@
 import type { AgentView } from '../../shared/bridge'
+import type { Effort } from '../../shared/chat'
 import type { AgentTransport } from './transport'
 
 /** What to run for a session: the command, its arguments, variables to add to its environment, and files of torno's it is given by path. */
@@ -33,6 +34,9 @@ export interface LaunchContext {
   systemPrompt?: string
   /** False: leave out the skills the adapter would give (a session started on the full prompt, since they did not load). Absent: as the adapter is. */
   skills?: boolean
+  /** The model and effort chosen for this session alone (`MODEL_NAME`, `EFFORTS`, checked by main); absent: the person's own default. */
+  model?: string
+  effort?: Effort
 }
 
 /**

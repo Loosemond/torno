@@ -1,4 +1,4 @@
-import { type ChatImage, type ChatItem, type ChatMeta, MAX_ITEMS, TORNO_TOOL_PREFIX, isTornoTool, toolLabel } from '../../shared/chat'
+import { type ChatImage, type ChatItem, type ChatMeta, type Effort, MAX_ITEMS, TORNO_TOOL_PREFIX, isTornoTool, toolLabel } from '../../shared/chat'
 import type { DrawnOver } from '../../shared/drawing'
 import type { BuildDigest } from '../../shared/sanity'
 import { sessionRules } from './permissions'
@@ -58,6 +58,8 @@ export interface TranscriptOptions {
   plugin?: { name: string; skills: readonly string[] }
   /** The versions of the CLI torno was checked against, inclusive: one older, or of a newer major or minor, is said once. Absent: no version is judged. */
   tested?: { min: string; max: string }
+  /** The effort the session was started with (`--effort`); absent: the person's own default. */
+  effort?: Effort
 }
 
 /** A block of the message being streamed, by its index. */
@@ -146,6 +148,7 @@ export class Transcript {
     this.emitMeta = opts.emitMeta ?? (() => {})
     this.plugin = opts.plugin
     this.tested = opts.tested
+    if (opts.effort) this.info = { effort: opts.effort }
   }
 
   /** In order, except that the prompts still queued come last: they have not begun, whatever the turn at work is saying. */
@@ -160,6 +163,15 @@ export class Transcript {
   }
 
   // --- what torno records ---------------------------------------------------------------------------------
+
+  /** The CLI took the effort torno asked of it for this session (`apply_flag_settings`): it goes on the meta, and is said in a note. */
+  effortSet(effort: Effort): void {
+    this.run(() => {
+      if (this.info.effort === effort) return
+      this.put({ kind: 'note', id: this.newId('i'), text: `Effort: ${effort}`, tone: 'quiet' })
+      this.setMeta({ ...this.info, effort })
+    })
+  }
 
   /** A prompt for the agent. Queued when it will wait for the one at work; it is sent once the CLI takes it up (its hook, or an `init` for a command). */
   userSent(content: PromptBlock[], queued: boolean, uuid?: string, drawing?: DrawnOver): ChatItem {

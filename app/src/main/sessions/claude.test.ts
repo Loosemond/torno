@@ -33,6 +33,14 @@ function after(args: string[], flag: string): string {
 }
 
 describe('the Claude Code adapter', () => {
+  it('starts on the model and effort chosen for the session, each as one argument with its value, and on the person\'s defaults without', () => {
+    const chosen = claudeAdapter().launch({ ...ctx, model: 'opus', effort: 'xhigh' })
+    expect(chosen.args).toContain('--model=opus')
+    expect(chosen.args).toContain('--effort=xhigh')
+    const plain = claudeAdapter().launch(ctx)
+    expect(plain.args.some((a) => a.startsWith('--model') || a.startsWith('--effort'))).toBe(false)
+  })
+
   it('launches a new conversation by its id', () => {
     const launch = claudeAdapter().launch(ctx)
     expect(launch.command).toBe('claude')

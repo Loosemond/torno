@@ -58,7 +58,7 @@ const depsOf = (s: Sessions): OnboardDeps => ({
   object: (id) => objects.get(id),
   running: (id) => sessionRunning(s, id),
   importScan: (id, path) => scans.import(id, path),
-  start: (obj) => s.start(obj, {}),
+  start: (obj, choice) => s.start(obj, choice),
   prompt: (id, blocks) => s.prompt(id, blocks),
   began: (id) => s.began(id),
   scene: () => undefined

@@ -420,6 +420,14 @@ photos, doodles, scans and objects you gave), filled in as you go. A session of 
 still running stays as it is, a question waiting in it included, under a note saying whose it is: it goes on, and
 the new object gets its own. Cancel or `Esc` brings everything back as it was.
 
+Beside "Create", "Claude Code on" picks the model and the effort the new object's session starts on. Both start
+at "Your default", which passes nothing: Claude Code goes by your own settings. A choice holds for that session
+alone (torno starts the CLI with `--model` and `--effort`) and is never written to your settings; the page keeps
+it for the next object you make in this window. The models are the ones Claude Code offered in the last chat
+(kept in torno's own data), or its aliases, Opus, Sonnet and Haiku, before any chat has run; the efforts (Low,
+Medium, High, Extra high, Max) are the ones the chosen model takes, and a model that takes none leaves the effort
+off. Both can be changed in the chat afterwards.
+
 The doodle board (the same board as the chat's "Draw on view") has a thin pen, a thick pen and an eraser, "Undo" and `Ctrl+Z`, "Clear", and "Done" and "Cancel".
 `Esc` puts the board away; if strokes were drawn since it was opened it asks "Discard this doodle?" first. A
 doodle can be opened again from its card and changed.
@@ -559,7 +567,10 @@ no mark `M3`, a build `r9` that has not been made, a part the build does not hav
   use the model menu for the model of the session.
 - **The model** is chosen in the menu under the header. It changes the model of
   this session only; `/model` typed in a terminal session changes your default
-  (see below). A line under the box shows the rate limit once more than half of
+  (see below). **The effort** is the menu beside it: "Default effort" until you
+  choose one (or one was chosen when the object was made), then the level, from
+  those the model takes. It too is for this session only, and a note in the chat
+  says each change. A line under the box shows the rate limit once more than half of
   it is used.
 
 "Chat · Terminal" under the header switches the same conversation between the
@@ -1449,7 +1460,8 @@ want none of it in git.
 Outside the workspace:
 
 - `~/.config/torno/` (on macOS `~/Library/Application Support/torno/`): `config.json` holds the workspace last opened and the
-  folders opened lately (eight at most); the rest is Electron's own cache.
+  folders opened lately (eight at most); `models.json` the models Claude Code offered in the last chat, for the page
+  of a new object; the rest is Electron's own cache.
 - `~/.config/torno/agent/<session>.mcp.json` (on macOS under `~/Library/Application Support/torno/`): the file
   `--mcp-config` names, which tells a session where torno's MCP server is. It holds the placeholder
   `${TORNO_SESSION}`, never the token, and is removed when the session ends (and at the next start after a crash).
@@ -1782,7 +1794,7 @@ With a real agent:
 - **A failed or old Claude Code in the chat.** A `claude` that does not know one of the chat's flags, or is signed out: the pane says "Claude Code stopped (exit code 1)" with the last line it wrote, and "It did not start: is `claude` up to date and signed in?". Not yet seen with a real old CLI; the stand-in prints to stderr and exits 1.
 - **A chat that could not use the login, with the real CLI.** The stand-in plays it (`FAKE_AGENT_AUTH_ERROR`) in the shape of the Agent SDK's types (an assistant message with `error: "authentication_failed"`, then a `result` with `is_error: true`); no real CLI has been seen to print it. Start torno with `CLAUDE_CODE_SIMPLE=1` (what `--bare` sets) and no `ANTHROPIC_API_KEY`, send a prompt in a chat: the CLI's words, then the warning "Claude Code's chat could not use your login" with "Use the terminal", once. Note what the CLI prints then (`claude -p --bare --output-format stream-json --verbose hello` in a terminal, with no key: the assistant message's `error`, the `result`'s `subtype`, `is_error` and `api_error_status`) and whether a signed-out `claude` (`claude auth logout`) or a login that ran out answers the same way or exits (an exit leaves the chat ended, and its "Use the terminal" still starts the terminal). Then start torno without the variable: "Use the terminal" ends the chat and the same conversation goes on in the terminal.
 - **Subagents and thinking.** A turn with a subagent (`Task`; newer versions may call the tool `Agent`) and one with extended thinking: the card counts steps and lists the tools, "Thought for N s" shows after a thought. The number was worked out from a recording; nobody has looked at it with the real CLI.
-- **The chat with the real Claude Code.** In a session in chat: a prompt with a pin or two marked (the "torno added" line shows them and they turn to sent); a command that asks permission, answered "Allow", then another with "Allow for this session" (the next like it is not asked, and `~/.claude/settings.json` and the object's `.claude/` are as they were), then one "Deny"; a question (`AskUserQuestion`) answered with an option and with "Other"; a plan in plan mode approved; "Attach view" (the agent describes what you see); the model menu (the next answer is from that model, and `/model` in the terminal still shows your default); `/compact` (one note, the conversation goes on); "Terminal", then "Chat" again: the same conversation, its earlier part shown.
+- **The chat with the real Claude Code.** In a session in chat: a prompt with a pin or two marked (the "torno added" line shows them and they turn to sent); a command that asks permission, answered "Allow", then another with "Allow for this session" (the next like it is not asked, and `~/.claude/settings.json` and the object's `.claude/` are as they were), then one "Deny"; a question (`AskUserQuestion`) answered with an option and with "Other"; a plan in plan mode approved; "Attach view" (the agent describes what you see); the model menu (the next answer is from that model, and `/model` in the terminal still shows your default); the effort menu (a level chosen is taken, `/effort` in the terminal still shows your default, and `~/.claude/settings.json` is as it was); a new object made with a model and an effort chosen beside "Create" (its first answer is from that model, at that effort); `/compact` (one note, the conversation goes on); "Terminal", then "Chat" again: the same conversation, its earlier part shown.
 - **Making a new object with the real Claude Code.** "New object" with a name, a description, two photos from a phone (one large), a doodle, a scan and a reference to another object, each with a note, then "Create": the object is opened, its chat shows the one prompt with the pictures, Claude Code's reply speaks of them and of the notes, the scan is in the Scans list, `reference/` holds the original photos, and nothing else was written in the workspace. The stand-in agent has taken the prompt; the real CLI has not.
 - **Asking for the missing sizes, with the real Claude Code.** Make an object whose description gives one size and leaves out the rest (a lid for a box of an unnamed size, screws not named): before the first write of the model, Claude Code asks once, in a card with at most four questions, each with a typical value among its options and "Other" taking "build with assumptions"; it asks nothing about a fillet radius; after the answers it builds, and a size you did not give is a field of `Params` commented "assumed" and listed in its reply. Then ask for a new feature with no key size (a hole for "a screw"): it asks once, not again. The stand-in agent only plays the card; the real model's choice to ask has not been seen, and the eval harness (#121) does not yet measure it.
 - **Claude Code and torno's skills.** `--plugin-dir` works under `-p` (chat) and in the terminal view: in each, `/skills` (or asking the agent) lists `torno:torno-model`, `torno:build123d`, `torno:scans` and `torno:dimensions`, a model written in an empty object uses `torno-model` and builds with both layouts on the first try, and nothing was written under `~/.claude` or in the object's `.claude/`. The stand-in only shows the flag is passed. Asked how an argument of build123d is written, the agent searches `reference/api-0.13.0.txt` of the `build123d` skill (its `${CLAUDE_SKILL_DIR}` is filled in with the real folder, in the packaged app too) instead of running Python, and `claude plugin validate app/resources/agent-plugin` passes.

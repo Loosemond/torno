@@ -147,7 +147,9 @@ const bridge: TornoBridge = {
     send: (sessionId, prompt) => invokePlain('chat:send', sessionId, prompt),
     answer: (sessionId, requestId, answer) => ipcRenderer.send('chat:answer', sessionId, requestId, answer),
     interrupt: (sessionId) => invokePlain('chat:interrupt', sessionId),
-    setModel: (sessionId, model) => invokePlain('chat:setModel', sessionId, model)
+    setModel: (sessionId, model) => invokePlain('chat:setModel', sessionId, model),
+    setEffort: (sessionId, effort) => invokePlain('chat:setEffort', sessionId, effort),
+    models: () => invokePlain('chat:models')
   }
 }
 

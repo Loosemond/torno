@@ -45,6 +45,7 @@ import { Verdicts } from './verdicts'
 import { valueAgainstExpected } from '../shared/dimension'
 import { HOOK_DEADLINE_MS, InstructionList } from './instructions'
 import { Trust } from './trust'
+import { KnownModels } from './sessions/models'
 
 // Environment switches:
 //   TORNO_TEST=1            the window is created hidden and never shown (tests, headless checks)
@@ -519,6 +520,8 @@ void app.whenReady().then(async () => {
     else win.flashFrame(true)
   })
   registerIpc({
+    // The models the last chat offered, for the page of a new object: kept beside the recent folders, or for this run alone.
+    knownModels: new KnownModels(configPath ? join(dirname(configPath), 'models.json') : null),
     // What torno needs, found before it fails. The CLI is looked for on the PATH under test and never run: a person's login is not a test's.
     ready: new ReadyKeeper({
       probe: adapter.probe,

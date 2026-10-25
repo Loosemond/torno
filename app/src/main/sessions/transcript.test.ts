@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { ChatItem } from '../../shared/chat'
+import type { ChatItem, ChatMeta } from '../../shared/chat'
 import type { AgentMessage } from './transport'
 import { onboardPrompt } from '../onboard'
 import { LOGIN_FAILED, Transcript } from './transcript'
@@ -1263,5 +1263,23 @@ describe('a tool that was denied or cancelled', () => {
     t.message(result({ subtype: 'error_during_execution', is_error: true }))
     expect(of(t, 'tool').map((x) => x.state)).toEqual(['stopped', 'stopped'])
     expect(of(t, 'tool')[0].result).toMatch(/^The user doesn't want to proceed/)
+  })
+})
+
+describe('the effort of a session', () => {
+  it('is the one it was started with, then the one set, with a note for each change and none for the same', () => {
+    const metas: ChatMeta[] = []
+    const t = new Transcript({ now: () => 1000, effort: 'high', emitMeta: (m) => metas.push(m) })
+    expect(t.meta()).toEqual({ effort: 'high' })
+    t.effortSet('high')
+    expect(t.items()).toEqual([])
+    t.effortSet('low')
+    expect(t.meta().effort).toBe('low')
+    expect(metas.at(-1)).toMatchObject({ effort: 'low' })
+    expect(t.items()).toMatchObject([{ kind: 'note', text: 'Effort: low', tone: 'quiet' }])
+  })
+
+  it('is absent for the person\'s default', () => {
+    expect(new Transcript().meta().effort).toBeUndefined()
   })
 })

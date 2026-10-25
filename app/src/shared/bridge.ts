@@ -1,5 +1,5 @@
 import type { BuildState } from './build'
-import type { ChatAnswer, ChatHistory, ChatCommand, ChatItem, ChatMeta, ChatModel } from './chat'
+import type { AgentChoice, ChatAnswer, ChatHistory, ChatCommand, ChatItem, ChatMeta, ChatModel, Effort } from './chat'
 import type { ExportPlan, ExportRequest, ExportSaved } from './exportdata'
 import type { Described, MeasureProbe, MeasuredOnce } from './geometry'
 import type { InstructionFile } from './instructions'
@@ -39,6 +39,8 @@ export interface OnboardDraft {
   /** The scans to import into the new object, by the path the dialog or the drop gave. */
   scans: Array<{ path: string; note: string }>
   objects: Array<{ id: string; note: string }>
+  /** The model and effort to start the session on, for it alone; absent, or what is not one: the person's own default. */
+  choice?: AgentChoice
 }
 
 /** What came of `objects.onboard`. The object is made and open whatever it says. */
@@ -267,6 +269,10 @@ export interface TornoBridge {
     interrupt(sessionId: string): Promise<void>
     /** For this session only: the person's settings are not written. */
     setModel(sessionId: string, model: string): Promise<void>
+    /** For the session alone too (`apply_flag_settings`): the person's settings are not written. Rejects for an effort the CLI does not take. */
+    setEffort(sessionId: string, effort: Effort): Promise<void>
+    /** The models a session can be started on before it has said its own: the list the last chat's CLI offered, or Claude Code's aliases. */
+    models(): Promise<ChatModel[]>
   }
 }
 /** How Claude Code's session is shown: as a chat torno draws, or as the CLI's own terminal. */

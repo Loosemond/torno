@@ -41,6 +41,8 @@ export type ChatItem =
 /** What is known of the session as a whole, apart from the items. */
 export interface ChatMeta {
   model?: string
+  /** The effort torno started the session with or set since; absent: the person's own default, which the CLI does not say. */
+  effort?: Effort
   /** Whether the CLI says the MCP server of torno is connected; absent until it has said. */
   tornoConnected?: boolean
   /** The version of Claude Code (`claude_code_version` of its `init`); absent until it has said. */
@@ -68,7 +70,44 @@ export interface ChatCommand {
 export interface ChatModel {
   value: string
   displayName: string
+  /** The efforts the CLI says the model takes, in its order; empty when it takes none; absent when the CLI did not say. */
+  efforts?: Effort[]
 }
+
+/** The efforts Claude Code knows (`--effort`, `effortLevel`), least first. */
+export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
+export type Effort = (typeof EFFORTS)[number]
+export const isEffort = (value: unknown): value is Effort => typeof value === 'string' && (EFFORTS as readonly string[]).includes(value)
+
+/** A model as the CLI names one: an alias (`sonnet`) or an id, possibly with a context suffix (`claude-opus-4-5[1m]`). Never a flag. */
+export const MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._:[\]-]{0,99}$/
+
+/**
+ * The model and effort a session is started with, for that session only: what is absent is the person's own default
+ * (their settings), and torno passes nothing for it. Nothing of the person's settings is written.
+ */
+export interface AgentChoice {
+  model?: string
+  effort?: Effort
+}
+
+/** What the window sent of a choice, holding only what the CLI could be given: anything else is left to the person's default. */
+export function agentChoiceOf(raw: unknown): AgentChoice {
+  const { model, effort } = (typeof raw === 'object' && raw !== null ? raw : {}) as { model?: unknown; effort?: unknown }
+  return { ...(typeof model === 'string' && MODEL_NAME.test(model) ? { model } : {}), ...(isEffort(effort) ? { effort } : {}) }
+}
+
+/** The efforts to offer with a model of the list: its own, or every one when the CLI did not say (or the model is none of the list). */
+export function effortsOf(models: readonly ChatModel[], model: string | undefined): readonly Effort[] {
+  return models.find((m) => m.value === model)?.efforts ?? EFFORTS
+}
+
+/** The models offered before any session has said its own: Claude Code's aliases, which stand for the latest of each. */
+export const MODEL_ALIASES: readonly ChatModel[] = [
+  { value: 'opus', displayName: 'Opus' },
+  { value: 'sonnet', displayName: 'Sonnet' },
+  { value: 'haiku', displayName: 'Haiku' }
+]
 
 /** What the window asks for to draw a session's transcript, whenever it starts or is reloaded. */
 export interface ChatHistory {

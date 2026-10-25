@@ -57,6 +57,15 @@ describe('making the object', () => {
     expect(made.hold).not.toHaveBeenCalled()
   })
 
+  it('hands the model and effort chosen to the onboarding, and nothing of a choice for the person\'s defaults', async () => {
+    const { made } = deps()
+    await makeObject(draft(), made, { model: 'opus', effort: 'xhigh' })
+    expect((made.onboard as ReturnType<typeof vi.fn>).mock.calls[0][1]).toMatchObject({ choice: { model: 'opus', effort: 'xhigh' } })
+    const plain = deps()
+    await makeObject(draft(), plain.made, {})
+    expect((plain.made.onboard as ReturnType<typeof vi.fn>).mock.calls[0][1]).not.toHaveProperty('choice')
+  })
+
   it('stays on the page, with the reason and the draft, when create refuses', async () => {
     const { made, calls } = deps({ create: vi.fn(async () => Promise.reject(new Error("Error invoking remote method 'objects:create': Error: A folder `cable-clip` is there already."))) })
     expect(await makeObject(draft(), made)).toEqual({ kind: 'refused', message: 'A folder `cable-clip` is there already.' })

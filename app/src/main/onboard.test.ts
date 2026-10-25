@@ -302,6 +302,15 @@ describe('onboardObject', () => {
     expect(text).toContain('../base/ (another object of this workspace: not built in this run)')
   })
 
+  it('starts the session on the model and effort chosen on the page, and on the person\'s defaults for what is not one', async () => {
+    const chosen: unknown[] = []
+    const starting = deps({ start: async (_o, choice) => (chosen.push(choice), { sessionId: 'sess', view: 'chat' }) })
+    await onboardObject(starting, 'cable-clip', draft({ choice: { model: 'opus', effort: 'high' } }))
+    await onboardObject(starting, 'cable-clip', draft({ choice: { model: '-x', effort: 'loud' } as never }))
+    await onboardObject(starting, 'cable-clip', draft())
+    expect(chosen).toEqual([{ model: 'opus', effort: 'high' }, {}, {}])
+  })
+
   it('does not attach a picture that is not one, and says so in the text', async () => {
     const out = await onboardObject(deps(), 'cable-clip', draft({ items: [{ file: 'reference/photo-1.jpg', note: 'desk', image: new Uint8Array([1, 2, 3]) }] }))
     expect(sent[0].blocks.map((b) => b.type)).toEqual(['text'])

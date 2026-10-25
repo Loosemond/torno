@@ -12,6 +12,7 @@ import { Doodle } from './Doodle'
 import { HEIC_REASON, prepareImage } from './images'
 import { makeObject, reason } from './make'
 import { ObjectMenu, ReferenceCards } from './ReferenceItems'
+import { SessionChoice } from './SessionChoice'
 
 /** Brings the page of a new object up over what is shown, and goes on with the draft there is. */
 export function openNewObject(): void {
@@ -49,6 +50,7 @@ const plural = (n: number, one: string, many: string): string => `${n} ${n === 1
 export function NewObject({ onOpen }: { onOpen: (id: string) => Promise<void> }) {
   const workspace = useStore((s) => s.workspace)!
   const draft = useOnboard((s) => s.draft)
+  const choice = useOnboard((s) => s.choice)
   const ids = workspace.objects.map((o) => o.id)
   const wsName = basename(workspace.root)
   const page = useRef<HTMLElement>(null)
@@ -222,7 +224,7 @@ export function NewObject({ onOpen }: { onOpen: (id: string) => Promise<void> })
       folderOf: (id) => `${root}/${id}`,
       discard: () => onboarding.discard(),
       hold: (id, held) => onboarding.hold(id, held)
-    })
+    }, onboard.getState().choice)
     if (outcome.kind === 'refused') setProblem(outcome.message)
     else if (outcome.kind === 'made') setMadeAlready(outcome.message)
     else if (outcome.kind === 'done' && outcome.shown === false) {
@@ -345,6 +347,8 @@ export function NewObject({ onOpen }: { onOpen: (id: string) => Promise<void> })
             </p>
           )}
           <div className="new-actions">
+            <SessionChoice choice={choice} disabled={busy} onChange={onboarding.setChoice} />
+            <span className="spacer" />
             <button type="button" className="button" disabled={busy} title={`Leave this page (${hint('new.back')})`} onClick={leave}>
               Cancel
             </button>

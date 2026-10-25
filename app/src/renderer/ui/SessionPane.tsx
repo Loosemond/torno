@@ -13,6 +13,8 @@ import { actions, store, useStore } from '../state/store'
 import { ChatPane } from './chat/ChatPane'
 import { DraftPaneLive } from './onboard/DraftPane'
 import { clearDrafts, holdDraft } from './chat/Composer'
+import { effortsOf } from '../../shared/chat'
+import { EffortMenu } from './chat/EffortMenu'
 import { ModelMenu } from './chat/ModelMenu'
 import { Confirm } from './Confirm'
 import { numbered } from './numbered'
@@ -737,7 +739,10 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
           </span>
           <span className="spacer" />
           {chatting && chatOf && chatOf.models.length > 0 ? (
-            <ModelMenu sessionId={session.sessionId} model={model} models={chatOf.models} live={!ended} />
+            <>
+              <ModelMenu sessionId={session.sessionId} model={model} models={chatOf.models} live={!ended} />
+              <EffortMenu sessionId={session.sessionId} effort={chatOf.meta.effort} efforts={effortsOf(chatOf.models, model)} live={!ended} />
+            </>
           ) : (
             model && (
               <span className="session-model num" title="The model of this session">

@@ -1,5 +1,6 @@
 import { useStore as useZustand } from 'zustand'
 import { createStore } from 'zustand/vanilla'
+import type { AgentChoice } from '../../shared/chat'
 import { MOST_REFERENCES } from '../../shared/objectName'
 import { store as main } from './store'
 
@@ -73,11 +74,13 @@ interface OnboardState {
   /** Where Cancel goes back to: the page the draft was begun from. */
   from: 'object' | 'objects'
   held: Record<string, Held>
+  /** The model and effort the next new object's session starts on: the person's, kept from one draft to the next in this window; empty for their defaults. */
+  choice: AgentChoice
 }
 
 const empty = (): Draft => ({ name: '', description: '', photos: [], doodles: [], scans: [], objects: [] })
 
-export const onboard = createStore<OnboardState>(() => ({ draft: empty(), from: 'objects', held: {} }))
+export const onboard = createStore<OnboardState>(() => ({ draft: empty(), from: 'objects', held: {}, choice: {} }))
 
 export function useOnboard<T>(selector: (s: OnboardState) => T): T {
   return useZustand(onboard, selector)
@@ -129,6 +132,10 @@ export const onboarding = {
     onboard.setState({ from })
   },
 
+  /** The model or effort to start on; an empty value is the person's default. A draft thrown away keeps it. */
+  setChoice(choice: AgentChoice): void {
+    onboard.setState({ choice: { ...(choice.model ? { model: choice.model } : {}), ...(choice.effort ? { effort: choice.effort } : {}) } })
+  },
   setName: (name: string): void => change((d) => ({ ...d, name })),
   setDescription: (description: string): void => change((d) => ({ ...d, description })),
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { pulledFromTorno, refsIn, shownPath, toolLabel } from './chat'
+import { agentChoiceOf, EFFORTS, effortsOf, pulledFromTorno, refsIn, shownPath, toolLabel, type Effort } from './chat'
 
 const refs = (text: string): string[] => refsIn(text).flatMap((piece) => (piece.ref ? [piece.ref] : []))
 
@@ -90,5 +90,33 @@ describe('a path in the chat', () => {
     expect(toolLabel('Grep', { pattern: 'TODO', path: '/work/micra-intake/parts' }, where)).toBe('Grep: TODO in parts')
     expect(toolLabel('Glob', { pattern: '*.py', path: '/work/micra-intake' }, where)).toBe('Glob: *.py in .')
     expect(toolLabel('Write', { file_path: '/work/micra-intake/a.txt' })).toBe('Write /work/micra-intake/a.txt')
+  })
+})
+
+describe('agentChoiceOf', () => {
+  it('keeps a model the CLI could be given and an effort it knows', () => {
+    expect(agentChoiceOf({ model: 'opus', effort: 'high' })).toEqual({ model: 'opus', effort: 'high' })
+    expect(agentChoiceOf({ model: 'claude-opus-5-5[1m]', effort: 'max' })).toEqual({ model: 'claude-opus-5-5[1m]', effort: 'max' })
+  })
+
+  it('drops what is not one, and leaves the person\'s default for it', () => {
+    expect(agentChoiceOf({ model: '--dangerously-skip-permissions', effort: 'huge' })).toEqual({})
+    expect(agentChoiceOf({ model: 'a b', effort: 3 })).toEqual({})
+    expect(agentChoiceOf({ model: '' })).toEqual({})
+    expect(agentChoiceOf(null)).toEqual({})
+    expect(agentChoiceOf('opus')).toEqual({})
+  })
+})
+
+describe('effortsOf', () => {
+  it('is what the model offers, or every level when the CLI did not say', () => {
+    const models = [
+      { value: 'opus', displayName: 'Opus', efforts: ['low', 'high'] as Effort[] },
+      { value: 'haiku', displayName: 'Haiku', efforts: [] }
+    ]
+    expect(effortsOf(models, 'opus')).toEqual(['low', 'high'])
+    expect(effortsOf(models, 'haiku')).toEqual([])
+    expect(effortsOf(models, 'claude-fable-5-1')).toEqual(EFFORTS)
+    expect(effortsOf(models, undefined)).toEqual(EFFORTS)
   })
 })

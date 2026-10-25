@@ -281,6 +281,11 @@ test.describe('a new object', () => {
   })
 
   test('Create makes the object, lists it, opens it, and the first prompt reaches the agent with the pictures scaled to 1280 px', async () => {
+    // The model and effort of its session, beside Create: before any session, Claude Code's aliases.
+    const choice = newPage().getByRole('group', { name: 'Claude Code starts on' })
+    await expect(choice.getByLabel('Model')).toHaveValue('')
+    await choice.getByLabel('Model').selectOption('haiku')
+    await choice.getByLabel('Effort').selectOption('high')
     await newPage().getByRole('button', { name: 'Create' }).click()
     await expect.poll(async () => (await state()).objectId, { timeout: 30_000 }).toBe('cable-clip')
     const now = await state()
@@ -308,6 +313,9 @@ test.describe('a new object', () => {
     expect(widths).toEqual([1280, 800, 1200])
     await expect(dock.locator('.chat-user')).toHaveCount(1)
     await expect(dock.locator('.chat-turn')).toHaveCount(1, { timeout: 30_000 })
+    // Started on them, for this session alone: the stand-in runs the model it was given (`--model=haiku`), and the pane says both.
+    await expect(dock.getByLabel('Model', { exact: true })).toHaveValue('haiku')
+    await expect(dock.getByLabel('Effort', { exact: true })).toHaveValue('high')
 
     // The scan was imported into the object.
     await expect.poll(() => (existsSync(join(dir, '.torno', 'scans.json')) ? readFileSync(join(dir, '.torno', 'scans.json'), 'utf8') : ''), { timeout: 60_000 }).toContain('plate.stl')
@@ -315,6 +323,9 @@ test.describe('a new object', () => {
     await newFromList(page)
     await expect(page.getByLabel('Name', { exact: true })).toHaveValue('')
     await expect(cards('photos')).toHaveCount(0)
+    // The choice is the person's, kept for the next object; the list is now the one the chat's CLI offered.
+    await expect(newPage().getByRole('group', { name: 'Claude Code starts on' }).getByLabel('Model')).toHaveValue('haiku')
+    await expect(newPage().getByRole('group', { name: 'Claude Code starts on' }).getByLabel('Effort')).toHaveValue('high')
     // Empty, Escape leaves the page at once, for the object that was open.
     await page.keyboard.press('Escape')
     await expect.poll(async () => (await state()).page).toBe('object')

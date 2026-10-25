@@ -5,7 +5,8 @@ import { join } from 'node:path'
 import { isInsideFolder } from './inside'
 import * as pty from 'node-pty'
 import type { AgentView, SessionStatus } from '../../shared/bridge'
-import type { ChatAnswer, ChatCommand, ChatHistory, ChatItem, ChatMeta, ChatModel } from '../../shared/chat'
+import { type AgentChoice, agentChoiceOf, type ChatAnswer, type ChatCommand, type ChatHistory, type ChatItem, type ChatMeta, type ChatModel, type Effort, isEffort } from '../../shared/chat'
+import { modelsOf } from './models'
 import { type BuildState, errorLine, failedAfter } from '../../shared/build'
 import { type DrawnOver, type ViewDrawing, drawnOver } from '../../shared/drawing'
 import type { Scene } from '../../shared/scene'
@@ -215,6 +216,18 @@ interface Events {
  * agent posts to `/hooks/<sessionId>/<event>` on the local HTTP server, with the session's token in a header: a
  * token made when it starts, that opens its own hooks and its object's MCP server, and nothing once it has gone.
  */
+/**
+ * How a session is started. `resume` continues the conversation on file; `skills: false` starts it on the whole prompt;
+ * `model` and `effort` are this session's alone (`agentChoiceOf`: anything else was dropped before), absent for the
+ * person's own defaults.
+ */
+export interface StartOptions extends AgentChoice {
+  resume?: boolean
+  cols?: number
+  rows?: number
+  skills?: false
+}
+
 export class Sessions {
   private readonly sessions = new Map<string, Session>()
   /** The transcript of each chat session there is, and of the last one of each object that has ended. */
@@ -303,7 +316,7 @@ export class Sessions {
    * chosen for the object, which is read from the disk: a second call for an
    * object while the first is still starting there is answered with the first.
    */
-  start(obj: ObjectInfo, opts: { resume?: boolean; cols?: number; rows?: number; skills?: false }): Promise<Started> {
+  start(obj: ObjectInfo, opts: StartOptions): Promise<Started> {
     const running = this.of(obj.id)
     // With where it stands: nothing more may be said of a session that is waiting, and the caller would take it for starting.
     if (running) return Promise.resolve(started(running))
@@ -314,7 +327,7 @@ export class Sessions {
     return begun
   }
 
-  private async begin(obj: ObjectInfo, opts: { resume?: boolean; cols?: number; rows?: number; skills?: false }): Promise<Started> {
+  private async begin(obj: ObjectInfo, opts: StartOptions): Promise<Started> {
     const { http, adapter } = this.deps
     const view = (await this.deps.viewFor?.(obj)) ?? 'terminal'
     // Before anything is written or started: the chat loads what the folder's settings name without asking.
@@ -342,7 +355,8 @@ export class Sessions {
       token,
       configDir: this.deps.configDir,
       systemPrompt: this.deps.systemPromptFor({ ...adapter, skills }),
-      skills
+      skills,
+      ...agentChoiceOf(opts)
     })
     const files = launch.files.map((file) => file.path)
     let child: pty.IPty | null
@@ -383,6 +397,7 @@ export class Sessions {
               redact: http.redact,
               ...(skills && adapter.plugin ? { plugin: adapter.plugin } : {}),
               ...(adapter.tested ? { tested: adapter.tested } : {}),
+              ...(isEffort(opts.effort) ? { effort: opts.effort } : {}),
               emit: (item) => {
                 chat!.seq += 1
                 this.emit('item', { sessionId: id, objectId: obj.id, item, seq: chat!.seq })
@@ -781,6 +796,17 @@ export class Sessions {
     s.chat?.transcript.answered(requestId, response.behavior === 'allow' ? 'allowed' : 'denied', response.behavior === 'allow' ? answersText(response.updatedInput) : response.message)
     this.emit('asked', { sessionId, requestId, answered: true })
     if (s.asks.size === 0) this.advance(s, 'answered')
+  }
+
+  /**
+   * A chat session's effort, for the session alone: the CLI is asked to take it as a flag setting
+   * (`apply_flag_settings`, held in its memory, as `--effort` is), and the transcript says it once the CLI has.
+   */
+  async setEffort(sessionId: string, effort: Effort): Promise<void> {
+    const s = this.chat(sessionId, 'control')
+    if (!s?.agent) throw new Error('This is not a chat session, or it has ended')
+    await s.agent.control({ subtype: 'apply_flag_settings', settings: { effortLevel: effort } })
+    s.chat?.transcript.effortSet(effort)
   }
 
   /** A chat session: a request of ours to its agent (`interrupt`, `set_model`, `initialize`), resolved with its answer. */
@@ -1206,16 +1232,6 @@ function capabilitiesOf(answer: unknown): Capabilities {
       .map((c) => ({ name: text(c.name), description: text(c.description), argumentHint: text(c.argumentHint) })),
     models: Array.isArray(models) ? models : []
   }
-}
-
-/** The models a CLI offered, for the window: those that have a name to be chosen by. */
-function modelsOf(models: unknown[]): ChatModel[] {
-  const out: ChatModel[] = []
-  for (const m of models) {
-    const one = typeof m === 'object' && m !== null ? (m as { value?: unknown; displayName?: unknown }) : null
-    if (typeof one?.value === 'string' && one.value !== '') out.push({ value: one.value, displayName: typeof one.displayName === 'string' && one.displayName !== '' ? one.displayName : one.value })
-  }
-  return out
 }
 
 /** What the agent is told when the person denied a request and said nothing more. */

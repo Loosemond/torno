@@ -8,7 +8,7 @@ import { type HttpRouter, readBody, SESSION_HEADER, startHttp } from '../http'
 import { Trust } from '../trust'
 import { claudeAdapter } from './claude'
 import { killGroup, Sessions } from './manager'
-import type { ChatItem, ChatMeta } from '../../shared/chat'
+import type { ChatItem, ChatMeta, Effort } from '../../shared/chat'
 import type { PromptBlock, StreamMessage } from './stream'
 import type { BuildState } from '../../shared/build'
 import type { ViewDrawing } from '../../shared/drawing'
@@ -937,11 +937,11 @@ describe('a chat session', () => {
   })
 
   /** A chat session of the stand-in, in a folder of its own, with everything it says and is asked recorded. */
-  async function chat(opts: { resume?: boolean; folder?: string; context?: typeof contextOf } = {}) {
+  async function chat(opts: { resume?: boolean; folder?: string; context?: typeof contextOf; model?: string; effort?: Effort } = {}) {
     count += 1
     contextOf = opts.context ?? ((id, call) => ({ text: `context ${call} for ${id}`, sentMarkIds: [] }))
     const obj = object(opts.folder ?? `chat-${count}`)
-    const started = await chatSessions.start(obj, { resume: opts.resume })
+    const started = await chatSessions.start(obj, { resume: opts.resume, model: opts.model, effort: opts.effort })
     const r = record(started.sessionId)
     return {
       ...r,
@@ -1042,7 +1042,7 @@ describe('a chat session', () => {
     const { commands, models } = c.sessions.history(c.sessionId)!
     expect(commands.map((x) => x.name)).toEqual(['compact', 'clear'])
     expect(commands[0]).toEqual({ name: 'compact', description: 'Compact the conversation', argumentHint: '' })
-    expect(models).toEqual([{ value: 'default', displayName: 'Default' }, { value: 'haiku', displayName: 'Haiku' }])
+    expect(models).toEqual([{ value: 'default', displayName: 'Default', efforts: ['low', 'medium', 'high', 'xhigh', 'max'] }, { value: 'haiku', displayName: 'Haiku', efforts: ['low', 'medium', 'high'] }])
     expect(c.sessions.history('no-such-session')).toBeUndefined()
   })
 
@@ -1138,6 +1138,29 @@ describe('a chat session', () => {
     // No clock: the stand-in prints a result for the turn only when it was interrupted; killed it prints none.
     expect(c.results()).toMatchObject([{ subtype: 'error_during_execution' }])
     expect(c.statuses.at(-1)).toBe('exited')
+  })
+
+  it('starts on the model and effort chosen for the session, and says the effort', async () => {
+    const c = await chat({ model: 'haiku', effort: 'high' })
+    c.send('say hi')
+    await expect.poll(() => c.results().length).toBe(1)
+    const init = c.messages.find((m) => m.type === 'system' && m.subtype === 'init')!
+    expect(init.fake_argv).toEqual(expect.arrayContaining(['--model=haiku', '--effort=high']))
+    expect(init).toMatchObject({ model: 'haiku' })
+    expect(c.sessions.history(c.sessionId)!.meta.effort).toBe('high')
+  })
+
+  it('sets the effort of the session through a control request, for the session alone, and refuses one the CLI does not take', async () => {
+    const c = await chat()
+    expect(c.sessions.history(c.sessionId)!.meta.effort).toBeUndefined()
+    await c.sessions.setEffort(c.sessionId, 'max')
+    expect(c.sessions.history(c.sessionId)!.meta.effort).toBe('max')
+    expect(c.sessions.history(c.sessionId)!.items).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'note', text: 'Effort: max' })]))
+    c.send('say hi')
+    await expect.poll(() => c.results().length).toBe(1)
+    expect(c.messages.find((m) => m.type === 'system' && m.subtype === 'init')).toMatchObject({ effort: 'max' })
+    await expect(c.sessions.setEffort(c.sessionId, 'loud' as Effort)).rejects.toThrow(/effortLevel/)
+    expect(c.sessions.history(c.sessionId)!.meta.effort).toBe('max')
   })
 
   it('sets the model of the session through a control request', async () => {
@@ -1678,7 +1701,7 @@ describe('the transcript of a chat session', () => {
     const [told1] = abilities
     expect(told1).toMatchObject({ sessionId: c.id, objectId: c.obj.id })
     expect(told1.commands.map((x) => x.name)).toEqual(['compact', 'clear'])
-    expect(told1.models).toEqual([{ value: 'default', displayName: 'Default' }, { value: 'haiku', displayName: 'Haiku' }])
+    expect(told1.models).toEqual([{ value: 'default', displayName: 'Default', efforts: ['low', 'medium', 'high', 'xhigh', 'max'] }, { value: 'haiku', displayName: 'Haiku', efforts: ['low', 'medium', 'high'] }])
     // It counts among the things told, so that a history asked for before it can be told from one after it.
     expect(told1.seq).toBe(tSessions.history(c.id)!.seq)
   })
@@ -1686,7 +1709,7 @@ describe('the transcript of a chat session', () => {
   it('has the commands and models of the agent in its history, and the rate limit in its meta', async () => {
     const c = await start()
     await expect.poll(() => tSessions.history(c.id)!.commands.length).toBe(2)
-    expect(tSessions.history(c.id)!.models).toEqual([{ value: 'default', displayName: 'Default' }, { value: 'haiku', displayName: 'Haiku' }])
+    expect(tSessions.history(c.id)!.models).toEqual([{ value: 'default', displayName: 'Default', efforts: ['low', 'medium', 'high', 'xhigh', 'max'] }, { value: 'haiku', displayName: 'Haiku', efforts: ['low', 'medium', 'high'] }])
     await c.send('rate 72')
     await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
     expect(tSessions.history(c.id)!.meta.rate).toMatchObject({ window: 'five_hour', used: 72 })

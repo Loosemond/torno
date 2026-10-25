@@ -523,6 +523,12 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   there is a `problem`, the object is open and `onboarding.hold` keeps the text: the session pane says why
   (`session-held`, with Dismiss) and the first chat's composer starts with the text, not sent. A held prompt that
   was not sent counts among what closing the window asks about (`closingWhy`'s `heldPrompt`), as does the draft.
+- **The model and effort** of the new object's session are chosen beside Create (`ui/onboard/SessionChoice.tsx`,
+  "Claude Code on"): "Your default model" and "Your default effort" pass nothing. The models are `chat.models()` (the
+  last chat's list, or Claude Code's aliases), the CLI's own `default` row left out as the default is; the efforts
+  `effortsOf` the model chosen (the `default` row's for the default), and an effort the model does not take is let
+  go. The choice is `onboard.choice`, the person's, kept when a draft is spent or thrown away, and goes to
+  `makeObject` and on to `objects.onboard` as `choice` (only when something is chosen).
 - Styles are `styles/onboard.css`, on the tokens only; the page and the board are in `e2e/themes.spec.ts` as
   `onboard` and `onboard-board` in both themes.
 
@@ -631,6 +637,9 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   at most `MAX_ITEMS` (2,000) as main does, dropping the oldest, and says once, at the top, "Earlier items are not
   shown"; a session no pane shows takes in no picture data, also from a history that was on its way.
   The chat that ended before the window was loaded is shown from main's transcript (`session:current`'s `ended`).
+  Beside the model menu (`chat/ModelMenu.tsx`) the effort menu (`chat/EffortMenu.tsx`, `EFFORT_LABEL`): "Default
+  effort" until one is set (`meta.effort`), then the levels the model takes (`effortsOf`; none for a model that takes
+  none, and then no menu), `chat.setEffort` for the session only; a refusal takes the choice back and is said beside it.
   What the CLI says of itself comes as notes and as meta: the header's status word gains ", retrying (attempt 3)"
   while `meta.retrying` is set and the session works (the status itself is still the hooks'), and while
   `meta.pluginLoaded` is false a line above the box offers "Restart with the whole prompt" (disabled while the agent

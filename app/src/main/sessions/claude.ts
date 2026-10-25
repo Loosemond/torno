@@ -128,6 +128,9 @@ export function claudeAdapter(agentCmd?: string, pluginDir?: string): AgentAdapt
       args.push('--agents', JSON.stringify(reviewerAgents(toolName)))
       if (pluginDir && ctx.skills !== false) args.push('--plugin-dir', pluginDir)
       if (ctx.systemPrompt) args.push('--append-system-prompt', ctx.systemPrompt)
+      // `--flag=value`: one argument, so that what follows can never be read as a flag of its own.
+      if (ctx.model) args.push(`--model=${ctx.model}`)
+      if (ctx.effort) args.push(`--effort=${ctx.effort}`)
       return { command, args, env: { [TOKEN_VARIABLE]: ctx.token }, files: [{ path: mcpFile, text: `${JSON.stringify(mcp, null, 2)}\n` }] }
     },
     // Its headless mode on pipes (`HEADLESS` above).
