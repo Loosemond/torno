@@ -1,0 +1,131 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="204" viewBox="0 0 800 204" role="img" aria-labelledby="title desc">
+  <title id="title">The loop</title>
+  <desc id="desc">You mark the part; torno tells Claude Code; Claude Code edits the model; the kernel rebuilds it; the view updates, and the loop starts again.</desc>
+  <style>
+    :root {
+      --panel: #FAF9F6;
+      --ink: #22252A;
+      --muted: #646970;
+      --hairline: #DAD6CE;
+      --accent: #1D46B8;
+      --accent-wash: #E3E9F8;
+      --user-mark: #CF3F2C;
+      --ok: #1B5B3C;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --panel: #222529;
+        --ink: #E9E7E2;
+        --muted: #9A9FA6;
+        --hairline: #3E434A;
+        --accent: #7C9BF7;
+        --accent-wash: #252F4A;
+        --user-mark: #F0705E;
+        --ok: #A9E6C8;
+      }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
+    .title { fill: var(--ink); font-size: 13px; font-weight: 600; }
+    .sub { font-size: 11.5px; fill: var(--muted); }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; }
+    .num { font-size: 11px; fill: var(--muted); }
+    .ref { fill: var(--user-mark); font-weight: 600; }
+    .pass { fill: var(--ok); }
+    .box { fill: var(--panel); stroke: var(--hairline); stroke-width: 1.5; }
+    .lit { fill: var(--accent-wash); stroke: var(--accent); stroke-width: 2; opacity: 0; animation: lit 10s ease-in-out infinite; }
+    /* Outside the boxes, on whatever ground the page has: one grey that reads on a light one and a dark one. */
+    .arrow { fill: none; stroke: #7D8590; stroke-width: 1.5; }
+    .outside { font-size: 12px; fill: #7D8590; }
+    .flow { fill: none; stroke: var(--accent); stroke-width: 2; stroke-dasharray: 22 200; stroke-dashoffset: 22; opacity: 0; animation: flow 10s linear infinite; }
+    .head { fill: #7D8590; }
+    /* Each step lit for its two seconds of ten, and the stroke along its arrow as it ends. */
+    .s2 .lit, .flow.a2 { animation-delay: 2s; }
+    .s3 .lit, .flow.a3 { animation-delay: 4s; }
+    .s4 .lit, .flow.a4 { animation-delay: 6s; }
+    .s5 .lit { animation-delay: 8s; }
+    @keyframes lit {
+      0%, 2% { opacity: 0; }
+      5%, 17% { opacity: 1; }
+      21%, 100% { opacity: 0; }
+    }
+    @keyframes flow {
+      0%, 15% { opacity: 0; stroke-dashoffset: 22; }
+      16% { opacity: 1; stroke-dashoffset: 22; }
+      21% { opacity: 1; stroke-dashoffset: -40; }
+      22%, 100% { opacity: 0; stroke-dashoffset: -40; }
+    }
+    @keyframes back {
+      0%, 95% { opacity: 0; stroke-dashoffset: 40; }
+      96% { opacity: 1; stroke-dashoffset: 40; }
+      100% { opacity: 1; stroke-dashoffset: -600; }
+    }
+    .back { stroke-dasharray: 40 900; animation-name: back; animation-delay: 0s; }
+    @media (prefers-reduced-motion: reduce) {
+      .lit, .flow { animation: none; opacity: 0; }
+    }
+  </style>
+
+  <!-- The five steps: 136 wide, 22 apart. -->
+  <g class="s1">
+    <rect class="box" x="16" y="24" width="136" height="96" rx="8"/>
+    <rect class="lit" x="16" y="24" width="136" height="96" rx="8"/>
+    <text class="num mono" x="28" y="46">1</text>
+    <text class="title" x="28" y="70">You mark</text>
+    <text class="title" x="28" y="88">the part</text>
+    <text class="sub" x="28" y="108">a pin: <tspan class="mono ref">M2</tspan> too thin</text>
+  </g>
+  <g class="s2">
+    <rect class="box" x="174" y="24" width="136" height="96" rx="8"/>
+    <rect class="lit" x="174" y="24" width="136" height="96" rx="8"/>
+    <text class="num mono" x="186" y="46">2</text>
+    <text class="title" x="186" y="70">torno tells</text>
+    <text class="title" x="186" y="88">Claude Code</text>
+    <text class="sub" x="186" y="108">the marks, as text</text>
+  </g>
+  <g class="s3">
+    <rect class="box" x="332" y="24" width="136" height="96" rx="8"/>
+    <rect class="lit" x="332" y="24" width="136" height="96" rx="8"/>
+    <text class="num mono" x="344" y="46">3</text>
+    <text class="title" x="344" y="70">Claude Code</text>
+    <text class="title" x="344" y="88">edits the model</text>
+    <text class="sub mono" x="344" y="108">wall = 2 → 3</text>
+  </g>
+  <g class="s4">
+    <rect class="box" x="490" y="24" width="136" height="96" rx="8"/>
+    <rect class="lit" x="490" y="24" width="136" height="96" rx="8"/>
+    <text class="num mono" x="502" y="46">4</text>
+    <text class="title" x="502" y="70">The kernel</text>
+    <text class="title" x="502" y="88">rebuilds it</text>
+    <text class="sub" x="502" y="108">build123d, <tspan class="mono">r1 → r2</tspan></text>
+  </g>
+  <g class="s5">
+    <rect class="box" x="648" y="24" width="136" height="96" rx="8"/>
+    <rect class="lit" x="648" y="24" width="136" height="96" rx="8"/>
+    <text class="num mono" x="660" y="46">5</text>
+    <text class="title" x="660" y="70">The view</text>
+    <text class="title" x="660" y="88">updates</text>
+    <text class="sub" x="660" y="108"><tspan class="mono ref">M1</tspan> <tspan class="mono">3 mm</tspan> <tspan class="pass">passes</tspan></text>
+  </g>
+
+  <!-- The arrows between them, each with the stroke that runs along it as its step ends. -->
+  <g>
+    <path class="arrow" d="M152 72 H168"/>
+    <path class="head" d="M174 72 l-7 -4 v8 z"/>
+    <path class="flow a1" d="M152 72 H170"/>
+    <path class="arrow" d="M310 72 H326"/>
+    <path class="head" d="M332 72 l-7 -4 v8 z"/>
+    <path class="flow a2" d="M310 72 H328"/>
+    <path class="arrow" d="M468 72 H484"/>
+    <path class="head" d="M490 72 l-7 -4 v8 z"/>
+    <path class="flow a3" d="M468 72 H486"/>
+    <path class="arrow" d="M626 72 H642"/>
+    <path class="head" d="M648 72 l-7 -4 v8 z"/>
+    <path class="flow a4" d="M626 72 H644"/>
+  </g>
+
+  <!-- And back to the start: the person looks, and marks again. -->
+  <path class="arrow" d="M716 120 V168 Q716 184 700 184 H486 M314 184 H100 Q84 184 84 168 V128"/>
+  <path class="head" d="M84 121 l-4 7 h8 z"/>
+  <path class="flow back" d="M716 120 V168 Q716 184 700 184 H486 M314 184 H100 Q84 184 84 168 V126"/>
+  <text class="outside" x="400" y="188" text-anchor="middle">look, and mark again</text>
+</svg>

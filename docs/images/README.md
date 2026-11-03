@@ -43,6 +43,11 @@ issues, and for the repository's social preview. `scan.png` needs a real scan an
 
 ## A short recording
 
+Made: `demo.gif` and `demo.mp4`, from eight frames `app/e2e/demo.spec.ts` captures the same way (`TORNO_DEMO=<folder>`,
+one launch a frame) and `demo-frames/make.sh` crossfades with ffmpeg; the hold of each frame is set there. The README
+shows the GIF. The MP4 is for an issue or a release note, where GitHub plays it. `loop.svg` is an animated diagram of
+the loop (CSS animation only, both colour schemes) for wherever a picture of the loop is wanted without a window.
+
 | # | File | What it shows |
 |---|---|---|
 | 10 | `demo.mp4` (or `demo.gif`) | **The loop, 20 to 40 seconds.** Pin a face, "too thin here"; ask the agent to fix it; it edits the model; the part rebuilds and the wall is thicker; the dimension turns to "Passes". |

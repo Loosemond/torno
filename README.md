@@ -41,6 +41,10 @@ measure it and cut sections through it, so it can check its own work before it h
 torno is not a modeller. It has no sketcher, no feature tree and no way to edit a solid by hand. The model is
 the Python file, and torno shows it.
 
+<p align="center">
+  <img src="docs/images/loop.svg" alt="The loop: you mark the part, torno tells Claude Code, Claude Code edits the model, the kernel rebuilds it, the view updates, and you look and mark again" width="900">
+</p>
+
 ## Features
 
 - **Live builds.** Every save rebuilds the model and redraws it. When a build fails, the last good parts stay on
@@ -76,6 +80,10 @@ the Python file, and torno shows it.
 </table>
 
 ## How it works
+
+<p align="center">
+  <img src="docs/images/demo.gif" alt="The loop in twenty seconds: a pin on a thin wall with a note, a prompt asking for 3 mm, Claude Code looking and measuring, its edit of the model, the rebuild, and the dimension turning to passes" width="800">
+</p>
 
 ```mermaid
 flowchart LR
