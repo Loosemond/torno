@@ -1,0 +1,63 @@
+name: CI
+
+# The suites that need no display: the app's unit tests, its typecheck, the kernel's own tests, and the app
+# against the real kernel with the stand-in agent. The Playwright suite drives Electron in a hidden window on a
+# desktop (app/e2e/CLAUDE.md) and is run by hand before a release.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app:
+    name: App (unit, typecheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -C app typecheck
+      - run: pnpm test
+
+  kernel:
+    name: Kernel (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: kernel/uv.lock
+      - run: uv sync --frozen
+        working-directory: kernel
+      - run: uv run --no-sync pytest -q
+        working-directory: kernel
+
+  integration:
+    name: App against the kernel
+    runs-on: ubuntu-latest
+    needs: [app, kernel]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: kernel/uv.lock
+      - run: pnpm install --frozen-lockfile
+      - run: uv sync --frozen
+        working-directory: kernel
+      - run: pnpm test:kernel

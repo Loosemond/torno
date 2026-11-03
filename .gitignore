@@ -10,3 +10,4 @@ app/e2e/.results/
 # Claude Code worktrees and profiler dumps
 .claude/worktrees/
 *.prof
+docs/images/raw/

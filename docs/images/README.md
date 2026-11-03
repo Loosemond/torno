@@ -1,7 +1,19 @@
 # Images for the README
 
-The README has a place for each of these, commented out until the file is here. Add the file under the name
-given, then take the `<!--` and `-->` off its block in `README.md`.
+The pictures here are made, not taken: `app/e2e/readme.spec.ts` drives the built app in a hidden window to each
+state below and captures it once a launch, with the stand-in agent speaking a scripted turn (the one cosmetic edit,
+the words of the person's prompt, is said in the spec), and `app/scripts/readme-images.py` crops, quantizes and
+composes the social preview. To remake them after the window changes:
+
+```sh
+pnpm build
+TORNO_README_SHOTS=$PWD/docs/images/raw pnpm -C app exec playwright test e2e/readme.spec.ts
+python3 app/scripts/readme-images.py docs/images/raw docs/images
+```
+
+`docs/images/raw/` (the whole-window captures) is not committed. The shots below that are not in the README
+(`objects.png`, `export.png`, `first-screen.png`, `social-preview.png`) are made all the same, for the manual, for
+issues, and for the repository's social preview. `scan.png` needs a real scan and is not made.
 
 ## How to take them
 

@@ -16,11 +16,12 @@
   <a href="#contributing">Contributing</a>
 </p>
 
-<!-- Screenshot: the whole window. See docs/images/README.md, shot 1.
 <p align="center">
-  <img src="docs/images/hero.png" alt="torno with a part open: the projects on the left, the part in 3D in the middle with two marks on it, the chat with Claude Code on the right" width="900">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/hero-dark.png">
+    <img src="docs/images/hero.png" alt="torno with a part open: the projects on the left, the part in 3D in the middle with marks and dimensions on it, the chat with Claude Code on the right" width="900">
+  </picture>
 </p>
--->
 
 > [!NOTE]
 > torno is new and early. It is developed on Linux (Arch, Wayland) and also runs on macOS, which has seen less use. Expect rough edges,
@@ -61,7 +62,6 @@ the Python file, and torno shows it.
 - **Local.** torno itself uploads nothing. The agent is your own `claude`, under your own login, and torno
   leaves its settings alone. In your folders, torno writes only under `<project>/.torno/`.
 
-<!-- Screenshots: three side by side. See docs/images/README.md, shots 2–4.
 <table>
   <tr>
     <td><img src="docs/images/marks.png" alt="Pins and a dimension on a part, with the Marks list showing one dimension passing and one failing"></td>
@@ -74,7 +74,6 @@ the Python file, and torno shows it.
     <td align="center">Section</td>
   </tr>
 </table>
--->
 
 ## How it works
 
