@@ -25,7 +25,7 @@ Main is not touched: the folder dialog already offers to make a folder (`propert
 - No new npm dependency. No new image file: the tree is markup.
 - Every key is a row of `shared/keys.ts`; a hint is `hint(id)`, never a literal key.
 - UI text is sentence case. Every number, path and file name is in the monospace face (`num` class or `numbered()`).
-- Colours, spacing and type from `styles/tokens.css` only. No endless animation. Not nerv's look: no black/red/amber,
+- Colours, spacing and type from `styles/tokens.css` only. No endless animation. No control-room look: no black/red/amber,
   no condensed uppercase labels, no corner-tick frames.
 - Keep the logo head (`ui/Logo.tsx`: the vise in `--ink`, the part in `--accent`) and its e2e check.
 - Never write inside a user workspace; this change writes nothing anywhere.

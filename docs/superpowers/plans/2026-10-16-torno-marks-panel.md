@@ -29,7 +29,7 @@ main checks each id as `update` does. The row's chip is the id alone (`rowLabel`
   before it is told (`MarkStore.change`). `acknowledged` is in `MAIN_ONLY_KEYS`: the window asks, main sets it.
 - UI text sentence case; every id, ref and number in the monospace face (class `num`).
 - `--user-mark` / `--agent-mark` only for marks; colours from `styles/tokens.css` only.
-- No endless animation; not nerv's look (no black/red/amber, no condensed uppercase labels, no corner ticks).
+- No endless animation; no control-room look (no black/red/amber, no condensed uppercase labels, no corner ticks).
 - The Marks list never scrolls sideways (`e2e/reanchor.spec.ts`).
 - Stage explicit paths (`git add <files>`, never `-A`). Commit after every task, message ending
   `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.

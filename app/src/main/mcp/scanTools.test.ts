@@ -15,7 +15,7 @@ import type { ToolDeps, ToolResult } from './tools'
 const part = (layout: string, name: string, more: Partial<Part> = {}): Part =>
   ({ key: `${layout}:${name}`, name, layout, bbox: { min: [-20, -15, -3], max: [20, 15, 3] }, volume: 6000, faceCount: 12, edgeCount: 30, valid: true, ...more }) as Part
 const SCENE: Scene = { model: 'box.py', layouts: ['assembly', 'print'], parts: [part('assembly', 'tub'), part('assembly', 'lid'), part('print', 'tub'), part('print', 'lid', { arranged: [45, 0, 0] })], seconds: 1, output: '' }
-/** As the owner's micra-intake: one layout, the first part where the model put it, the others moved. */
+/** As a real project: one layout, the first part where the model put it, the others moved. */
 const PRINT_ONLY: Scene = { ...SCENE, layouts: ['print'], parts: [part('print', 'tub'), part('print', 'lid', { arranged: [45, 0, 0] })] }
 const CAMERA: Camera = { position: [100, -80, 60], target: [0, 0, 0], up: [0, 0, 1], ortho: false, fov: 35, zoom: 1 }
 const OK: BuildState = { objectId: 'box', status: 'ok', revision: 12, seconds: 1, stale: false }

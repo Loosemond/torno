@@ -395,7 +395,7 @@ Items (each with a test unless marked):
 
 - [ ] **Step 1:** Items 1 to 8, test first.
 - [ ] **Step 2:** One real check with the real CLI, hidden, sonnet, one prompt, on a temp copy of the fixtures (as in Milestone 1's Task 10, with `TORNO_AGENT_CMD="claude --model sonnet"`): place a pin on the bracket's top face with the note "make this plate 8 mm thick" and an arrow on the post, then send the prompt `What did I mark? Answer from the marks you were given, then call highlight on the face of the first one. Do not edit any file.` Record: the context lines the hook sent, the model's answer, that the highlight appeared in the window state, and that the marks became `sent`.
-- [ ] **Step 3:** Hidden sweep on `/home/luisgonc/objects`: open `micra-intake`, place a pin on the lid and a plane stroke in front view through pointer events, save `look` pictures with marks, and look at them. `git -C /home/luisgonc/objects status --short` before and after: only `.torno/` may appear (and is left in place).
+- [ ] **Step 3:** Hidden sweep on `~/objects`: open `intake`, place a pin on the lid and a plane stroke in front view through pointer events, save `look` pictures with marks, and look at them. `git -C ~/objects status --short` before and after: only `.torno/` may appear (and is left in place).
 - [ ] **Step 4:** All suites; commit.
 
 ## Order

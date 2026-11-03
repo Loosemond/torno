@@ -10,7 +10,7 @@ Torno is not a modeller. It has no sketcher, no feature tree and no way to edit 
 
 The name is Portuguese for lathe.
 
-### Why it is needed (evidence from the micra-intake session)
+### Why it is needed (evidence from the intake session)
 
 One session, 19 hours, about 28 human messages:
 
@@ -67,9 +67,9 @@ Three processes.
 └──────────────────────┘   └──────────────────────────────┘
 ```
 
-**Electron**, not Tauri: this machine is NVIDIA on Wayland, which is the documented weak case for WebKitGTK. Electron pins one Chromium, and node-pty plus xterm.js is a proven terminal stack (nerv uses it).
+**Electron**, not Tauri: NVIDIA on Wayland is the documented weak case for WebKitGTK. Electron pins one Chromium, and node-pty plus xterm.js is a proven terminal stack.
 
-**No daemon.** nerv keeps a daemon so sessions outlive the window. Torno does not: closing the window ends the PTYs, and sessions are resumed with `--resume`. This removes a process, a socket protocol and an install step.
+**No daemon.** A daemon would let sessions outlive the window. Torno has none: closing the window ends the PTYs, and sessions are resumed with `--resume`. This removes a process, a socket protocol and an install step.
 
 **State ownership.** Main owns durable state (marks, scans, views, layer settings) and writes it to disk. The renderer holds a mirror in Zustand and sends intents. The kernel owns geometry. Per-frame state (camera while orbiting, hover) stays inside the viewport code and never passes through React.
 
@@ -250,7 +250,7 @@ Custom, on plain three.js with three-mesh-bvh. It is the centre of the product a
 
 ## 8. Scans
 
-Import GLB, glTF, OBJ, PLY or STL by drop or dialog. The import process (trimesh) bakes vertex colours from the texture, converts to millimetres and Z up, and writes one mesh, `mesh.bin`; up to 2,000,000 triangles it is not reduced (Micra: 1.6 M, 3.4 s, 34 MB). The source is referenced by path, size and hash and never copied. Unit and up axis are assumed from the format and the size (glTF: metres, Y up), asked about once right after an import in the window (with the size the scan would have), and can be changed afterwards. A scan's row in the panel is one line like a layer's (id, name, its state in one word, the eye: `placed` for an alignment tied to no point of the model, which no build checks), and the rest opens beneath it.
+Import GLB, glTF, OBJ, PLY or STL by drop or dialog. The import process (trimesh) bakes vertex colours from the texture, converts to millimetres and Z up, and writes one mesh, `mesh.bin`; up to 2,000,000 triangles it is not reduced (the bay scan: 1.6 M, 3.4 s, 34 MB). The source is referenced by path, size and hash and never copied. Unit and up axis are assumed from the format and the size (glTF: metres, Y up), asked about once right after an import in the window (with the size the scan would have), and can be changed afterwards. A scan's row in the panel is one line like a layer's (id, name, its state in one word, the eye: `placed` for an alignment tied to no point of the model, which no build checks), and the rest opens beneath it.
 
 Alignment, in order of use:
 
@@ -266,7 +266,7 @@ The objects of a workspace are on one page of cards: a picture of the last build
 
 ## 10. Design language
 
-Its own, and deliberately far from nerv's dark control room.
+Its own, and deliberately far from a dark control room.
 
 - **Idea:** a toolroom surface plate. Calm, light, exact. The part is the only loud thing on screen.
 - **Layout:** the viewport fills the window. Tools float on it in one small palette, in three groups split by a hairline: those that inspect (Select, Measure, Section), those that mark (Pin, Arrow, Draw, Shape, Region of a scan) and the scan's (Align scan). Layers and marks sit in a narrow column on the left; the session docks on the right and can be widened, hidden or made full height. No frames within frames.
@@ -289,7 +289,7 @@ Its own, and deliberately far from nerv's dark control room.
 - **Kernel:** pytest against small fixture models: scene discovery, tessellation shape, each query against known geometry, anchor re-projection across a topology change, crash isolation.
 - **Main:** vitest: mark store, hook context text, MCP tools against a fake kernel, session launch arguments against a fake CLI.
 - **Viewport:** unit tests for picking maths and face lookup; a Playwright Electron smoke test, in a hidden window, that opens a fixture object, picks a face, and checks the resulting mark.
-- **End to end, by hand:** open `~/objects/micra-intake`, with the real Claude Code.
+- **End to end, by hand:** open `~/objects/intake`, with the real Claude Code.
 
 ## 13. Milestones
 

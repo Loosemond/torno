@@ -36,7 +36,7 @@ above the keys button between them.
   taken (`marks:add` measures again).
 - UI text is sentence case. Numbers and refs are set in the monospace face (`num`).
 - Colours come from `styles/tokens.css` only. `--user-mark` and `--agent-mark` are for marks alone, so a readout
-  is not a mark and is never drawn in them. No endless animation. Not nerv's look: no black, red or amber, no
+  is not a mark and is never drawn in them. No endless animation. No control-room look: no black, red or amber, no
   condensed uppercase labels, no corner ticks.
 - Stage explicit paths (`git add <file> …`, never `-A`). Commit after every task with a message describing the
   change, ending with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.

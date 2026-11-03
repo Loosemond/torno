@@ -12,7 +12,7 @@ describe('what a sentence has set in the face of numbers', () => {
 
   it('takes numbers as before, with their sign and their separators, and no letter of a word', () => {
     expect(set('1,607,144 triangles, 2518 × 2351 × 1494 mm, rms 0.003 mm, at -95.6')).toEqual(['1,607,144', '2518', '2351', '1494', '0.003', '-95.6'])
-    expect(set('Scans are read as mm; Micra.glb has none')).toEqual([])
+    expect(set('Scans are read as mm; Bay.glb has none')).toEqual([])
   })
 
   it('starts a sentence with a capital', () => {

@@ -150,8 +150,8 @@ describe('fitPairs', () => {
     expect(fit.residuals.indexOf(Math.max(...fit.residuals))).toBe(3)
   })
 
-  it('holds for the frame the owner worked out by hand for the Micra scan', () => {
-    // micra-intake/docs/2026-10-06-micra-intake-design.md: glTF coordinates in mm, less the origin, dotted with each axis (four digits).
+  it('holds for a frame worked out by hand for a real scan', () => {
+    // intake/docs/intake-design.md: glTF coordinates in mm, less the origin, dotted with each axis (four digits).
     const origin: Vec3 = [107.4, 689.9, 28.8]
     const axes: Vec3[] = [[0.9944, -0.0064, 0.1055], [0.1045, -0.0898, -0.9905], [0.0158, 0.9959, -0.0887]]
     const tray = (p: Vec3): Vec3 => axes.map((axis) => axis.reduce((sum, c, i) => sum + c * (p[i] - origin[i]), 0)) as Vec3

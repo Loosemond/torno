@@ -94,7 +94,7 @@ to headings the manual has; the reference goes in the manual.
   gives an object's MCP address and a token that opens it; the stand-in agent reads `--mcp-config` from its file and
   expands both placeholders from its environment, as Claude Code does.
 - Images for the agent: long edge at most 2000 px, default 1280.
-- Do not copy nerv's look: no black/red/amber, no condensed uppercase labels, no corner-tick frames. Follow spec section 10 and the tokens in Task 4.
+- No control-room look: no black/red/amber, no condensed uppercase labels, no corner-tick frames. Follow spec section 10 and the tokens in Task 4.
 - UI text is sentence case. Every number and ref is set in the monospace face.
 - Tests must not open a visible window: `show: false` when `TORNO_TEST=1`.
 - Commit after every task with a message describing the change, ending with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.

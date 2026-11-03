@@ -86,7 +86,7 @@ describe('the chips of a card', () => {
 })
 
 it('keeps the cards whose name holds what was typed, whatever the case', () => {
-  const cards = [card({ id: 'a', name: 'Helmet stand' }), card({ id: 'b', name: 'micra-intake' }), card({ id: 'c', name: 'stand-off' })]
+  const cards = [card({ id: 'a', name: 'Helmet stand' }), card({ id: 'b', name: 'intake' }), card({ id: 'c', name: 'stand-off' })]
   expect(matching(cards, ' STAND ').map((c) => c.id)).toEqual(['a', 'c'])
   expect(matching(cards, '')).toBe(cards)
   expect(matching(cards, 'zz')).toEqual([])

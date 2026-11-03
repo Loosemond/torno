@@ -46,12 +46,12 @@ model contract), plus Issue #20 "Groups of parts, for the person and for Claude 
 - Every key is a row of `shared/keys.ts`; this plan adds no key (the group's buttons are clicked). If one is added
   later it goes through `keys.ts` and the README's table (`TORNO_README=write`).
 - UI text is sentence case. Part names, group names and refs are set in the monospace face (`num`).
-- Colours, sizes and spacing come from `app/src/renderer/styles/tokens.css` only. Don't copy nerv's look: no black, red or amber, no
+- Colours, sizes and spacing come from `app/src/renderer/styles/tokens.css` only. No control-room look: no black, red or amber, no
   condensed uppercase labels, no corner-tick frames.
 - No per-frame state in React.
 - `README.md` names every MCP tool as `mcp__torno__<name>` and `app/src/readme.test.ts` holds it to `TOOLS`: no tool
   is added here, but descriptions that change are reflected in the README's text.
-- Never write under `/home/luisgonc/objects/` (the `micra-spoiler` example is read only).
+- Never write under `~/objects/` (the `spoiler` example is read only).
 - Stage explicit paths (`git add <file> …`), never `git add -A`.
 - Before each commit run all four suites: `pnpm test`, `pnpm test:kernel`, `pnpm test:e2e`, `pnpm -C app typecheck`.
   When `kernel/` changes, also run `(cd kernel && uv run --no-sync pytest -q)`.
@@ -125,7 +125,7 @@ def groups(p: Params) -> dict[str, list[str]]:
     return {name: [f"{name}-{label}" for label in part_names(p.n_parts)] for name, _ in p.meshes}
 ```
 
-For `micra-spoiler` this gives `{"agressiv": [5 parts], "flat": [5 parts]}`, and `key` stays ungrouped. `groups` is called
+For `spoiler` this gives `{"agressiv": [5 parts], "flat": [5 parts]}`, and `key` stays ungrouped. `groups` is called
 with the same `Params()` as `assembly`/`printables`. It is optional: a model without it has no groups. It is read only
 under the `Params` convention (`assembly`/`printables`/`make_<part>`), never for top-level shapes.
 

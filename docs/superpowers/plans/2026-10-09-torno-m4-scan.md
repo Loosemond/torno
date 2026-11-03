@@ -24,7 +24,7 @@ How this plan is written: each task gives its files, the exact interfaces it con
   - Renderer: `contextIsolation: true`, `nodeIntegration: false`, `backgroundThrottling: false`. No per-frame and no per-pointer-move state in React or Zustand.
   - HTTP server binds `127.0.0.1` only, on an OS-assigned port.
   - Images for the agent: long edge at most 2000 px, default 1280.
-  - Do not copy nerv's look: no black/red/amber, no condensed uppercase labels, no corner-tick frames. Follow spec section 10 and the tokens in `app/src/renderer/styles/tokens.css`. UI text is sentence case. Every number and ref is set in the monospace face (class `num`).
+  - No control-room look: no black/red/amber, no condensed uppercase labels, no corner-tick frames. Follow spec section 10 and the tokens in `app/src/renderer/styles/tokens.css`. UI text is sentence case. Every number and ref is set in the monospace face (class `num`).
   - User marks are drawn in `--user-mark`, agent marks in `--agent-mark`, and nothing else in the UI uses those colours: a scan, a deviation picture and the alignment points use tokens of their own.
   - Tests must not open a visible window: `show: false` when `TORNO_TEST=1`. Every Electron launch sets `TORNO_TEST=1`.
   - Commit after every task with a message describing the change, ending with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
@@ -35,15 +35,15 @@ How this plan is written: each task gives its files, the exact interfaces it con
 - Nothing is checked against a scan where it was imported: a scan with no transform for a layout is "not aligned" there, and `scan_clash`, `scan_deviation`, `scan_section` and a scan end of `measure` refuse it with a plain reason.
 - A part torno moved for display (`Part.arranged`) is refused by the scan checks, as two such parts are refused by `check` (`spreadApart`): the reply names the layouts that place it as assembled, or says to add `def assembly(p)`.
 - A kernel query has 30 s (`QUERY_TIMEOUT`). A scan query gives itself 15 s, samples what it cannot finish, and says so (`sampling`).
-- Tests work on a temporary copy of `kernel/tests/fixtures/ws`, never on the fixtures themselves, never on a real workspace. Nothing under `/home/luisgonc/objects` or `/home/luisgonc/Downloads` is ever written.
+- Tests work on a temporary copy of `kernel/tests/fixtures/ws`, never on the fixtures themselves, never on a real workspace. Nothing under `~/objects` or `~/Downloads` is ever written.
 
 ## Review Focus
 
 The five ways this is most likely to bite the owner, most likely first. Each has its test in the task that owns the code.
 
 1. **A wrong unit or up-axis guess.** An STL in centimetres or inches, an OBJ that is Z up, a GLB that is not in metres: the scan arrives 10, 25.4 or 1000 times too large, or lying on its side. Expected: the row says the size in millimetres and what was assumed ("2518 × 2351 × 1494 mm, from m, Y up (assumed)"), unit and up axis can be changed afterwards without the source file, and a pair fit whose free scale is within 3 % of a unit ratio says "this looks like a unit". Tests in Tasks 1 (`test_guess_*`, `test_convert_*`), 2 (`convert`), 5 (`unitHint`).
-2. **The source file moves, changes or is deleted** (it is in Telegram's download folder). Expected: the scan goes on working from `mesh.bin`; the row says "source missing" or "source changed"; when `mesh.bin` is gone too the row says what to do and every tool refuses with the path it looked for. Tests in Task 2 (`store.test.ts`: `sourceState`, `meshState`).
-3. **The scan in a layout torno spread** (`micra-intake` has only `print`: the tub stays, five parts are moved). Expected: alignment and `scan_clash` against the tub work, with a note that a print layout poses parts for the bed; against the lid they are refused, naming `def assembly(p)`. Tests in Task 7 (`scanTools.test.ts`: `SPREAD`) and by hand in Task 9.
+2. **The source file moves, changes or is deleted** (it is in the downloads folder). Expected: the scan goes on working from `mesh.bin`; the row says "source missing" or "source changed"; when `mesh.bin` is gone too the row says what to do and every tool refuses with the path it looked for. Tests in Task 2 (`store.test.ts`: `sourceState`, `meshState`).
+3. **The scan in a layout torno spread** (`intake` has only `print`: the tub stays, five parts are moved). Expected: alignment and `scan_clash` against the tub work, with a note that a print layout poses parts for the bed; against the lid they are refused, naming `def assembly(p)`. Tests in Task 7 (`scanTools.test.ts`: `SPREAD`) and by hand in Task 9.
 4. **1.6 million triangles stalling the window.** Expected: the import never runs in the window or in main's thread; the scan is drawn as soon as its bytes arrive and is pickable when its tree arrives from a worker (1.6 s measured, E3); a pointer move costs one BVH ray; nothing of a brush stroke goes through React. Tests in Task 4 (`e2e/scan.spec.ts`: a 200,000-triangle generated scan is `ready`, `timeScanPicks` mean under 2 ms) and the frame time read by hand in Task 9.
 5. **A stale alignment after the model's frame changes** (the owner moves the tub by changing `pad_t`, or a wider part respreads the layout). Expected: after every build each alignment is checked: the model points of its pairs are looked for on their parts again, and each part's `arranged` is compared with what it was; an alignment the model moved under says so in the row, in `scans`, in the prompt's line and in every scan reply (`stale`), and is never silently re-fitted. Tests in Task 5 (`alignCheck.test.ts`, and the `spread` fixture in `e2e/align.spec.ts`).
 
@@ -54,7 +54,7 @@ The controller's rulings, as followed:
 - **R1.** Import is a one-shot process, `python -m torno_kernel.scans import …`: never the supervisor, never a build worker. trimesh reads GLB/glTF, OBJ, PLY, STL; textures are baked to vertex colours; the mesh is converted to millimetres and Z up; one binary file is written. Unit and up axis are guessed from the format and the size, shown, and changeable.
 - **R2.** One mesh per scan, undecimated up to 2,000,000 triangles; above, reduced to at most 2,000,000 and said. What is drawn is what is picked, painted and clashed.
 - **R3.** The source is referenced by absolute path, size, modification time and SHA-256, never copied or modified. `<object>/.torno/scans/<id>/mesh.bin` is the scan. `.torno/scans.json` is main-owned, atomic, one change at a time per object. Ids `S1`, `S2`, … per object, never reused. Visibility, opacity and colour mode are view state in `scene.json`.
-- **R4.** One transform per layout. No transform for the layout shown: "not aligned" there, drawn where it was imported, flagged, refused by the checks. A part with a non-zero `arranged` is refused. `micra-intake`: usable against the tub (E2: the tub is not moved, and the model stands it in the tray frame lowered by `pad_t`); the docs say that fit against the car needs `assembly(p)`.
+- **R4.** One transform per layout. No transform for the layout shown: "not aligned" there, drawn where it was imported, flagged, refused by the checks. A part with a non-zero `arranged` is refused. `intake`: usable against the tub (E2: the tub is not moved, and the model stands it in the tray frame lowered by `pad_t`); the docs say that fit against the car needs `assembly(p)`.
 - **R5.** Alignment: (a) floor, from a patch or three points of the scan, to Z = 0 or onto a picked model face; (b) pairs, N ≥ 3, rigid by default, uniform scale offered when the residual says the unit is wrong, residuals per pair; (c) the existing gizmo, with typed values. No ICP.
 - **R6.** A region is a mark of kind `region`, ids in the `M` sequence, `draft` → `sent` → `resolved` like any mark, told in text. Brush with a radius on the BVH, a box, and "grow to flat".
 - **R7.** Tools `scans`, `scan_clash`, `scan_deviation`; `measure` takes a scan point or a region as an end; `look` draws scans by default, can hide them or colour one by distance to a part; `show` can switch them. Every reply says revision, layout, alignment state and that scan numbers are approximate. The prompt's context gains one line about scans; draft regions are listed with the marks.
@@ -66,14 +66,14 @@ Where this plan departs from the groundwork or adds to a ruling, because an expe
 
 - **D1. Ruling proposed: trimesh and pillow are an optional extra (`scans`) of the kernel package, asked for by the import command only (`--with-editable "<kernel>[scans]"`); scipy is not declared and is imported lazily in the build worker.** Why: E1 (c) shows that a dependency of the kernel that is neither cached nor downloadable stops *every* kernel start, so trimesh in `dependencies` would make builds depend on a library no build uses; E1 (b) shows a declared scipy shadows the workspace's own for every model. Cost if wrong: on a machine with no network and no cached trimesh the import fails with uv's message while builds go on working (that is the intent); in a workspace whose environment has no scipy (none that has build123d 0.13) the scan checks are refused with a sentence.
 - **D2. Ruling proposed: inside or outside is one ray along +Z through a 2D grid of the triangles, asked again along +X then +Y only for a point whose ray passes within 1e-9 of a triangle edge; depths come from a `cKDTree` over the part's mesh sampled every 1 mm, built with `balanced_tree=False, compact_nodes=False`.** Why: E2: the same answers as three rays and a majority on 800,000 points, 2 to 9 times quicker; scipy's default tree took 6 to 20 s for a query that takes 0.1 to 0.5 s so built. Cost if wrong: a point whose +Z ray grazes an edge by more than 1e-9 and less than rounding error is misjudged; the pytest against the classifier would show it.
-- **D3. Ruling proposed: `scan_clash` counts scan vertices inside the part and scan triangles that cross its surface; it reports no volume.** Why: a scan is an open surface with no inside. Cost if wrong: a scan surface that passes through a wall thinner than the spacing of the scan's vertices (about 4 mm on Micra) with no vertex inside is seen only as crossing triangles when their vertices are candidates; the reply's `how` says so.
+- **D3. Ruling proposed: `scan_clash` counts scan vertices inside the part and scan triangles that cross its surface; it reports no volume.** Why: a scan is an open surface with no inside. Cost if wrong: a scan surface that passes through a wall thinner than the spacing of the scan's vertices (about 4 mm on the bay scan) with no vertex inside is seen only as crossing triangles when their vertices are candidates; the reply's `how` says so.
 - **D4. Ruling proposed: the rigid fit is Umeyama's least-squares solution computed in Horn's quaternion form** (a symmetric 4 × 4 eigenproblem by Jacobi rotations). Why: the same minimiser, always a proper rotation, no SVD to write or import in TypeScript. Cost if wrong: none in result; the unit test recovers a known transform to 1e-9.
 - **D5. Ruling proposed: unit and up axis are shown on the scan's row after the import and changed there (`convert`, which rewrites `mesh.bin` from itself), with no sheet before the import.** Why: a drop stays one gesture, and the change works when the source is gone (Review Focus 1 and 2). Cost if wrong: a scan guessed wrongly is drawn wrongly for the seconds it takes to change it; changing either drops the scan's alignments, and the confirmation says so.
 - **D6. Ruling proposed: above 2,000,000 triangles the import reduces by vertex clustering on a grid in numpy** (cell doubled until under the limit), not by `fast-simplification`. Why: no further dependency, and the rule is only reached by files the owner does not have. Cost if wrong: a 5 M-triangle scan loses more detail than quadric decimation would keep; the row and every reply say `reduced from N`.
 - **D7. Ruling proposed: `ShapeGizmo` is made to hold either a shape mark or a scan (`GizmoSubject`), not copied.** Why: the pointer router arbitrates one gizmo (`pointer.ts`). Cost if wrong: a regression in shape editing, which `ShapeGizmo.test.ts` and `e2e/tools.spec.ts` cover.
 - **D8. Added: alignments are checked after every build** (Review Focus 5). Why: nothing in the rulings stops a scan from silently sitting where the model used to be. Cost if wrong: one more `nearest` query per layout and build, and a false "stale" when a face the person clicked was deliberately moved; the wording asks for a look, it does not undo anything.
 - **D9. Ruling proposed: a region carries a note and no fixed label; `scan_clash` is told which regions to leave out (`ignore: ["M7"]`).** Why: R6 says the person names a region with a note; the spec's three labels (`ignore`, `movable`, `keep-out`) are not in the ruling. Cost if wrong: the agent must read "can be pushed aside" from a note and pass the id itself; Task 1 amends the spec's table.
-- **D10. Added: `.torno/scans/.gitignore` holds `mesh.bin`.** Why: the spec promises `.torno/` is safe to commit, and Micra's mesh is 34 MB. Cost if wrong: a clone has the scan's record and regions but not its mesh, and the row offers "Import again" from the recorded source.
+- **D10. Added: `.torno/scans/.gitignore` holds `mesh.bin`.** Why: the spec promises `.torno/` is safe to commit, and the bay scan's mesh is 34 MB. Cost if wrong: a clone has the scan's record and regions but not its mesh, and the row offers "Import again" from the recorded source.
 
 Not in this milestone: ICP, pins on a scan, a deviation colour mode for the person's own view (the agent's `look` has it), texture display, point clouds without faces (refused with a sentence), Draco or meshopt GLB (refused with trimesh's reason).
 
@@ -247,8 +247,8 @@ export function importText(imported: ScanImport): string
   "scans": [
     {
       "id": "S1",
-      "name": "Micra.glb",
-      "source": { "path": "/home/luisgonc/Downloads/Telegram Desktop/Micra.glb", "bytes": 55567676, "mtimeMs": 1790000000000, "sha256": "11569451127b93cf…" },
+      "name": "Bay.glb",
+      "source": { "path": "~/Downloads/Bay.glb", "bytes": 55567676, "mtimeMs": 1790000000000, "sha256": "11569451127b93cf…" },
       "imported": { "unit": "m", "up": "y", "assumed": { "unit": true, "up": true }, "vertices": 936823, "triangles": 1607144, "colours": "texture",
                     "bbox": { "min": [-1258.9, -1175.3, 0], "max": [1258.9, 1175.3, 1493.6] }, "area": 14200000, "at": "2026-10-10T09:00:00.000Z" },
       "alignments": {
@@ -428,7 +428,7 @@ In `docs/superpowers/specs/2026-10-08-torno-design.md`:
 4. Section 5, the table's Region row: "| Region | paint or box on a scan | "this part of the scan", with a note saying what it is |". Remove `ignore`, `movable`, `keep-out`.
 5. Section 6, the tool table: add rows `scans()` → "the scans with their alignment in the layout, size, source", `scan_clash(part, scan?, ignore?)` and `scan_deviation(part, faces?, scan?, region?, from?)`; in the `check` row remove `scan_clash`; in `look` add `scans?`, in `show` add `scans?`, in `section` add `scan?`.
 6. Section 7, "Scans:" bullet: "drawn with vertex colours baked from the texture, opacity slider, one mesh for drawing, picking and checking (reduced only above 2 M triangles)."
-7. Section 8: replace the first paragraph with: "Import GLB, glTF, OBJ, PLY or STL by drop or dialog. The import process (trimesh) bakes vertex colours from the texture, converts to millimetres and Z up, and writes one mesh, `mesh.bin`; up to 2,000,000 triangles it is not reduced (Micra: 1.6 M, 3.4 s, 34 MB). The source is referenced by path, size and hash and never copied. Unit and up axis are assumed from the format and the size (glTF: metres, Y up), shown, and can be changed afterwards." Replace the last paragraph with: "A transform is kept per layout; a scan with none for the layout shown is not aligned there and nothing is checked against it. After every build each alignment is checked against the model again. ICP refinement is deferred."
+7. Section 8: replace the first paragraph with: "Import GLB, glTF, OBJ, PLY or STL by drop or dialog. The import process (trimesh) bakes vertex colours from the texture, converts to millimetres and Z up, and writes one mesh, `mesh.bin`; up to 2,000,000 triangles it is not reduced (the bay scan: 1.6 M, 3.4 s, 34 MB). The source is referenced by path, size and hash and never copied. Unit and up axis are assumed from the format and the size (glTF: metres, Y up), shown, and can be changed afterwards." Replace the last paragraph with: "A transform is kept per layout; a scan with none for the layout shown is not aligned there and nothing is checked against it. After every build each alignment is checked against the model again. ICP refinement is deferred."
 
 Commit: `git commit -am "Spec: scans as ruled for Milestone 4"` with the trailer.
 
@@ -1080,7 +1080,7 @@ if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))
 ```
 
-Notes for the implementer: `convert` cannot know whether colours came from a texture, so main keeps the `colours` it had and ignores `convert`'s. If trimesh's PLY reader raises on a file with no faces instead of returning an empty one, map that exception to `no_triangles` in `load` (the test pins the message). The bake holds both textures decoded: 1.5 GB at the peak on Micra (E2); that is why this is a process that exits.
+Notes for the implementer: `convert` cannot know whether colours came from a texture, so main keeps the `colours` it had and ignores `convert`'s. If trimesh's PLY reader raises on a file with no faces instead of returning an empty one, map that exception to `no_triangles` in `load` (the test pins the message). The bake holds both textures decoded: 1.5 GB at the peak on the bay scan (E2); that is why this is a process that exits.
 
 - [ ] **Step 7: Run, then the whole kernel suite**
 
@@ -1091,7 +1091,7 @@ Run: `(cd kernel && uv run pytest -q)`. Expected: every test that passed before 
 
 ```sh
 tmp=$(mktemp -d) && cp -r kernel/tests/fixtures/ws/bracket "$tmp/" && cd "$tmp"
-PYTHONDONTWRITEBYTECODE=1 uv run --project /home/luisgonc/projects/torno/kernel python -c "import importlib.util as u, torno_kernel; print('trimesh in the kernel:', bool(u.find_spec('trimesh')))"
+PYTHONDONTWRITEBYTECODE=1 uv run --project kernel python -c "import importlib.util as u, torno_kernel; print('trimesh in the kernel:', bool(u.find_spec('trimesh')))"
 ```
 
 Expected: the line prints (True in the repository's own environment, where the `dev` group has it; the point is that the import of `torno_kernel` does not need it). Then `pnpm -C app exec vitest run --mode kernel src/main/kernel/client.itest.ts`: PASS as before.
@@ -1660,7 +1660,7 @@ Behaviour:
   - one chip (`span.chip[data-state]`), the first that applies: `mesh missing` (`data-state="mesh-missing"`, `--fail`), `check alignment` (`"stale"`, `--warn`, its `title` the `staleText`), `not aligned here` (`"unaligned"`, `--warn`), `aligned` (`"aligned"`, `--ok`); and a second, quiet one, `source missing` (`"source-missing"`) or `source changed` (`"source-changed"`), when that is so;
   - the opacity slider and the eye, built as `Layers.tsx` builds them (`aria-label="Opacity of S1"`, `aria-label="Show S1"`);
   - a disclosure "More" with: unit (`select`, `aria-label="Unit of S1"`) and up axis (`aria-label="Up axis of S1"`), applied by "Apply", which asks first through `Confirm` when the scan has alignments ("Changing the unit or the up axis of S1 drops its alignment in print and assembly."); colour (`Own colours` / `Plain`, the first disabled for a scan without); "Import again" when the mesh is missing and the source is not; "Remove" (asks: "Remove S1 from this object? Its source file is not touched.").
-  - While something is imported, a line under the title: "Reading Micra.glb: colours" from `importing` (`stage` words: `hashing` → "checking the file", `reading`, `colours`, `converting`, `writing`); a rejection is shown there in `--fail` until the next import or a click on it.
+  - While something is imported, a line under the title: "Reading Bay.glb: colours" from `importing` (`stage` words: `hashing` → "checking the file", `reading`, `colours`, `converting`, `writing`); a rejection is shown there in `--fail` until the next import or a click on it.
 - **Drop.** The viewport's host element takes `dragover` (it calls `preventDefault()` only when `e.dataTransfer.types` includes `'Files'`, and sets `dropEffect = 'copy'`) and `drop`: `droppedScan(e.dataTransfer.files)`; -1 → the readout says `NOT_A_SCAN`; else `window.torno.scans.pathOf(file)`, and an empty path says "That file has no place on the disk"; else `import`. Nothing of a drag goes through React.
 - **Tokens.** `--scan-plain: #B4AFA5` (light), `#5A5E64` (dark): a paper grey a step from `--surface`, no hue of the part palette. `Viewport`'s `Theme` gains `scan`, read in `readTheme`.
 
@@ -1785,7 +1785,7 @@ import { expect, it } from 'vitest'
 import { droppedScan } from './scanDrop'
 
 it('takes the first dropped file that is a scan, whatever the case of its ending', () => {
-  expect(droppedScan([{ name: 'notes.txt' }, { name: 'Micra.GLB' }, { name: 'b.stl' }])).toBe(1)
+  expect(droppedScan([{ name: 'notes.txt' }, { name: 'Bay.GLB' }, { name: 'b.stl' }])).toBe(1)
   expect(droppedScan([{ name: 'part.3mf' }, { name: 'stl' }])).toBe(-1)
   expect(droppedScan([])).toBe(-1)
 })
@@ -2149,8 +2149,8 @@ describe('fitPairs', () => {
     expect(fit.residuals.indexOf(Math.max(...fit.residuals))).toBe(3)
   })
 
-  it('holds for the frame the owner worked out by hand for the Micra scan', () => {
-    // micra-intake/docs/2026-10-06-micra-intake-design.md: glTF coordinates in mm, less the origin, dotted with each axis (four digits).
+  it('holds for a frame worked out by hand for a real scan', () => {
+    // intake/docs/intake-design.md: glTF coordinates in mm, less the origin, dotted with each axis (four digits).
     const origin: Vec3 = [107.4, 689.9, 28.8]
     const axes: Vec3[] = [[0.9944, -0.0064, 0.1055], [0.1045, -0.0898, -0.9905], [0.0158, 0.9959, -0.0887]]
     const tray = (p: Vec3): Vec3 => axes.map((axis) => axis.reduce((sum, c, i) => sum + c * (p[i] - origin[i]), 0)) as Vec3
@@ -3029,7 +3029,7 @@ Kernel only, and independent of Tasks 2 to 5: it needs Task 1's `scanfile` and `
 Everything below was run before this plan was written, in a scratch copy of the kernel (`.superpowers/sdd/m4-experiments.md`, "The final code"): the 17 tests pass, and on the owner's lid and tub 200,000 points are judged in 0.4 to 1.7 s.
 
 Rules the code keeps, each with its test:
-- The worker reads the `mesh.bin` and the masks it is given the paths of, and nothing else. One scan at a time is kept in `kept` (40 MB for Micra), under its path, modification time, size and what was asked of it.
+- The worker reads the `mesh.bin` and the masks it is given the paths of, and nothing else. One scan at a time is kept in `kept` (40 MB for the bay scan), under its path, modification time, size and what was asked of it.
 - Inside or outside is decided on the part's own tessellation (`tess.mesh_faces`, the mesh the part is drawn with), never by the classifier: 50 ms a point on the lid (E2).
 - A ray that grazes an edge of a triangle is asked again a millionth of a millimetre aside, then along +X, then +Y. (The first cut asked again along X and Y from the same point: from the very middle of a box all three rays meet a diagonal. The test with the box's centre pins it.)
 - Distances come from a `cKDTree` over the mesh sampled every millimetre, built with `balanced_tree=False, compact_nodes=False`. scipy is imported when a scan is first asked about, in the worker; when it is not there the query is a `bad_request` that says so.
@@ -3676,7 +3676,7 @@ def _scan(args: dict[str, Any], kept: dict[Any, Any]) -> _Scan:
     except (TypeError, KeyError, OSError):
         which = None
     if which is None or kept.get("scan", (None, None))[0] != which:
-        # One scan at a time is kept: Micra's points and triangles are 40 MB.
+        # One scan at a time is kept: the bay scan's points and triangles are 40 MB.
         kept["scan"] = (which, _Scan(said))
     return kept["scan"][1]
 
@@ -4136,7 +4136,7 @@ export function deviationColours(scan: BuiltScan, part: BuiltPart, range: number
 | Condition | Answer (an error) |
 |---|---|
 | the object has no scans | `this object has no scans: the user imports one in the Scans panel of the torno window` |
-| several scans, none named | `name the scan: S1 (Micra.glb), S2 (MikraK11_Hatch.stl)` |
+| several scans, none named | `name the scan: S1 (Bay.glb), S2 (Hatch.stl)` |
 | an unknown id | `no scan S9; scans: S1, S2` |
 | `meshState: 'missing'` | `S1's mesh is gone from <path>: the user imports it again from its row in the Scans panel` |
 | no alignment for the layout | `S1 is not aligned in layout print (it is aligned in: assembly), so nothing is checked against it there: the user aligns it with the Align tool, or ask in that layout`; with none anywhere `(it is aligned in no layout)` and no "or ask in that layout" |
@@ -4158,10 +4158,10 @@ export function deviationColours(scan: BuiltScan, part: BuiltPart, range: number
 **The prompt's context** (`context.ts`): `contextFor(deps, objectId, marks, opts)` takes `opts.scans?: ScanInfo[]`; after the selection line, one line, at most 300 characters (`SCANS_LIMIT`, further scans counted: "and 2 more"), counted in what the marks have room for:
 
 ```
-Scans: S1 Micra.glb, aligned in print by 4 pairs (rms 2.1 mm, worst 3.4 mm), shown at 60 %; S2 MikraK11_Hatch.stl, not aligned in print.
+Scans: S1 Bay.glb, aligned in print by 4 pairs (rms 2.1 mm, worst 3.4 mm), shown at 60 %; S2 Hatch.stl, not aligned in print.
 ```
 
-A stale alignment says `S1 Micra.glb, aligned in print by 4 pairs (rms 2.1 mm, worst 3.4 mm) but the model is no longer under 2 of its 4 points (worst 6.2 mm off) on r4: check the alignment`. The layout is the one on screen when the object is open, else the first. What is said last of each is from the view main was last told (`shown`, `shown at 60 %` or `hidden`), and is left out for an object that is not open. Nothing for an object without scans. `index.ts` passes `scans: await scans.list(id).catch(() => [])`.
+A stale alignment says `S1 Bay.glb, aligned in print by 4 pairs (rms 2.1 mm, worst 3.4 mm) but the model is no longer under 2 of its 4 points (worst 6.2 mm off) on r4: check the alignment`. The layout is the one on screen when the object is open, else the first. What is said last of each is from the view main was last told (`shown`, `shown at 60 %` or `hidden`), and is left out for an object that is not open. Nothing for an object without scans. `index.ts` passes `scans: await scans.list(id).catch(() => [])`.
 
 **The system prompt** gains, after the sentence on spread layouts:
 
@@ -4189,7 +4189,7 @@ import { type ToolDeps, type ToolResult, TOOLS } from './tools'
 const part = (layout: string, name: string, more: Partial<Part> = {}): Part =>
   ({ key: `${layout}:${name}`, name, layout, bbox: { min: [-20, -15, -3], max: [20, 15, 3] }, volume: 6000, faceCount: 12, edgeCount: 30, valid: true, ...more }) as Part
 const SCENE: Scene = { model: 'box.py', layouts: ['assembly', 'print'], parts: [part('assembly', 'tub'), part('assembly', 'lid'), part('print', 'tub'), part('print', 'lid', { arranged: [45, 0, 0] })], seconds: 1, output: '' }
-/** As the owner's micra-intake: one layout, the first part where the model put it, the others moved. */
+/** As a real project: one layout, the first part where the model put it, the others moved. */
 const PRINT_ONLY: Scene = { ...SCENE, layouts: ['print'], parts: [part('print', 'tub'), part('print', 'lid', { arranged: [45, 0, 0] })] }
 const CAMERA: Camera = { position: [100, -80, 60], target: [0, 0, 0], up: [0, 0, 1], ortho: false, fov: 35, zoom: 1 }
 const OK: BuildState = { objectId: 'box', status: 'ok', revision: 12, seconds: 1, stale: false }
@@ -4363,7 +4363,7 @@ Add to `readTools.test.ts`, in `describe('measure')`:
 ```ts
   it('takes a point of an aligned scan as an end, and then says nothing is exact', async () => {
     const aligned = { transform: { t: [0, 0, 0], q: [0, 0, 0, 1], s: 1 }, steps: ['typed'], frame: {}, at: '' }
-    const deps = fake(() => ({ kind: 'distance', value: 12.5, unit: 'mm', how: 'point to plane', points: [[0, 0, 15.5], [0, 0, 3]], exact: true }), { scans: async () => [{ id: 'S1', name: 'Micra.glb', alignments: { assembly: aligned }, meshState: 'ok', checks: {} }] as never })
+    const deps = fake(() => ({ kind: 'distance', value: 12.5, unit: 'mm', how: 'point to plane', points: [[0, 0, 15.5], [0, 0, 3]], exact: true }), { scans: async () => [{ id: 'S1', name: 'Bay.glb', alignments: { assembly: aligned }, meshState: 'ok', checks: {} }] as never })
     const result = await measureTool(deps, 'box', { kind: 'distance', a: { scan: 'S1', point: [0, 0, 15.5] }, b: 'tub/F5' })
     expect(deps.queries[0].args).toEqual({ kind: 'distance', a: { layout: 'assembly', point: [0, 0, 15.5] }, b: { ref: 'assembly:tub/F5' } })
     expect(data(result)).toMatchObject({ exact: false, approximate: 'a scan is a mesh measured by a phone or a scanner: nothing from it is exact', reading: '≈ 12.5 mm point to plane, approximate (S1 is a scan), (0, 0, 15.5) on S1 to tub/F5' })
@@ -4924,26 +4924,26 @@ In the first section, `app/`'s line gains "the scans (`src/main/scans`)" and `ke
 
 - [ ] **Step 4: The owner's scan, by hand, in a hidden window**
 
-On a temp copy, never on `/home/luisgonc/objects`, and never writing to `/home/luisgonc/Downloads`:
+On a temp copy, never on `~/objects`, and never writing to `~/Downloads`:
 
 ```sh
 tmp=$(mktemp -d /tmp/torno-m4-XXXXXX)
-cp -r /home/luisgonc/objects/common /home/luisgonc/objects/micra-intake /home/luisgonc/objects/pyproject.toml /home/luisgonc/objects/uv.lock "$tmp/"
-ln -s /home/luisgonc/objects/.venv "$tmp/.venv"
-mkdir "$tmp/scans" && cp "/home/luisgonc/Downloads/Telegram Desktop/Micra.glb" /home/luisgonc/objects/micra-spoiler/MikraK11_Hatch.stl "$tmp/scans/"
+cp -r ~/objects/common ~/objects/intake ~/objects/pyproject.toml ~/objects/uv.lock "$tmp/"
+ln -s ~/objects/.venv "$tmp/.venv"
+mkdir "$tmp/scans" && cp "~/Downloads/Bay.glb" ~/objects/spoiler/Hatch.stl "$tmp/scans/"
 pnpm build
 ```
 
 Drive it with a throwaway Playwright spec written as `app/e2e/sweep.local.spec.ts` (launch as every e2e does: `TORNO_TEST=1`, `TORNO_AGENT_CMD` the stand-in, `TORNO_WORKSPACE=$tmp`, `TORNO_BUILD_TIMEOUT=900`; timeout 20 minutes), run with `pnpm -C app exec playwright test e2e/sweep.local.spec.ts`, and **deleted before the commit** (`git status` must not show it). Pictures come from `window.__tornoTest.look` only and are written to `$tmp/pictures/` and looked at one by one. It does, and the report records, with numbers:
 
-1. Open `micra-intake`; wait for the build. Import `$tmp/scans/Micra.glb` through the panel (`pickFile`): the seconds from the click to `loaded`, and from `loaded` to `ready`; `timeScanPicks(200)` (expected `how: worker`, mean well under 1 ms: E3 measured 0.07 ms in node); the size of `mesh.bin` (expected 34,274,960 bytes); the row's text (expected "2518 × 2351 × 1494 mm, from m, Y up (assumed)").
+1. Open `intake`; wait for the build. Import `$tmp/scans/Bay.glb` through the panel (`pickFile`): the seconds from the click to `loaded`, and from `loaded` to `ready`; `timeScanPicks(200)` (expected `how: worker`, mean well under 1 ms: E3 measured 0.07 ms in node); the size of `mesh.bin` (expected 34,274,960 bytes); the row's text (expected "2518 × 2351 × 1494 mm, from m, Y up (assumed)").
 2. `window.__tornoTest.timeFrames(20)` with the scan hidden, shown at 100 % and at 50 %: the mean and the worst. **If the mean with the scan is over 33 ms, stop and report it before going on:** the cure (drawing the scan from a reduced index while the camera moves) is a decision for the controller, not for this task.
 3. A `look` from `iso`, `top` and the person's view, with and without the scan: is the baked colour recognisable as the engine bay, is the part still the loudest thing?
-4. Align in `print` with the owner's own frame, typed: the transform comes from `fitPairs` on four points put through the table of `micra-intake/docs/2026-10-06-micra-intake-design.md` ("Tray frame"), lowered by `Params().pad_t` (the print layout stands the tub that much lower), given to `__tornoMain.scans.align` with `steps: ['typed']`. Then through a real MCP client: `scans`; `scan_clash {part: "airbox-tub"}` (seconds, counts, clusters, the reading; E2 found 13,000 to 50,000 candidates and, with a first guess of the frame, 127 to 2,168 points inside: look at where they are before believing either); `scan_clash {part: "airbox-lid"}` (expected: the refusal naming `def assembly(p)`); `scan_deviation {part: "airbox-tub", from: "scan", within: 30}`; `look` with `scanColour: {part: "airbox-tub"}`; `section {plane: {axis: "y", at: 40}, scan: "S1"}`. Every reply is saved; every picture is looked at.
+4. Align in `print` with the owner's own frame, typed: the transform comes from `fitPairs` on four points put through the table of `intake/docs/intake-design.md` ("Tray frame"), lowered by `Params().pad_t` (the print layout stands the tub that much lower), given to `__tornoMain.scans.align` with `steps: ['typed']`. Then through a real MCP client: `scans`; `scan_clash {part: "airbox-tub"}` (seconds, counts, clusters, the reading; E2 found 13,000 to 50,000 candidates and, with a first guess of the frame, 127 to 2,168 points inside: look at where they are before believing either); `scan_clash {part: "airbox-lid"}` (expected: the refusal naming `def assembly(p)`); `scan_deviation {part: "airbox-tub", from: "scan", within: 30}`; `look` with `scanColour: {part: "airbox-tub"}`; `section {plane: {axis: "y", at: 40}, scan: "S1"}`. Every reply is saved; every picture is looked at.
 5. Align again by the tool, with real pointer events: a floor on the tray plate, then four pairs between the scan and the tub's mounting holes; record the rms and how far the result is from step 4's transform (translation in mm, rotation in degrees).
 6. Paint a region over the washer bottle with the brush, keep it, note it; one prompt to the stand-in agent: the context the hook printed (the "Scans:" line and the region's line), copied into the report.
-7. Move `$tmp/scans/Micra.glb` to another name: the row says "source missing", everything still works; delete `.torno/scans/S1/mesh.bin`: the row says "mesh missing" and `scan_clash` is refused with the path.
-8. Import `MikraK11_Hatch.stl` into the same object: seconds, the plain grey look, both scans on screen, frame time again.
+7. Move `$tmp/scans/Bay.glb` to another name: the row says "source missing", everything still works; delete `.torno/scans/S1/mesh.bin`: the row says "mesh missing" and `scan_clash` is refused with the path.
+8. Import `Hatch.stl` into the same object: seconds, the plain grey look, both scans on screen, frame time again.
 9. Memory: `process.memoryUsage().rss` of main (`app.evaluate`) before the import, after it, and after the scan is removed; the renderer's `performance.memory.usedJSHeapSize` at the same three moments.
 
 The report lists what read badly, what was slower than this plan says, and every sentence the app said that a person would not understand.
@@ -4954,7 +4954,7 @@ Not run by an implementer and not by any test: it spends the owner's subscriptio
 
 - [ ] **Step 6: All suites, commit**
 
-Run: `pnpm test`, `pnpm test:kernel`, `(cd kernel && uv run pytest -q)`, `pnpm test:e2e`, `pnpm -C app typecheck`. Expected: all pass. `git status`: no `sweep.local.spec.ts`, nothing under `/home/luisgonc/objects` touched (`find /home/luisgonc/objects -newer "$tmp" -not -path '*/.git/*'` prints nothing; do not run a plain `git status` there, which rewrites that repository's index: `GIT_OPTIONAL_LOCKS=0 git -C /home/luisgonc/objects status --short` if one is wanted).
+Run: `pnpm test`, `pnpm test:kernel`, `(cd kernel && uv run pytest -q)`, `pnpm test:e2e`, `pnpm -C app typecheck`. Expected: all pass. `git status`: no `sweep.local.spec.ts`, nothing under `~/objects` touched (`find ~/objects -newer "$tmp" -not -path '*/.git/*'` prints nothing; do not run a plain `git status` there, which rewrites that repository's index: `GIT_OPTIONAL_LOCKS=0 git -C ~/objects status --short` if one is wanted).
 
 ```bash
 git add app/src/main/statefile.ts app/src/main/statefile.test.ts app/src/main/index.ts README.md CLAUDE.md
@@ -4970,7 +4970,7 @@ Task 1 first (it also amends the spec). Task 6 needs only Task 1 and can run bes
 ## Self-review
 
 - **Spec coverage.** Section 8's import (Task 1 and 2), display (3), alignment in its three ways (4 and 5), the transform kept with the object (2 and 5); section 5's region (8); section 4's and 6's `scan_clash` (6 and 7), with `scan_deviation` and `scans` added by ruling R7; section 7's "scans are clipped without caps" (3) and R9's `scan` in `section` (6 and 7); `state.md` (9); success criterion 4 (the sweep, 9). Deferred as the spec defers it: ICP. Departures from the spec's text are Decisions D1, D5, D6, D9, D10 and rulings R2 and R3, written into the spec by Task 1.
-- **Rulings.** R1: Tasks 1, 2. R2: Task 1 (`reduce`), 3. R3: Task 2, 3. R4: Tasks 2, 5, 7 (`scanFor`, `scanSpread`), 9 (README paragraph, the sweep on `micra-intake`). R5: Tasks 4, 5. R6: Task 8. R7: Task 7. R8: Task 6. R9: Tasks 3, 6, 7. R10: Tasks 3, 5, 8.
+- **Rulings.** R1: Tasks 1, 2. R2: Task 1 (`reduce`), 3. R3: Task 2, 3. R4: Tasks 2, 5, 7 (`scanFor`, `scanSpread`), 9 (README paragraph, the sweep on `intake`). R5: Tasks 4, 5. R6: Task 8. R7: Task 7. R8: Task 6. R9: Tasks 3, 6, 7. R10: Tasks 3, 5, 8.
 - **Review Focus.** 1: Task 1 (`test_what_is_assumed_of_a_file`, `test_unit_and_up_are_changed_afterwards_without_the_source`), Task 3 (the row, the e2e that changes the unit with the source deleted), Task 4 (`unitHint`), Task 5 (`sizeNote`). 2: Task 2 (`store.test.ts`), Task 3 (e2e), Task 9 (sweep 7). 3: Task 7 (`PRINT_ONLY`), Task 5 (a model end on a moved part is refused), Task 9 (sweep 4). 4: Task 4 (the 200,000-triangle e2e, `how: 'worker'`), Task 9 (sweep 1, 2, 8). 5: Task 5 (`alignCheck.test.ts`, the `spread` e2e), Task 7 (the stale text in the reply and the context).
 - **Verified before writing.** The Python of Tasks 1 and 6 and the TypeScript of `shared/align.ts` were run against the tests given here, in a scratch copy: 47 pytest and 16 vitest tests pass. Nothing else in this plan has been run: the other test files are specifications, and a test here that turns out to contradict the behaviour written beside it is to be reported, not bent.
 - **Types.** `ScanTransform`, `ScanAlignment`, `NewAlignment`, `ScanInfo`, `ScanView`, `ScanHit`, `RegionMark.local`, `REGION_KEYS`, the kernel's `scan` argument (`id`, `path`, `transform`, `ignore`, `only`) and the replies' keys (`inside.count`, `deepest.depth`, `nearest.distance`, `sampling`, `exact`) are spelt the same in "Shared contracts", in the tasks that produce them and in the tests that read them.

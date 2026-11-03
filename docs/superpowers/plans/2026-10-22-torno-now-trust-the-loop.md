@@ -25,7 +25,7 @@ changing it.
 - The HTTP server binds `127.0.0.1` only, on an OS-assigned port. An address is made only by `HttpRouter.url`.
   Secrets are never logged (`HttpRouter.redact`) and never written to `state.md`, `.torno/chat/` or any other file.
 - Images for the agent: long edge at most 2000 px, default 1280.
-- Do not copy nerv's look: no black/red/amber, no condensed uppercase labels, no corner-tick frames. Follow spec §10
+- No control-room look: no black/red/amber, no condensed uppercase labels, no corner-tick frames. Follow spec §10
   and the tokens in `app/src/renderer/styles/tokens.css`.
 - UI text is sentence case. Every number and ref is set in the monospace face. Numbers shown go through
   `shared/format.ts`.
@@ -47,10 +47,10 @@ changing it.
 
 ## How each task is done and committed
 
-- Work on the branch `roadmap/now-trust-the-loop` in `/home/luisgonc/projects/torno`. Do not push, open PRs, or touch
+- Work on the branch `roadmap/now-trust-the-loop` in `<repo>`. Do not push, open PRs, or touch
   GitHub issues: the controller does.
 - Shell setup for every command (pnpm is not on the PATH and no display is set):
-  `. /tmp/claude-1000/-home-luisgonc-projects-torno/6f3e4022-9d1c-4bf1-ad17-31c77da9fe01/scratchpad/env.sh`
+  `. <scratchpad>/env.sh`
 - Test first where it fits (a failing test that shows the bug or the missing behaviour), then the change.
 - While iterating, run the focused tests. Before the commit, run the checks named under "Before a commit" below.
 - One commit per task (more are fine when a task ships in steps), message: a first line describing the change in
@@ -68,7 +68,7 @@ Every one of these, from the repository root, after sourcing the env file, must 
 Task 1, passes all of them; the times are of that baseline):
 
 ```sh
-. /tmp/claude-1000/-home-luisgonc-projects-torno/6f3e4022-9d1c-4bf1-ad17-31c77da9fe01/scratchpad/env.sh
+. <scratchpad>/env.sh
 pnpm -C app typecheck              # 2 s
 pnpm test                          # 8 s
 pnpm test:kernel                   # 36 s
@@ -1855,9 +1855,9 @@ it, and the person's own `~/.claude/CLAUDE.md`. Torno looks above the object onl
 instructions, and its prompt says nothing of them (`main/prompt.ts` has no mention of `CLAUDE.md`).
 
 The person's real workspace shows why it matters. `~/objects/CLAUDE.md` (7 KB) was written for the tool before torno
-("nerv"). It tells the agent: "After every build read `out/nerv/report.json` and LOOK at the pictures with the Read
-tool before telling the user anything about the shape", "Never say 'nerv should show': check the report", and to
-export through `main()` with `common.build.build`. Torno writes none of `out/nerv/`, and torno never runs `main()`.
+(a viewer of its own). It tells the agent: "After every build read `out/viewer/report.json` and LOOK at the pictures with the Read
+tool before telling the user anything about the shape", "Never say 'the viewer should show': check the report", and to
+export through `main()` with `common.build.build`. Torno writes none of `out/viewer/`, and torno never runs `main()`.
 So every torno session in that workspace is told two ways to see the build, one of them stale. The same file also
 holds what torno should want the agent to follow (ask for caliper numbers first, blockouts first, append to
 `../LESSONS.md`), so the answer is not to hide it.
@@ -1882,13 +1882,13 @@ holds what torno should want the agent to follow (ask for caliper numbers first,
 #### Done when
 
 - Vitest for the finder; an e2e capture of the pane with a workspace `CLAUDE.md`; a README line in "What Claude Code
-  is given". A by-hand line in "Not yet verified": the real CLI in `~/objects` no longer reads `out/nerv/report.json`.
+  is given". A by-hand line in "Not yet verified": the real CLI in `~/objects` no longer reads `out/viewer/report.json`.
 
 #### Constraints
 
 - Torno reads and changes nothing of Claude Code's settings (README:421-422). Naming a file is reading its path and
   size, not its text; showing its text is done only when the person opens it.
-- Never write in the workspace: torno does not edit `~/objects/CLAUDE.md`; it may say "this file names `out/nerv/`,
+- Never write in the workspace: torno does not edit `~/objects/CLAUDE.md`; it may say "this file names `out/viewer/`,
   which torno does not write" when the file says so.
 
 #### To decide

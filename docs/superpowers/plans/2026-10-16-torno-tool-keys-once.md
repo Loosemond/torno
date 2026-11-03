@@ -23,7 +23,7 @@ default; the palette grouped into inspecting and marking tools).
 - Every key comes from `shared/keys.ts` (`TOOL_KEYS`, `hint(id)`); `keys.test.ts` fails on a key written out in a
   text. The new empty-state text names no key at all.
 - UI text is sentence case; keys and numbers in the monospace face (`num`).
-- Colours, sizes and spaces from `app/src/renderer/styles/tokens.css` only; not nerv's look (no black/red/amber, no
+- Colours, sizes and spaces from `app/src/renderer/styles/tokens.css` only; no control-room look (no black/red/amber, no
   condensed uppercase labels, no corner-tick frames).
 - Stage explicit paths (`git add <file> ...`), never `git add -A`.
 - Commit after every task, the message ending with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.

@@ -26,7 +26,7 @@ goes on through `openObject` as today.
 - Every key is a row of `shared/keys.ts`; handlers use `pressed`/`which`, never `.key`. This plan adds no key.
 - UI text is sentence case. Every number and ref is set in the monospace face (`num` class, `numbered`).
 - Colours, spacing and type from `app/src/renderer/styles/tokens.css` only; no CSS animation that never ends
-  (`styles/styles.test.ts`); not nerv's look (no black/red/amber, no condensed uppercase labels, no corner ticks).
+  (`styles/styles.test.ts`); no control-room look (no black/red/amber, no condensed uppercase labels, no corner ticks).
 - No per-frame state in React.
 - The session's terminal host (`.session-term`) stays laid out at all times; nothing here unmounts it.
 - Nothing of the draft is written to disk; this plan writes nothing in a workspace.

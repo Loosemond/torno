@@ -35,7 +35,7 @@ language), and Issue #21 ("Scans panel: one scan takes most of the left column")
   `className="num"`.
 - Colours are tokens of `styles/tokens.css` only; a scan's own are `--scan-plain` and `--deviation-*`. No new
   colour literal in `scans.css`.
-- No endless animation. Not nerv's look: no black/red/amber, no condensed uppercase labels, no corner-tick frames.
+- No endless animation. No control-room look: no black/red/amber, no condensed uppercase labels, no corner-tick frames.
 - Scans and layers stay two lists (issue #20 owns the Layers list).
 - Stage explicit paths (`git add <files>`, never `-A`). Before each commit run the four suites (`pnpm test`,
   `pnpm test:kernel`, `(cd kernel && uv run pytest -q)`, `pnpm test:e2e`) and `pnpm -C app typecheck`; commit after
@@ -79,14 +79,14 @@ The owner brainstorms each issue: these are the recommendations the tasks are wr
 6. **Names.** Recommended: keep the file name as the default name (it is what the agent is told and what the
    person recognises), show it whole in the row's `title` with the source path, and let the person rename in the
    detail (main's `scans.rename` exists). No agent tool for it now: no MCP tool writes a scan, by design (README,
-   Tools). Alternative: strip the extension at import in main (`MikraK11_Hatch`), which changes what the agent is
+   Tools). Alternative: strip the extension at import in main (`Hatch`), which changes what the agent is
    told and main's tests. **(changes tasks: Task 4)**
 
 ## Design
 
 ### The row (one line)
 
-`S1  MikraK11_Hatch.stl ·  [aligned]  (eye)`
+`S1  Hatch.stl ·  [aligned]  (eye)`
 
 - `.scan-id.num` the id; `.row-name` the name, cut with an ellipsis, `title` = `${name}, from ${source.path}`.
 - A dot (`.scan-dot`, `--warning` token, `aria-label="Read as assumed"`) after the name while

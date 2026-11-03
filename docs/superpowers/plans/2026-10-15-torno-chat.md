@@ -16,12 +16,12 @@ Everything in the root `CLAUDE.md` and in the folder `CLAUDE.md` of every folder
 
 - **The owner works on this desktop.** Every Electron launch in tests sets `TORNO_TEST=1` (hidden window). Never `--ozone-platform=headless`, never `page.screenshot()` of a hidden window, never the clipboard.
 - **No real agent CLI in tests.** Tests run `TORNO_AGENT_CMD="node app/test/fake-agent.mjs"`. Never `claude` or `copilot`.
-- Never touch `/home/luisgonc/objects` or `/home/luisgonc/Downloads`; tests use temp copies of `app/e2e/fixtures` or `kernel/tests/fixtures`. Never write under the real home config in tests.
+- Never touch `~/objects` or `~/Downloads`; tests use temp copies of `app/e2e/fixtures` or `kernel/tests/fixtures`. Never write under the real home config in tests.
 - Never write inside a user workspace except under `<object>/.torno/`.
 - `uv run --no-sync` only, never `uv sync`. No new npm dependency (`pnpm add` is not allowed: `node_modules` is shared with the owner's checkout).
 - The run's secret never reaches a log or a file (`HttpRouter.redact`); `.torno/chat/` never holds an address.
 - Every key is a row of `shared/keys.ts`; no handler reads `.key`/`.code`/`.keyCode`/`.which` (the key test fails otherwise).
-- UI text in sentence case; every number and ref in the monospace face (`numbered()`); colours only from `styles/tokens.css`; no endless CSS animation (a "working" indication is still, or toggled once a second by the existing counter); do not copy nerv's look (no black/red/amber, no condensed uppercase labels, no corner ticks).
+- UI text in sentence case; every number and ref in the monospace face (`numbered()`); colours only from `styles/tokens.css`; no endless CSS animation (a "working" indication is still, or toggled once a second by the existing counter); no control-room look (no black/red/amber, no condensed uppercase labels, no corner ticks).
 - Images for the agent: long edge at most 2000 px, default 1280.
 - Stage explicit paths (never `git add -A`, never `git stash`). Commit after every task, message ending with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 - Before a task's last commit: `pnpm -C app typecheck`, `pnpm test`, `pnpm test:kernel`, `pnpm test:e2e` green (kernel pytest only if `kernel/` changed: it should not).

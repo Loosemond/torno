@@ -115,7 +115,7 @@ const tiedPair = (n: number) => ({ scan: [n, n % 2, 0], model: [n, n % 2, 10], p
 const TWO_PAIRS = { steps: ['pairs'], pairs: [0, 1].map(tiedPair), rms: 0, fitRms: 0, rough: 'it has 2 pairs of points: it takes three that are not in a line to fix a scan' }
 const FOUR_PAIRS = { steps: ['pairs'], pairs: [0, 1, 2, 3].map(tiedPair), rms: 0, fitRms: 0 }
 const scanned = (more: object = {}, scan: object = {}) => ({
-  scans: async () => [{ id: 'S1', name: 'Micra.glb', alignments: { assembly: { transform: { t: [0, 0, 10], q: [0, 0, 0, 1], s: 1 }, steps: ['typed'], frame: {}, at: '', ...more } }, meshState: 'ok', checks: { assembly: { revision: 4, of: 0, off: 0, worst: 0, moved: [] } }, ...scan }] as never
+  scans: async () => [{ id: 'S1', name: 'Bay.glb', alignments: { assembly: { transform: { t: [0, 0, 10], q: [0, 0, 0, 1], s: 1 }, steps: ['typed'], frame: {}, at: '', ...more } }, meshState: 'ok', checks: { assembly: { revision: 4, of: 0, off: 0, worst: 0, moved: [] } }, ...scan }] as never
 })
 const OUTLINE = { scan: 'S1', plane: CUT.plane, polylines: [{ points: [[-5, 2], [20, 2], [45, 3]], closed: false }], omitted: 0, segments: 2, pointsFound: 3, pointsTold: 3, thinned: false, bounds: { min: [-5, 2], max: [45, 3] }, exact: false }
 
@@ -297,7 +297,7 @@ describe('measure', () => {
     expect(text(await measureTool(deps, 'box', { kind: 'distance', a: { scan: 'S1' } as never, b: 'tub/F5' }))).toBe(END)
     expect(text(await measureTool(deps, 'box', { kind: 'distance', a: { scan: 'S1', point: [1, 2] } as never, b: 'tub/F5' }))).toBe(END)
     expect(text(await measureTool(deps, 'box', { kind: 'distance', a: { scan: 7, point: [1, 2, 3] } as never, b: 'tub/F5' }))).toBe(END)
-    const moved = fake(undefined, { ...scanned(), scene: () => ({ revision: 4, scene: SPREAD }), scans: async () => [{ id: 'S1', name: 'Micra.glb', alignments: { print: { transform: { t: [0, 0, 0], q: [0, 0, 0, 1], s: 1 }, steps: ['typed'], frame: {}, at: '' } }, meshState: 'ok', checks: {} }] as never })
+    const moved = fake(undefined, { ...scanned(), scene: () => ({ revision: 4, scene: SPREAD }), scans: async () => [{ id: 'S1', name: 'Bay.glb', alignments: { print: { transform: { t: [0, 0, 0], q: [0, 0, 0, 1], s: 1 }, steps: ['typed'], frame: {}, at: '' } }, meshState: 'ok', checks: {} }] as never })
     expect(text(await measureTool(moved, 'box', { kind: 'distance', a: { scan: 'S1', point: [0, 0, 1] }, b: 'lid/F5', layout: 'print' }))).toMatch(/^In layout print torno moved lid for display \(the parts overlapped as the model placed them\), so where the scan is against it there is torno's, not the model's\./)
     expect(deps.queries).toEqual([])
     expect(moved.queries).toEqual([])

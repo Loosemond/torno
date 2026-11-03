@@ -8,7 +8,7 @@
 
 **Tech Stack:** Electron 44, electron-vite, React 19, Zustand 5, three 0.186, @xterm/xterm 6, node-pty 1.1, @modelcontextprotocol/sdk 1.32, zod 4, chokidar, vitest, Playwright. Python 3.12, build123d 0.13, ocp-tessellate 3.5, pytest, uv. pnpm 10.
 
-**Spec:** `docs/superpowers/specs/2026-10-08-torno-design.md` (sections 3, 4, 6, 7, 10, 11, 12). Working spike code to consult: `/tmp/claude-1000/-home-luisgonc-projects-torno/473eeaff-8b21-4275-9442-2de6f3ef4ec1/scratchpad/spike-kernel/` (`klib.py`, `q4_fork.py`, `q5.py`) and `.../scratchpad/spike-shell/` (`main.cjs`, `server.cjs`, `renderer.ts`, `settings.json`, `mcp-config.json`, `package.json`). The spike directories are on tmpfs and may be gone; the plan repeats what matters.
+**Spec:** `docs/superpowers/specs/2026-10-08-torno-design.md` (sections 3, 4, 6, 7, 10, 11, 12). Working spike code to consult: `<scratchpad>/spike-kernel/` (`klib.py`, `q4_fork.py`, `q5.py`) and `.../scratchpad/spike-shell/` (`main.cjs`, `server.cjs`, `renderer.ts`, `settings.json`, `mcp-config.json`, `package.json`). The spike directories are on tmpfs and may be gone; the plan repeats what matters.
 
 Left for Milestone 2, though the spec lists them: `torno_scene()` and the `torno` helper package, the per-build contact sheet, `.torno/state.md`, picking, and more than one session per object.
 
@@ -23,7 +23,7 @@ How this plan is written: each task gives files, exact interfaces and the tests 
 - Renderer: `contextIsolation: true`, `nodeIntegration: false`, `backgroundThrottling: false`. No per-frame state in React.
 - HTTP server binds `127.0.0.1` only, on an OS-assigned port.
 - Images for the agent: long edge at most 2000 px, default 1280.
-- Do not copy nerv's look: no black/red/amber, no condensed uppercase labels, no corner-tick frames. Follow spec section 10 and the tokens in Task 4.
+- No control-room look: no black/red/amber, no condensed uppercase labels, no corner-tick frames. Follow spec section 10 and the tokens in Task 4.
 - UI text is sentence case. Every number and ref is set in the monospace face.
 - Tests must not open a visible window: `show: false` when `TORNO_TEST=1`.
 - Commit after every task with a message describing the change, ending with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
@@ -571,7 +571,7 @@ Tools:
 
 - [ ] **Step 1:** Write `scripts/torno` and the README (what torno is, requirements, `pnpm install`, `pnpm dev`, `scripts/torno ~/objects`, how the three test suites run, where files are written).
 - [ ] **Step 2:** Run all suites: `pnpm test`, `pnpm test:kernel`, `uv run --project kernel pytest -q`, `pnpm test:e2e`. All green.
-- [ ] **Step 3:** Whole-loop check on real data, by driving the built app with Playwright in a hidden window against `~/objects`: open `helmet-stand`, wait for `ok`, save `look` images for iso, front and top to the scratchpad and inspect them; open `micra-intake`, confirm the status shows building with elapsed time and reaches `ok` (about 30 s) with six parts in layout `print`. Confirm `git -C ~/objects status --short` shows nothing new except `.torno/` folders.
+- [ ] **Step 3:** Whole-loop check on real data, by driving the built app with Playwright in a hidden window against `~/objects`: open `helmet-stand`, wait for `ok`, save `look` images for iso, front and top to the scratchpad and inspect them; open `intake`, confirm the status shows building with elapsed time and reaches `ok` (about 30 s) with six parts in layout `print`. Confirm `git -C ~/objects status --short` shows nothing new except `.torno/` folders.
 - [ ] **Step 4:** Commit.
 
 ## Order and parallelism

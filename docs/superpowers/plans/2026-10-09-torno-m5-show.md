@@ -24,18 +24,18 @@ How this plan is written: each task gives its files, the exact interfaces it con
   - Renderer: `contextIsolation: true`, `nodeIntegration: false`, `backgroundThrottling: false`. No per-frame and no per-pointer-move state in React or Zustand.
   - HTTP server binds `127.0.0.1` only, on an OS-assigned port.
   - Images for the agent: long edge at most 2000 px, default 1280.
-  - Do not copy nerv's look: no black/red/amber, no condensed uppercase labels, no corner-tick frames. Follow spec section 10 and the tokens in `app/src/renderer/styles/tokens.css`. UI text is sentence case. Every number and ref is set in the monospace face (class `num`, or `numbered()` of `ui/numbered.tsx`).
+  - No control-room look: no black/red/amber, no condensed uppercase labels, no corner-tick frames. Follow spec section 10 and the tokens in `app/src/renderer/styles/tokens.css`. UI text is sentence case. Every number and ref is set in the monospace face (class `num`, or `numbered()` of `ui/numbered.tsx`).
   - User marks are drawn in `--user-mark`, agent marks in `--agent-mark`, and nothing else in the UI uses those colours: not a view the agent proposed, not a card, not the agent picker.
   - Tests must not open a visible window: `show: false` when `TORNO_TEST=1`.
   - Commit after every task with a message describing the change, ending with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 - **The owner works on this desktop. Hidden window only.** Every Electron launch sets `TORNO_TEST=1`, also a second window a test opens (`new BrowserWindow({ show: false })` through `app.evaluate`). Never `--ozone-platform=headless`; never `page.screenshot()`; `webContents.capturePage()` at most once per launch; never the clipboard. Never click "Open folder", "Import scan" or "Export" unless main runs with `TORNO_TEST=1`: the dialogs are then replaced by `globalThis.__tornoMain.pickFolder`, `.pickFile` and `.pickSave`.
-- **Never write in a user workspace except under `<object>/.torno/`, with one exception:** the export writes one file to the path the person chose in the save dialog, and nothing else outside `.torno/`: no temporary file beside it, no folder made for it. No task and no test writes under `/home/luisgonc` outside this repository: tests write to temporary folders they make and remove; `~/.local/share/applications/` is written only by `scripts/torno --install-desktop`, which the owner runs and no test does.
+- **Never write in a user workspace except under `<object>/.torno/`, with one exception:** the export writes one file to the path the person chose in the save dialog, and nothing else outside `.torno/`: no temporary file beside it, no folder made for it. No task and no test writes under `~` outside this repository: tests write to temporary folders they make and remove; `~/.local/share/applications/` is written only by `scripts/torno --install-desktop`, which the owner runs and no test does.
 - **Never run a real agent CLI in a test or a check:** not `claude`, not `copilot`. `TORNO_AGENT_CMD` is `node app/test/fake-agent.mjs` and stands in for every adapter. `--help` and `--version` of an installed CLI may be read. What only a real CLI can show is listed for the owner (Task 9, "Not yet verified on a visible screen").
 - `TORNO_KEEP_BUILDS=1` in every test harness: `app/vitest.config.ts` and `app/playwright.config.ts` set it already; a script of a task that launches the app or the kernel itself sets it too. Nothing else sets it.
 - Every argument of an MCP tool is a key of `TOOLS[name].inputSchema` (`app/src/main/mcp/schemas.ts` after Task 1): the wrapper in `registerTools` refuses any other key by name. A new tool is added to `TOOLS` with its schema and registered through `tool(...)`, never through `server.registerTool` directly.
 - **Nothing is told to the agent that it cannot rely on.** An exploded position is never told as a position: every coordinate, box, ref, value and reading in a tool reply, in the prompt's context, in `state.md` and in a mark is of the parts as the build placed them. A picture drawn exploded says so in its caption, with the sentence `EXPLODED_NOTE`.
 - Nothing from a scan is ever said to be exact (Milestone 4), and a scan may show the real world: none is in an exported file or a thumbnail unless the person ticked it for that export, and then reduced.
-- Tests work on a temporary copy of `kernel/tests/fixtures/ws`, never on the fixtures themselves, never on a real workspace. Nothing under `/home/luisgonc/objects` or `/home/luisgonc/Downloads` is ever written, and no git is run there. `micra-intake` is never built by a task (its worker holds about 11 GB).
+- Tests work on a temporary copy of `kernel/tests/fixtures/ws`, never on the fixtures themselves, never on a real workspace. Nothing under `~/objects` or `~/Downloads` is ever written, and no git is run there. `intake` is never built by a task (its worker holds about 11 GB).
 - No build is ever started for the sake of a picture, a card or an export: they are made from the last good build of this run, or not made, and say which.
 
 ## Review Focus
@@ -3080,7 +3080,7 @@ or with a real agent, and are yours to try once. Each says what to look for.
   Hyprland window rule); if the launcher shows a second icon while it runs, `StartupWMClass` is the line to change.
 - **An exported file elsewhere.** Open one from `file://` in Firefox and on a phone: parts, layouts, the explode
   slider and the section should work with the network off. It was checked in Chromium only.
-- **A large object on the page of objects.** Open `micra-intake` and go back to the page: its card should get
+- **A large object on the page of objects.** Open `intake` and go back to the page: its card should get
   its picture within a second of the build landing, and the window should not stall while it is made.
 ```
 
@@ -3109,19 +3109,19 @@ Nothing is implemented here. Every feature of the five milestones is used in one
 - Consumes: everything.
 - Produces: the report, and the last lines of the README's "Not yet verified" section if the sweep finds more that only a visible screen can show.
 
-- [ ] **Step 1: Make the copy, read-only at the source.** `helmet-stand` (295 lines of model, built in 1.4 s at Milestone 1) and `guitar-wall-stand` (1,043 lines, 13 s, three parts). Not `micra-intake` (its worker holds about 11 GB), not `micra-spoiler` (98 s).
+- [ ] **Step 1: Make the copy, read-only at the source.** `helmet-stand` (295 lines of model, built in 1.4 s at Milestone 1) and `guitar-wall-stand` (1,043 lines, 13 s, three parts). Not `intake` (its worker holds about 11 GB), not `spoiler` (98 s).
 
 ```sh
 T=$(mktemp -d /tmp/torno-m5-sweep-XXXXXX)
 touch "$T/.marker"
-cp -r /home/luisgonc/objects/helmet-stand /home/luisgonc/objects/guitar-wall-stand /home/luisgonc/objects/common "$T/"
-cp /home/luisgonc/objects/pyproject.toml /home/luisgonc/objects/uv.lock "$T/"
-ln -s /home/luisgonc/objects/.venv "$T/.venv"          # read by `uv run --no-sync`, which writes nothing into it
+cp -r ~/objects/helmet-stand ~/objects/guitar-wall-stand ~/objects/common "$T/"
+cp ~/objects/pyproject.toml ~/objects/uv.lock "$T/"
+ln -s ~/objects/.venv "$T/.venv"          # read by `uv run --no-sync`, which writes nothing into it
 rm -rf "$T"/*/.torno "$T"/*/__pycache__
 du -sh "$T"
 ```
 
-  No git command is run in `/home/luisgonc/objects`, and nothing there is written: Step 6 proves it.
+  No git command is run in `~/objects`, and nothing there is written: Step 6 proves it.
 
 - [ ] **Step 2: Write the driver** in the scratchpad (a `.mjs` using `_electron` from `@playwright/test` as `e2e/mcp.spec.ts` does): `TORNO_TEST: '1'`, `TORNO_KEEP_BUILDS` **not** set (the memory policy is part of what is swept), `TORNO_WORKSPACE: $T`, `TORNO_AGENT_CMD: node app/test/fake-agent.mjs`, `TORNO_CONFIG` pointing into the scratchpad. It prints `BrowserWindow.getAllWindows()[0].isVisible()` first and stops if that is not `false`.
 
@@ -3146,9 +3146,9 @@ du -sh "$T"
 - [ ] **Step 6: Prove nothing of the owner's was touched, clean up, run everything, commit.**
 
 ```sh
-find /home/luisgonc/objects /home/luisgonc/Downloads -newer "$T/.marker" -not -path '*/.venv/*' 2>/dev/null | head      # expected: nothing
-find /home/luisgonc/objects/.venv -newer "$T/.marker" -type f 2>/dev/null | head                                        # expected: nothing
-diff -rq /home/luisgonc/objects/helmet-stand "$T/helmet-stand" | grep -v '\.torno\|__pycache__'                          # expected: nothing
+find ~/objects ~/Downloads -newer "$T/.marker" -not -path '*/.venv/*' 2>/dev/null | head      # expected: nothing
+find ~/objects/.venv -newer "$T/.marker" -type f 2>/dev/null | head                                        # expected: nothing
+diff -rq ~/objects/helmet-stand "$T/helmet-stand" | grep -v '\.torno\|__pycache__'                          # expected: nothing
 ls ~/.local/share/applications/torno.desktop 2>/dev/null                                                                 # expected: nothing (unless the owner installed it)
 rm -rf "$T"
 pnpm -C app typecheck && pnpm test && pnpm test:kernel && (cd kernel && uv run --no-sync pytest -q) && pnpm test:e2e

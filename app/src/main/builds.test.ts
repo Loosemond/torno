@@ -1110,7 +1110,7 @@ describe('watchFolder', () => {
   it('ignores what a model or a tool keeps in cache/, build/, dist/, node_modules/, .venv/ and .git/', async () => {
     for (const folder of ['cache', 'build', 'dist', 'node_modules', '.venv', '.git']) mkdirSync(join(dir, 'obj', folder))
     const { changes } = await watching(join(dir, 'obj'))
-    // As micra-spoiler does while it builds: written under a temporary name, then renamed.
+    // As spoiler does while it builds: written under a temporary name, then renamed.
     const temp = join(dir, 'obj', 'cache', `hatch.brep.${process.pid}.tmp`)
     writeFileSync(temp, 'a'.repeat(1 << 16))
     renameSync(temp, join(dir, 'obj', 'cache', 'hatch.brep'))

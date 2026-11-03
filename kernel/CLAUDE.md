@@ -87,10 +87,10 @@ is the detail of this folder, under the headings it has there.
   boolean or a second integral. A void whose shell faces into it integrates as material, and positive: OCC's check
   (`valid`) is what finds it.
 - A build spends about a second on the volume of a part of a hundred freeform faces and up to a second on its
-  box: on the owner's `guitar-wall-stand` (two halves of 92 and 94 faces, in two layouts) 3.7 s on volumes and
+  box: on a real `guitar-wall-stand` (two halves of 92 and 94 faces, in two layouts) 3.7 s on volumes and
   1.3 s on boxes, where volumes to 1e-9 took 164 s. The whole area of a freeform part costs three
   integrals a face in `measure area` (1.5 s there, 10 s on the lid of
-  `micra-intake` (2,635 faces) when it was last measured, when `describe` of the part cost the same) and one
+  `intake` (2,635 faces) when it was last measured, when `describe` of the part cost the same) and one
   integral a face in `describe` of the part, at a fixed order (not timed on those parts since). A query has 30 s
   (an `export` or `export_check` 120 s).
 - `check overhang`, `thin` and `bed` (`printable.py`) are of the layout asked (the app asks `print`). An

@@ -7,7 +7,7 @@ everything below is open to change.
 
 The person asked for "a way to doodle on top of a view so that we can use that as context for Claude as well".
 The design's own evidence (section 1 of `2026-10-08-torno-design.md`) is the same thing seen from the other side:
-in the micra-intake session 9 of 22 pictures were screenshots of a viewer with red ink on them, and two freehand
+in the intake session 9 of 22 pictures were screenshots of a viewer with red ink on them, and two freehand
 sketches ended misunderstandings that text had not. Marks give the agent the location; a drawing gives it the
 gesture: a ring round a feature, a profile beside the part, an arrow, a cross. Torno can give it both at once: the
 picture with the ink, and what the ink lies over, by ref.

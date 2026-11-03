@@ -841,13 +841,13 @@ describe('the scans', () => {
   })
 
   it('say that a file is being read from the moment it is asked for, until that is over one way or the other', () => {
-    actions.startImporting('Micra.glb')
-    expect(store.getState().importing).toEqual({ name: 'Micra.glb', stage: null })
-    actions.setImporting({ objectId: 'bracket', name: 'Micra.glb', stage: 'reading' })
-    expect(store.getState().importing).toEqual({ name: 'Micra.glb', stage: 'reading' })
+    actions.startImporting('Bay.glb')
+    expect(store.getState().importing).toEqual({ name: 'Bay.glb', stage: null })
+    actions.setImporting({ objectId: 'bracket', name: 'Bay.glb', stage: 'reading' })
+    expect(store.getState().importing).toEqual({ name: 'Bay.glb', stage: 'reading' })
     // Refused before the process said anything: no stage ever came to end it.
     actions.startImporting('part.3mf')
-    actions.endImporting('Micra.glb')
+    actions.endImporting('Bay.glb')
     expect(store.getState().importing).toEqual({ name: 'part.3mf', stage: null })
     actions.endImporting('part.3mf')
     expect(store.getState().importing).toBeNull()
@@ -860,12 +860,12 @@ describe('the scans', () => {
   })
 
   it('say what is being imported into the open object, and nothing of an import into another', () => {
-    actions.setImporting({ objectId: 'other', name: 'Micra.glb', stage: 'reading' })
+    actions.setImporting({ objectId: 'other', name: 'Bay.glb', stage: 'reading' })
     expect(store.getState().importing).toBeNull()
-    actions.setImporting({ objectId: 'bracket', name: 'Micra.glb', stage: 'colours' })
-    expect(store.getState().importing).toEqual({ name: 'Micra.glb', stage: 'colours' })
+    actions.setImporting({ objectId: 'bracket', name: 'Bay.glb', stage: 'colours' })
+    expect(store.getState().importing).toEqual({ name: 'Bay.glb', stage: 'colours' })
     // No stage: the process is over.
-    actions.setImporting({ objectId: 'bracket', name: 'Micra.glb', stage: null })
+    actions.setImporting({ objectId: 'bracket', name: 'Bay.glb', stage: null })
     expect(store.getState().importing).toBeNull()
   })
 })

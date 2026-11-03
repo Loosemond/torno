@@ -6,3 +6,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 app/e2e/.results/
+
+# Claude Code worktrees and profiler dumps
+.claude/worktrees/
+*.prof

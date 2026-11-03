@@ -8,7 +8,7 @@ describe('what comes of a drop on the view', () => {
   const at = (paths: Record<string, string>) => (file: { name: string }) => paths[file.name] ?? ''
 
   it('is the first scan among the files, by its place on the disk, and a word about the scans left', () => {
-    expect(scanDropped([{ name: 'notes.txt' }, { name: 'Micra.GLB' }], at({ 'Micra.GLB': '/d/Micra.GLB' }), null)).toEqual({ path: '/d/Micra.GLB', said: null })
+    expect(scanDropped([{ name: 'notes.txt' }, { name: 'Bay.GLB' }], at({ 'Bay.GLB': '/d/Bay.GLB' }), null)).toEqual({ path: '/d/Bay.GLB', said: null })
     expect(scanDropped([{ name: 'a.stl' }, { name: 'b.ply' }, { name: 'c.obj' }], at({ 'a.stl': '/d/a.stl' }), null)).toEqual({ path: '/d/a.stl', said: 'One scan at a time: a.stl is being read; b.ply and c.obj were left' })
   })
 
@@ -16,7 +16,7 @@ describe('what comes of a drop on the view', () => {
     expect(scanDropped([{ name: 'notes.txt' }], at({}), null)).toEqual({ path: null, said: 'notes.txt is not a scan: torno reads .glb, .gltf, .obj, .ply and .stl scans' })
     expect(scanDropped([{ name: 'a.txt' }, { name: 'b.txt' }], at({}), null)).toEqual({ path: null, said: 'None of the 2 files is a scan: torno reads .glb, .gltf, .obj, .ply and .stl scans' })
     expect(scanDropped([{ name: 'a.stl' }], at({}), null)).toEqual({ path: null, said: 'a.stl: That file has no place on the disk' })
-    expect(scanDropped([{ name: 'a.stl' }], at({ 'a.stl': '/d/a.stl' }), 'Micra.glb')).toEqual({ path: null, said: 'Micra.glb is still being read: import a.stl once it is in' })
+    expect(scanDropped([{ name: 'a.stl' }], at({ 'a.stl': '/d/a.stl' }), 'Bay.glb')).toEqual({ path: null, said: 'Bay.glb is still being read: import a.stl once it is in' })
   })
 })
 
@@ -38,17 +38,17 @@ describe('reading a file as a scan', () => {
   })
 
   it('is said from the moment it is asked, one file at a time, and a refusal is kept for the panel', async () => {
-    importScan('bracket', '/d/Micra.glb')
-    expect(store.getState()).toMatchObject({ importing: { name: 'Micra.glb', stage: null }, scansRefused: null })
+    importScan('bracket', '/d/Bay.glb')
+    expect(store.getState()).toMatchObject({ importing: { name: 'Bay.glb', stage: null }, scansRefused: null })
     importScan('bracket', '/d/other.stl')
     reimportScan('bracket', 'S1', 'plate.stl')
-    expect(asked).toEqual(['import /d/Micra.glb'])
-    expect(store.getState().scansRefused).toBe('Micra.glb is still being read: import plate.stl once it is in')
-    ended[0].reject(new Error('Micra.glb holds no faces'))
+    expect(asked).toEqual(['import /d/Bay.glb'])
+    expect(store.getState().scansRefused).toBe('Bay.glb is still being read: import plate.stl once it is in')
+    ended[0].reject(new Error('Bay.glb holds no faces'))
     await settled()
-    expect(store.getState()).toMatchObject({ importing: null, scansRefused: 'Micra.glb holds no faces' })
+    expect(store.getState()).toMatchObject({ importing: null, scansRefused: 'Bay.glb holds no faces' })
     importScan('bracket', '/d/other.stl')
-    expect(asked).toEqual(['import /d/Micra.glb', 'import /d/other.stl'])
+    expect(asked).toEqual(['import /d/Bay.glb', 'import /d/other.stl'])
     expect(store.getState().scansRefused).toBeNull()
   })
 
