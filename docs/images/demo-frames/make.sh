@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Makes docs/images/demo.gif and demo.mp4 from the frames in this folder.
 # The frames are made by app/e2e/demo.spec.ts (one launch of the hidden app each, the stand-in agent), from app/:
-#   TORNO_DEMO="$PWD/../docs/images/demo-frames" playwright test e2e/demo.spec.ts --workers 2
-# (with the PATH and display of app/e2e/CLAUDE.md), then run this script. Needs ffmpeg.
+#   TORNO_DEMO="$PWD/../docs/images/demo-frames" playwright test e2e/demo.spec.ts
+# with the TORNO_README_OBJECTS, TORNO_README_PROJECTS and TORNO_README_SCANS of docs/images/README.md (the airbox
+# project), and the PATH and display of app/e2e/CLAUDE.md; then run this script. Needs ffmpeg.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 images="$(dirname "$here")"

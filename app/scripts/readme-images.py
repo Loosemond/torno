@@ -38,8 +38,8 @@ def save(image: Image.Image, name: str, width: int | None = None) -> None:
 hero = Image.open(raw / "hero.png")
 save(hero, "hero.png")
 save(Image.open(raw / "hero-dark.png"), "hero-dark.png")
-# With the session pane hidden the view fills the window: the crops keep the list and the part, near square, for the row of three.
-save(Image.open(raw / "marks.png").crop((0, 0, 1250, 1000)), "marks.png")
+# With the session pane hidden the view fills the window: the crops keep the list and the part, for the row of three.
+save(Image.open(raw / "marks.png").crop((0, 0, 1520, 1000)), "marks.png")
 save(Image.open(raw / "chat.png").crop(box_of("chat", "session")), "chat.png")
 save(Image.open(raw / "section.png").crop((430, 40, 1430, 1000)), "section.png")
 save(Image.open(raw / "objects.png"), "objects.png")

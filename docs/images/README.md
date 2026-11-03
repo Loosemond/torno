@@ -3,27 +3,39 @@
 The pictures here are made, not taken: `app/e2e/readme.spec.ts` drives the built app in a hidden window to each
 state below and captures it once a launch, with the stand-in agent speaking a scripted turn (the one cosmetic edit,
 the words of the person's prompt, is said in the spec), and `app/scripts/readme-images.py` crops, quantizes and
-composes the social preview. To remake them after the window changes:
+composes the social preview.
+
+The projects on screen are real ones from the author's own workshop, which is not in this repository: an airbox
+for a cone filter, fitted to a 3D scan of the engine bay it goes in (`intake`, whose tub wall is `wall: float = 2.8`
+in its `airbox.py`), a tilted desk stand for a speaker (`speaker-stand`), and a few more for the page of projects.
+`app/e2e/readme-workspace.ts` copies them into a workspace of their own, without the conversations torno kept, and
+links the workshop's Python environment, so that they build as at home. The marks in the pictures are put at
+points measured on those models; with other projects, change the constants in the spec. To remake the pictures:
 
 ```sh
 pnpm build
+TORNO_README_OBJECTS=~/objects \
+TORNO_README_PROJECTS="<airbox folder>=intake,speaker-stand,<other folders of the page, each `folder` or `folder=name`>" \
+TORNO_README_SCANS="intake:<the bay scan's id>=battery-tray.ply,intake:<another scan's id>=" \
 TORNO_README_SHOTS=$PWD/docs/images/raw pnpm -C app exec playwright test e2e/readme.spec.ts
 python3 app/scripts/readme-images.py docs/images/raw docs/images
 ```
 
-`docs/images/raw/` (the whole-window captures) is not committed. The shots below that are not in the README
-(`objects.png`, `export.png`, `first-screen.png`, `social-preview.png`) are made all the same, for the manual, for
-issues, and for the repository's social preview. `scan.png` needs a real scan and is not made.
+`TORNO_README_SCANS` copies a scan's source beside its project under a plain name, or drops it (`=` with
+nothing after), so that no path of the author's machine is on screen. `docs/images/raw/` (the whole-window
+captures) is not committed. The shots below that are not in the README (`objects.png`, `export.png`,
+`first-screen.png`, `social-preview.png`) are made all the same, for the manual, for issues, and for the
+repository's social preview.
 
 ## How to take them
 
-- Run from the repository, not under test: `scripts/torno /tmp/torno-shots` on a copy of the test models
-  (`cp -r kernel/tests/fixtures/ws /tmp/torno-shots`), or on a workspace of your own whose parts look like
-  something real. A part that looks like a real part (a bracket, a lid, a mount) sells it better than a test cube.
+- Run from the repository, not under test: `scripts/torno <a workspace>` on projects of your own whose parts look
+  like something real. A part that looks like a real part (a bracket, a lid, a mount) sells it better than a test
+  cube, and a scan of where it goes sells it best.
 - The window at about 1600 × 1000 points. On a HiDPI screen the picture is twice that, which is right: GitHub
   scales it down.
 - The light theme, unless the shot says dark. Nothing personal on screen: no home folder path in the title,
-  no account name in the chat, no notifications.
+  no account name in the chat, no notifications, no path of a scan's source.
 - PNG, cropped to the window (no desktop around it), under 1 MB each (`oxipng -o 4` or `pngquant` if not).
 - Alt text is in the README already. If a shot shows something else, change its alt text to match.
 
@@ -31,26 +43,27 @@ issues, and for the repository's social preview. `scan.png` needs a real scan an
 
 | # | File | What it shows | How to set it up |
 |---|---|---|---|
-| 1 | `hero.png` | **The whole window, mid-conversation.** The objects on the left, a part in the middle with two or three marks on it (a red pin with a note, a dimension that passes), the chat on the right with a prompt, the "torno added" line under it and the agent's answer using `look` or `measure`. The status line at the bottom says built. | Open an object, leave a pin and a dimension, start a session and ask "what did I mark?". Wait for the answer, then take the shot. This one matters most: it's the first thing people see. |
-| 2 | `marks.png` | **Marks and dimensions.** A part with a pin, an arrow and a dimension, its note open; the Marks list with one dimension "Passes" and one "Fails: 1 under". | Steps 4 and 5 of the walk-through in `docs/manual.md`, with a second dimension set to fail. Crop to the view and the Marks list. |
-| 3 | `chat.png` | **The agent's view.** The chat pane only: a prompt, the "torno added" line opened to show the marks as text, and the agent's tool calls (`look`, `measure`) with the picture `look` gave. | After shot 1, open "torno added". Crop to the right column. |
-| 4 | `section.png` | **Section.** `hollow` cut in half, the post visible inside the tub, the section bar under the view. | Open `hollow`, press `X`. Turn the camera a little off-axis so the cut reads as 3D. Crop to the view. |
-| 5 | `scan.png` | **A scan.** A part shown in a real scan of where it goes (an engine bay, a shelf, a machine), aligned, the scan partly see-through. | Needs a scan of your own (phone or scanner). Import it, align it, set it to about 60 %. Optional: leave it out if no scan looks good. |
-| 6 | `objects.png` | **The page of objects.** Several cards with their pictures. | Press `W` in a workspace of five or more objects, each built once so it has a picture. |
-| 7 | `export.png` | **An exported page** open in a browser: the part, the marks, nothing else installed. | "Export…", HTML, then open the file in Firefox or Safari. Crop to the browser's page, not its toolbar. |
+| 1 | `hero.png` | **The whole window, mid-conversation.** The projects on the left, the airbox in the middle sitting in the scan of the engine bay, with a pin on the lid, a dimension that passes and one that fails, the chat on the right with a prompt, the "torno added" line under it and the agent's answer using `look` and `measure`. The status line at the bottom says built. | Open the airbox with its scan shown, leave a pin and two dimensions, start a session and ask about the wall. Wait for the answer, then take the shot. This one matters most: it's the first thing people see. |
+| 2 | `marks.png` | **Marks and dimensions.** The speaker stand with a pin and three dimensions, the pointer on the one that fails; the Marks list with "Passes" twice and "Fails: 2 under". | Steps 4 and 5 of the walk-through in `docs/manual.md`, with a dimension set to fail. Crop to the view and the Marks list. |
+| 3 | `chat.png` | **The agent's view.** The chat pane only: a prompt, the "torno added" line opened to show the marks as text, the agent's tool calls (`look`, `measure`) with the picture `look` gave, its edit of `airbox.py` and the build that followed. | After shot 1, open "torno added". Crop to the right column. |
+| 4 | `section.png` | **Section.** The airbox cut across Y with the scan hidden: the filter's pod inside the lid, the tub's ribs and floor, the section bar under the view. | Open the airbox, hide the scan, press `X`, "Cut across Y". Crop to the view. |
+| 5 | `scan.png` | **A scan.** A part shown in a real scan of where it goes, the scan partly see-through. | Shot 1 is this already: the airbox in its engine bay. A separate shot is not made. |
+| 6 | `objects.png` | **The page of projects.** Several cards with their pictures. | Press `W` in a workspace of five or more projects, each built once so it has a picture. |
+| 7 | `export.png` | **An exported page** open in a browser: the airbox, its scan, the marks, nothing else installed. | "Export…", HTML, marks included, then open the file in a browser. Crop to the browser's page, not its toolbar. |
 | 8 | `first-screen.png` | **The first screen**, with "Ready to work" all ready and "Open the example". | Start with no workspace remembered: `TORNO_CONFIG=/tmp/torno-fresh.json scripts/torno`, a config file that does not exist yet. |
 | 9 | `hero-dark.png` | **Shot 1 in the dark theme.** Optional. With it, the README can show the dark one to readers whose GitHub is dark (`<picture>` with `prefers-color-scheme`). | The same setup as shot 1, the system in dark mode. |
 
 ## A short recording
 
-Made: `demo.gif` and `demo.mp4`, from eight frames `app/e2e/demo.spec.ts` captures the same way (`TORNO_DEMO=<folder>`,
-one launch a frame) and `demo-frames/make.sh` crossfades with ffmpeg; the hold of each frame is set there. The README
-shows the GIF. The MP4 is for an issue or a release note, where GitHub plays it. `loop.svg` is an animated diagram of
-the loop (CSS animation only, both colour schemes) for wherever a picture of the loop is wanted without a window.
+Made: `demo.gif` and `demo.mp4`, from eight frames `app/e2e/demo.spec.ts` captures the same way (`TORNO_DEMO=<folder>`
+with the same `TORNO_README_*` settings, one launch a frame) and `demo-frames/make.sh` crossfades with ffmpeg; the
+hold of each frame is set there. The README shows the GIF. The MP4 is for an issue or a release note, where GitHub
+plays it. `loop.svg` is an animated diagram of the loop (CSS animation only, both colour schemes) for wherever a
+picture of the loop is wanted without a window.
 
 | # | File | What it shows |
 |---|---|---|
-| 10 | `demo.mp4` (or `demo.gif`) | **The loop, 20 to 40 seconds.** Pin a face, "too thin here"; ask the agent to fix it; it edits the model; the part rebuilds and the wall is thicker; the dimension turns to "Passes". |
+| 10 | `demo.mp4` (or `demo.gif`) | **The loop, 20 to 40 seconds.** The airbox in its engine bay; pin the tub wall, "too thin here"; ask the agent to make it 3 mm; it looks and measures, edits `airbox.py`; the parts rebuild; the dimension "tub wall" turns to "Passes". |
 
 GitHub plays an MP4 that is dragged into an issue or a pull request and the link put in the README; a GIF works
 anywhere but is large (keep it under 10 MB, 800 px wide, 10–15 fps). Speed up the agent's thinking in the edit.

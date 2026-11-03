@@ -19,7 +19,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/hero-dark.png">
-    <img src="docs/images/hero.png" alt="torno with a part open: the projects on the left, the part in 3D in the middle with marks and dimensions on it, the chat with Claude Code on the right" width="900">
+    <img src="docs/images/hero.png" alt="torno with an airbox open, sitting in a 3D scan of the engine bay it is for: the projects on the left, the parts in 3D in the middle with a pin and dimensions on them, the chat with Claude Code on the right" width="900">
   </picture>
 </p>
 
@@ -68,9 +68,9 @@ the Python file, and torno shows it.
 
 <table>
   <tr>
-    <td><img src="docs/images/marks.png" alt="Pins and a dimension on a part, with the Marks list showing one dimension passing and one failing"></td>
-    <td><img src="docs/images/chat.png" alt="The chat: a prompt with the marks torno added, and the agent calling look and measure"></td>
-    <td><img src="docs/images/section.png" alt="A section through a hollow box showing the post inside"></td>
+    <td><img src="docs/images/marks.png" alt="A pin and dimensions on a speaker stand, with the Marks list showing two dimensions passing and one failing"></td>
+    <td><img src="docs/images/chat.png" alt="The chat: a prompt with the marks torno added, the agent calling look and measure, its edit of the model and the build that followed"></td>
+    <td><img src="docs/images/section.png" alt="A section through the airbox showing the filter pod inside the lid and the ribs of the tub"></td>
   </tr>
   <tr>
     <td align="center">Marks and dimensions</td>
@@ -82,7 +82,7 @@ the Python file, and torno shows it.
 ## How it works
 
 <p align="center">
-  <img src="docs/images/demo.gif" alt="The loop in twenty seconds: a pin on a thin wall with a note, a prompt asking for 3 mm, Claude Code looking and measuring, its edit of the model, the rebuild, and the dimension turning to passes" width="800">
+  <img src="docs/images/demo.gif" alt="The loop in twenty seconds: an airbox in a scan of its engine bay, a pin on its tub wall with a note, a prompt asking for 3 mm, Claude Code looking and measuring, its edit of the model, the rebuild, and the dimension turning to passes" width="800">
 </p>
 
 ```mermaid
