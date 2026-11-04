@@ -1948,7 +1948,14 @@ a hidden window, sends the prompts through the chat with `claude --model <model>
 from the case. Then it scores the model as the agent left it: `app/evals/score.py`, with torno's kernel loader, checks
 validity, part names, solids, sizes and ratios, volume, clearance, overlap and holes on the B-rep (each pass or fail
 with its number, exact only where the kernel says so), and an `mcp` check calls a torno tool through the project's
-MCP address. The cases: three of primitives and plates (T1), four printable parts with fillets, bosses and a lid
+MCP address. The person's dimensions in a case's start (`start/.torno/marks.json`, with an expected value) are checks
+too, read through `marks`: one passes only with its verdict measured on the last build. A `diff` check holds the last
+edit (the two builds `diff` keeps) to the parts the case lets it change: a part with other face, edge or solid counts,
+or moved, fails it, and so does a part come or gone; the volume and size checks hold the rest against the start.
+`--ablate` takes parts of torno away from the agent, to measure what each is worth: `skills` (no plugin of skills:
+the whole system prompt), `reviewer` (no `torno-reviewer` subagent), `stop` (a `Stop` is never held back) and `look`
+(the tool answers that it is off), in a comma list. torno reads them (`TORNO_EVAL_ABLATE`) only when both `TORNO_TEST=1`
+and `TORNO_EVAL=1` are set, which only the evals set together: in any other run nothing is taken away. The cases: three of primitives and plates (T1), four printable parts with fillets, bosses and a lid
 that fits (T2), two of mating parts (T3), two that leave a dimension out (asking is right), two pairs of the same
 edit by a mark and by text alone, and two edits that must change nothing else. The report is one JSON line per run
 in `app/evals/out/<date>-<commit>-<label>.jsonl` (ignored by git), with checks passed, the build apart, whether it
@@ -1967,6 +1974,7 @@ tokens, cost and time from the CLI's own result, and a Markdown table beside it.
 | `TORNO_DEBUG=1` | print to stderr the workspace opened at start, the address of the MCP server, and the command line and hooks of every session |
 | `TORNO_OUTSIDE_AGENTS=1` | a spike (#54): open a socket only you can open, in your runtime folder, through which an agent torno did not start reaches one project's tools by `node scripts/torno-mcp.mjs <project folder>` (as a stdio MCP server in its config), after you allow it in the window. Off by default. |
 | `TORNO_EVAL=1` | lets `pnpm -C app eval` start, which spends your subscription; it still asks before it starts, and never runs under `CI` |
+| `TORNO_EVAL_ABLATE=<list>` | what an eval run takes away from the agent (`skills`, `reviewer`, `stop`, `look`); read only with both `TORNO_TEST=1` and `TORNO_EVAL=1`, and set by `pnpm -C app eval --ablate` |
 | `TORNO_EVAL_AGENT=<cmd>` | the agent of the evals in place of `claude --model … --max-budget-usd … --permission-mode acceptEdits`; the stand-in (`node app/test/fake-agent.mjs`) checks the runner and spends nothing |
 | `TORNO_TEST=1` | create the window hidden and never show it; keep Electron's own files in a temporary folder of the run; expose the test hooks; look for `claude` on the `PATH` without running it. For tests only. |
 

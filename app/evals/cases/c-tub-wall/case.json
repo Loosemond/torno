@@ -41,6 +41,13 @@
       "axis": "x",
       "expect": 70,
       "tol": 0.001
+    },
+    {
+      "id": "diff",
+      "kind": "diff",
+      "only": [
+        "tub"
+      ]
     }
   ]
 }

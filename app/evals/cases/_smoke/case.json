@@ -2,7 +2,8 @@
   "object": "smoke",
   "prompts": [
     "ask AskUserQuestion {\"questions\": [{\"question\": \"How long is the block?\", \"header\": \"Length\", \"multiSelect\": false, \"options\": [{\"label\": \"20 mm\", \"description\": \"short\"}, {\"label\": \"30 mm\", \"description\": \"long\"}]}]}",
-    "write smoke.py from dataclasses import dataclass\\nfrom build123d import Box, Cylinder, Pos\\n@dataclass(frozen=True)\\nclass Params:\\n    pass\\ndef assembly(p):\\n    return {'block': Box(30, 20, 10) - Cylinder(3, 10)}\\n",
+    "write smoke.py from dataclasses import dataclass\\nfrom build123d import Box, Cylinder, Pos\\n@dataclass(frozen=True)\\nclass Params:\\n    unused: float = 1.0\\ndef assembly(p):\\n    return {'block': Box(30, 20, 10) - Cylinder(3, 10)}\\n",
+    "tool mcp__torno__look {}",
     "say Is this what you wanted?"
   ],
   "answers": {
@@ -53,6 +54,13 @@
       "part": "block",
       "axis": "z",
       "expect": 99
+    },
+    {
+      "id": "diff",
+      "kind": "diff",
+      "only": [
+        "block"
+      ]
     }
   ]
 }
