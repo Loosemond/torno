@@ -57,7 +57,7 @@ test('builds an object with the kernel it carries, in an environment outside the
 
     await openListed(page, 'hollow')
     await expect
-      .poll(async () => (await page.evaluate(() => window.__tornoTest!.state())).build?.status, { timeout: 360_000, intervals: [1000] })
+      .poll(async () => (await page.evaluate(() => window.__tornoTest?.state()))?.build?.status, { timeout: 360_000, intervals: [1000] })
       .toBe('ok')
     const state = await page.evaluate(() => window.__tornoTest!.state())
     expect(state.objectId).toBe('hollow')
@@ -88,9 +88,12 @@ test('offers the example it carries, with its project, marks and views', async (
   let copy = ''
   try {
     const page = await bare.firstWindow()
-    await expect(page.getByRole('button')).toHaveText(['Open folder', 'Open the example'])
+    // The first screen also says whether torno's Python environment is made ("Make it now"): not what is checked here.
+    await expect(page.locator('button:not(.ready-make)')).toHaveText(['Open folder', 'Open the example'])
     await page.getByRole('button', { name: 'Open the example' }).click()
     await page.waitForSelector('[data-region="left"]')
+    // The hooks are installed when the viewport mounts, a moment after the left column.
+    await expect.poll(() => page.evaluate(() => window.__tornoTest !== undefined)).toBe(true)
     copy = (await page.evaluate(() => window.__tornoTest!.state())).workspace!.root
     // A copy in the temporary folder, never the resources themselves.
     const resources = await bare.evaluate(() => process.resourcesPath)
