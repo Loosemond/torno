@@ -660,9 +660,12 @@ the model file in short, and name the skills.
 Claude Code is also given a subagent, `torno-reviewer`, on its command line
 (`--agents`; nothing is written to `.claude/agents/`). It has only the tools
 that read (`scene`, `look`, `marks`, `measure`, `check`, `section`,
-`describe`, and `Read`), checks the current build against what you asked,
-every open mark and every dimension, and reports what holds and what does not
-with numbers from `measure`. It changes nothing. Claude Code is told to call
+`describe`, `diff`, the scan tools, and `Read`). It runs on Sonnet, whatever
+model the session uses (`TORNO_REVIEWER_MODEL=inherit` gives it the session's,
+or a model name another), and stops after 20 turns. It reads `brief.md`, checks
+the current build against what you asked, every open mark and every dimension,
+numbers first and at most two pictures, and ends with one line each that begins
+HOLDS, FAILS or UNCHECKED, with the number and the ref. It changes nothing. Claude Code is told to call
 it after a change of several steps, before saying it is done.
 
 The status follows the hooks Claude Code posts: `UserPromptSubmit`,
@@ -1808,7 +1811,7 @@ With a real agent:
   edges that need it (or the selection) in `Params`, saying so; it does not wrap the fillet in `try`, lower every
   radius, or call `max_fillet()`. The stand-in agent cannot show what the model chooses.
 - **What Claude Code says of itself, with the real CLI.** The stand-in plays each case (`FAKE_AGENT_INIT`); the real CLI has not: with `ANTHROPIC_API_KEY` set the chat says it is billed to an API key and names what `apiKeySource` is then (look at the value in a real `init`: `user`, `project`, `org`, `temporary`, or another), with it unset and logged in it says nothing (`none` or `oauth`); in a new session with torno's plugin, `init` lists `torno` among its `plugins` and no warning appears, and `/skills` lists the five skills (what `skills` holds with a `--plugin-dir` plugin is not recorded: the recordings' lists hold no plugin skill at all, so torno judges the skills only when `skills` shows some with a `plugin:` name); a `claude` of another minor than 2.1 (or older than 2.1.300) says so once; with the torno server made to fail the warning carries what the CLI said; a real overload shows "retrying (attempt N)" and it goes with the answer; a command refused by a rule of `settings.json` leaves the warning "Permission denied: …" (and the fields `mcp_server_errors`, `plugin_errors` and `permission_denials` are read as their form is guessed from the documentation). When the CLI moves, record a new stream (`app/test/fixtures/RECORDING.md`) and move the range.
-- **The torno-reviewer subagent.** One run with the real CLI, in chat and in the terminal: after a change of several steps Claude Code calls `torno-reviewer`, which uses only its read-only tools, reports with numbers from `measure` and changes nothing; whether the subagent's MCP calls go through `--allowedTools 'mcp__torno__*'` without a permission prompt; and that an invalid `--agents` would have stopped the start (it did not). The stand-in only shows the argument is passed.
+- **The torno-reviewer subagent.** One run with the real CLI, in chat and in the terminal: after a change of several steps Claude Code calls `torno-reviewer`, which uses only its read-only tools, reports with numbers from `measure` and changes nothing; whether the subagent's MCP calls go through `--allowedTools 'mcp__torno__*'` without a permission prompt; and that an invalid `--agents` would have stopped the start (it did not); that the CLI accepts `model` and `maxTurns` in `--agents` (the subagent runs on Sonnet and stops by 20 turns), that `TORNO_REVIEWER_MODEL=inherit` leaves it on the session's model, and that its report ends with the HOLDS, FAILS and UNCHECKED lines. The stand-in only shows the argument is passed.
 - **Pictures of a resumed chat, with the real Claude Code.** Make a project with one photo and one doodle and send the first prompt; let Claude Code take one `look`; quit torno. Start it again and open the project (the chat resumes): the photo and the doodle show, and the `look` picture says "Picture of an earlier build, not kept". Ask "Without reading any file, describe the doodle I gave at the start": a right answer confirms that `--resume` gives the model its pictures again. Then `/clear` and ask what references the project has: it names them from the line in `reference/`. The stand-in agent shows only that the window reads the files and the line is sent.
 - **The session's token with the real Claude Code.** Start a chat and a terminal session: torno's tools connect (no
   "torno's tools are not connected" warning; `look` answers) and the hooks arrive (the status moves to working and
