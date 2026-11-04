@@ -1,4 +1,4 @@
-import { Children, memo, useContext, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { Children, createContext, memo, useContext, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { type ChatItem, pulledFromTorno } from '../../../shared/chat'
 import { numbered } from '../numbered'
 import { AskSession } from './AskCard'
@@ -42,11 +42,80 @@ function SeeChanges({ item, account, row }: { item: TurnItem; account: TurnAccou
 }
 
 /**
+ * The id of the turn that "Undo" is offered on, or none: the last turn of a live chat whose session is idle, with no
+ * prompt of the person's after it (`ChatPane` works it out). Any other turn has no such button.
+ */
+export const UndoableTurn = createContext<string | undefined>(undefined)
+
+/** How long "Undo" waits for main to take it before the button is the person's again. */
+const UNDO_WAIT_MS = 10_000
+
+/**
+ * "Undo": asks the agent, in a prompt torno writes, to put the model files back as they were before this turn. Torno
+ * writes nothing of the model; the agent edits through its usual permission cards, and a note in the chat says so. It
+ * asks first, once, naming what it will ask for and what it does not cover.
+ */
+function Undo({ item }: { item: TurnItem }) {
+  const sessionId = useContext(AskSession)
+  const [asking, setAsking] = useState(false)
+  const [sending, setSending] = useState(false)
+  const [problem, setProblem] = useState<string | null>(null)
+  useEffect(() => {
+    if (!sending) return
+    const timer = setTimeout(() => setSending(false), UNDO_WAIT_MS)
+    return () => clearTimeout(timer)
+  }, [sending])
+  if (!sessionId) return null
+  const send = (): void => {
+    setSending(true)
+    setProblem(null)
+    window.torno.chat.undo(sessionId, item.id).then(
+      () => setAsking(false),
+      (e: unknown) => {
+        setSending(false)
+        setProblem(e instanceof Error ? e.message : String(e))
+      }
+    )
+  }
+  if (!asking) {
+    return (
+      <>
+        <button type="button" className="button button-quiet" onClick={() => setAsking(true)}>
+          Undo
+        </button>
+        {problem && (
+          <span className="chat-turn-problem" role="alert">
+            {problem}
+          </span>
+        )}
+      </>
+    )
+  }
+  return (
+    <span className="chat-turn-undo" role="group" aria-label="Undo this turn">
+      <span>Ask Claude Code to put the model files back as they were before this turn? It edits them itself, and you answer each edit. Only the .py files in this project's folder are covered.</span>
+      <button type="button" className="button" disabled={sending} onClick={send} autoFocus>
+        {sending ? 'Asking…' : 'Ask to undo'}
+      </button>
+      <button type="button" className="button button-quiet" disabled={sending} onClick={() => setAsking(false)}>
+        Keep it
+      </button>
+      {problem && (
+        <span className="chat-turn-problem" role="alert">
+          {problem}
+        </span>
+      )}
+    </span>
+  )
+}
+
+/**
  * The end of a turn: how long it took, what it did to the project (`account`, from the turn's own items), and what it
  * pulled from torno, each on a quiet line of its own, then the buttons for the turn.
  */
 export const TurnEnd = memo(function TurnEnd({ item, account }: { item: TurnItem; account?: TurnAccount }) {
   const row = useRef<HTMLDivElement>(null)
+  const undoable = useContext(UndoableTurn)
   const pulled = pulledFromTorno(item.pulled)
   const head = item.stopped ? 'Stopped' : item.ok ? `Done in ${item.seconds < 10 ? item.seconds.toFixed(1) : Math.round(item.seconds)} s` : `Failed${item.error ? `: ${item.error}` : ''}`
   const parts = account && !isEmpty(account.summary) ? summaryParts(account.summary) : []
@@ -54,7 +123,10 @@ export const TurnEnd = memo(function TurnEnd({ item, account }: { item: TurnItem
     <div ref={row} className="chat-item chat-turn" data-kind="turn" data-ok={item.ok && !item.stopped ? '' : undefined}>
       <p className="chat-turn-line">{numbered([head, ...parts].join(' · '))}</p>
       {pulled && <p className="chat-turn-line chat-turn-pulled">{numbered(pulled)}</p>}
-      <TurnActions>{account && editedModel(account) ? <SeeChanges item={item} account={account} row={row} /> : null}</TurnActions>
+      <TurnActions>
+        {account && editedModel(account) ? <SeeChanges item={item} account={account} row={row} /> : null}
+        {account && editedModel(account) && undoable === item.id ? <Undo item={item} /> : null}
+      </TurnActions>
     </div>
   )
 })

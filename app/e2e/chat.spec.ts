@@ -430,3 +430,40 @@ test('a turn ends with what it did to the project, and "See changes" shows the l
   await expect(turns()).toHaveCount(before + 2, { timeout: 30_000 })
   await expect(turns().last().getByRole('button', { name: 'See changes' })).toHaveCount(0)
 })
+
+test('"Undo" is offered on the last turn that edited the model while the session is idle, asks first, and sends a prompt that holds the lines to reverse', async () => {
+  await expect(composer()).toBeEnabled()
+  const before = await turns().count()
+  await say('edit hollow.py "wall: float = 4" "wall: float = 5"')
+  await expect(turns()).toHaveCount(before + 1, { timeout: 30_000 })
+  await expect(turns().last().getByRole('button', { name: 'Undo' })).toBeVisible()
+  // Only the last turn has it: the one before, which edited the model too, does not.
+  await expect(chat().getByRole('button', { name: 'Undo' })).toHaveCount(1)
+  // Not while the session works, and not on a turn that edited nothing.
+  await say('slow 2')
+  await expect(chat().getByRole('button', { name: 'Undo' })).toHaveCount(0)
+  await expect(turns()).toHaveCount(before + 2, { timeout: 30_000 })
+  await expect(chat().getByRole('button', { name: 'Undo' })).toHaveCount(0)
+  // A later edit is the last: it asks first, and "Keep it" puts the question away.
+  await say('edit hollow.py "wall: float = 5" "wall: float = 6"')
+  await expect(turns()).toHaveCount(before + 3, { timeout: 30_000 })
+  const last = turns().last()
+  await last.getByRole('button', { name: 'Undo' }).click()
+  const question = last.getByRole('group', { name: 'Undo this turn' })
+  await expect(question).toContainText('you answer each edit')
+  await question.getByRole('button', { name: 'Keep it' }).click()
+  await expect(question).toHaveCount(0)
+  const users = await chat().locator('.chat-user').count()
+  await last.getByRole('button', { name: 'Undo' }).click()
+  await question.getByRole('button', { name: 'Ask to undo' }).click()
+  // A note says what was asked and that torno writes nothing; then the prompt, with the lines to reverse, as the person's.
+  await expect(chat().locator('.chat-note', { hasText: 'Undo: Claude Code is asked to put hollow.py back' })).toContainText('torno writes nothing')
+  await expect(chat().locator('.chat-user')).toHaveCount(users + 1)
+  const asked = chat().locator('.chat-user').last()
+  await expect(asked).toContainText('Undo your last turn')
+  await expect(asked).toContainText('- wall: float = 6')
+  await expect(asked).toContainText('+ wall: float = 5')
+  await expect(turns()).toHaveCount(before + 4, { timeout: 30_000 })
+  // That turn is no longer the last, and the new one edited nothing.
+  await expect(chat().getByRole('button', { name: 'Undo' })).toHaveCount(0)
+})

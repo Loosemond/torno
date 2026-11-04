@@ -293,6 +293,12 @@ export interface TornoBridge {
      * is also one that changed no file there, and for a session that is not of the open workspace.
      */
     changes(sessionId: string, turnId: string): Promise<TurnChanges | null>
+    /**
+     * "Undo" on the last turn: asks the agent, in a prompt torno writes, to put the model files back as they were before
+     * that turn (the lines to reverse come from `changes`). Torno writes nothing of the model; the agent edits through
+     * its permission cards. Rejects, sending nothing, when the session is not idle, the turn is not the last or main holds nothing of it.
+     */
+    undo(sessionId: string, turnId: string): Promise<void>
     /** An item of the transcript was added or changed. One whose `seq` is not above the `seq` of the history asked for before holds nothing the history does not. */
     onItem(cb: (m: { sessionId: string; item: ChatItem; seq: number }) => void): () => void
     onMeta(cb: (m: { sessionId: string; meta: ChatMeta; seq: number }) => void): () => void

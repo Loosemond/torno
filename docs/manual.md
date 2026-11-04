@@ -583,6 +583,25 @@ is a new line, and a prompt sent while the agent is at work waits its turn
   without its text. The button is there when the agent's edit tools changed a
   `.py` file; the sheet then lists every file that differs, a change made by a
   command (`sed`, a script) too.
+- **Undo.** The latest turn that edited a `.py` file has "Undo" beside "See
+  changes", while the session is idle and before you send anything else; an
+  earlier turn, or one that edited nothing, has none. It asks once ("Ask
+  Claude Code to put the model files back as they were before this turn?"). On
+  "Ask to undo" torno writes a prompt of its own, from the two texts of each
+  file it kept for "See changes": put the files back as they were before that
+  turn, with the lines to reverse (`-` is in the file now and goes, `+` comes
+  back). It is sent as yours, after a quiet note that says what was asked. The
+  agent makes the edits itself, so each one comes to you as any edit does (a
+  permission card, if your mode asks), and the build runs as after any change
+  of the source. torno does not write the model, and the conversation keeps
+  the turn, so the agent knows it was undone. It covers the same `.py` files
+  as "See changes": not `common/`, not other files, and a file over 200 KB or
+  too many lines is named without its lines, for the agent to undo from the
+  conversation. A file you saved after the turn is said to have changed, so the
+  agent reads it before it reverses a line. It is a request, not a restore: it
+  can be done wrongly, and the sheet "See changes" shows what the file is
+  now. Nothing is kept of a turn of an earlier session, so there is no
+  "Undo" there.
 - **Refs are live.** `M4`, `lid/F12` and `lid/E3` in the agent's text and in
   the cards are chips: hovering one lights it in the view, clicking a mark
   focuses it, clicking a face or an edge selects it. A ref that names nothing
@@ -1956,6 +1975,15 @@ On the screen:
 - **The doodle board with a mouse and a pen.** Draw with a mouse, a tablet pen and a touch screen: the line follows the pointer without lag, the eraser takes away what it crosses, `Ctrl+Z` takes the last stroke back, and the PNG Claude gets is dark on white in both themes. Tests drew with synthetic pointer events only. A photo dropped from the file manager on the new project's page is taken too; a test cannot drop a file with a path.
 - **The Scans panel.** Import a scan of your own: the sheet `How is S1 read?` is at the top of the Scans panel with the size it would have; "Later" leaves a dot on the row. The row is one line at the column's default width, the name cut with an ellipsis and whole in its tooltip, the word legible in both themes, the dot and a `check` or `rough` word told apart from the rest. Open its detail and another's: one is open at a time, and Frame, Align and Rename are on one line.
 - **Drawing on the view with the real Claude Code.** In a chat, "Draw on view", ring a face and draw an arrow to it with a mouse and with a tablet pen, "Done", then a prompt ("make this thicker"): the ink follows the pointer, the eraser takes ink and never the picture, the row above the box names the faces the ink lies over before anything is sent (and says so, in the warning colour, when it could not be worked out), "Attach view" shows a small picture of the view before it goes, the chat shows the picture and that line with the prompt, and Claude Code's reply speaks of the ringed place and names the face the caption gave. Tests drew with synthetic pointer events and the stand-in agent.
+- **Claude Code's own checkpoints for "Undo" (`Part of #131`).** "Undo" asks the agent in words. Claude Code can also
+  restore the files itself: with `CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING=true` at start, `claude -p --resume <id>
+  --rewind-files <uuid>`, where `<uuid>` is the id torno gives the prompt. This is not built: `--rewind-files` is absent
+  from `--help`, and nothing is known of it from a real CLI. Try once by hand, with the CLI's version noted: after a
+  turn that edited the model with `Edit` and `Write`, does it restore the file as it was before that prompt, and does
+  it list the files with a dry run? Must the live session end first, or does a control request (`rewind_files`) work on
+  the running process? What does it do to the conversation, and to a file changed by `Bash` or a subagent, which it
+  does not track? Write the answers in issue #131: if the files and the conversation both come out right, the button
+  can use it and be exact; if not, the asked undo stays.
 - **A broken part in the layers.** Build a model with a cavity whose shell faces into it, or a part made of a shell
   with a face left out: its layer row says "not valid" (or "not closed") after its name in the colour of a failure,
   with what that means in its tooltip, and the line at the bottom says "1 part has a defect"; legible in light and
