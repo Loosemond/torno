@@ -27,7 +27,7 @@ export type OnChange = (paths: string[]) => void
  * `node_modules`, `.venv` and `.git`, at any depth. The folder need not exist
  * yet. Returns a function that stops the watch.
  */
-export function watchFolder(dir: string, onChange: OnChange): () => void {
+export function watchFolder(dir: string, onChange: OnChange, debounceMs: number = DEBOUNCE_MS): () => void {
   let timer: NodeJS.Timeout | undefined
   let changed = new Set<string>()
   const realDir = realPathOrNearest(dir)
@@ -51,7 +51,7 @@ export function watchFolder(dir: string, onChange: OnChange): () => void {
       const paths = [...changed]
       changed = new Set()
       onChange(paths)
-    }, DEBOUNCE_MS)
+    }, debounceMs)
   })
   // A watch that fails (the folder became unreadable) just reports nothing more.
   watcher.on('error', () => {})

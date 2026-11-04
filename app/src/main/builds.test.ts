@@ -1131,9 +1131,12 @@ describe('watchFolder', () => {
 
   const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
-  async function watching(path: string): Promise<{ changes: () => number; paths: () => string[][] }> {
+  async function watching(
+    path: string,
+    debounceMs?: number
+  ): Promise<{ changes: () => number; paths: () => string[][] }> {
     const bursts: string[][] = []
-    stop = watchFolder(path, (paths) => bursts.push(paths))
+    stop = watchFolder(path, (paths) => bursts.push(paths), debounceMs)
     await sleep(150) // let the watcher settle on what is already there
     if (process.platform === 'darwin') {
       // FSEvents replays what was written just before the watch began (the files this test made): let it, and drop it.
@@ -1144,14 +1147,17 @@ describe('watchFolder', () => {
   }
 
   it('reports a burst of saves once, after the debounce', async () => {
-    const { changes } = await watching(join(dir, 'obj'))
+    // A long debounce, so that a slow runner stretching a sleep cannot let it end between the saves.
+    const { changes } = await watching(join(dir, 'obj'), 2500)
     writeFileSync(join(dir, 'obj', 'model.py'), 'x = 2\n')
     await sleep(100)
     writeFileSync(join(dir, 'obj', 'model.py'), 'x = 3\n')
     writeFileSync(join(dir, 'obj', 'notes.txt'), 'hello')
-    await sleep(200)
-    expect(changes()).toBe(0) // still inside the 300 ms after the last change
-    await sleep(400)
+    await sleep(300)
+    expect(changes()).toBe(0) // still inside the debounce after the last change
+    for (let i = 0; i < 100 && changes() === 0; i++) await sleep(100)
+    expect(changes()).toBe(1)
+    await sleep(300)
     expect(changes()).toBe(1)
   })
 
