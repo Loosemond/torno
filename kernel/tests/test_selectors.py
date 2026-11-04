@@ -201,16 +201,53 @@ def test_describe_asks_for_a_selector_only_when_it_is_asked_for(built):
 
 # The expression is the worker's own
 
+PREFIX = re.compile(r"part\.(faces|edges)\(\)")
+FIXED = re.compile(
+    r"\.filter_by\((?:Axis\.[XYZ]|GeomType\.[A-Z_]+)\)"
+    r"|\.sort_by\(Axis\.[XYZ]\)"
+    r"|\.group_by\(Axis\.[XYZ]\)\[-?\d+\]"
+)
+LAMBDA = re.compile(r"\.filter_by\(lambda [fe]: ")
+INDEX = re.compile(r"\[-?\d+\]")
+
+
+def well_formed(expr):
+    """Whether ``expr`` is a part's faces or edges, a fixed run of filters, sorts and groups, and an index.
+
+    A lambda's body is anything but ';' up to a ')', so it may hold ').filter_by(lambda e: ' itself, and a regex
+    that lets the body run on backtracks exponentially over that. Here the text from each position is decided
+    once, from the end: ok[j] says the text from j is a run of items and then the final index; a lambda's body
+    ends at the first ')' from it on after which the rest is ok (nxt[j]), with no ';' between.
+    """
+    if expr.endswith("\n"):  # the pattern's '$' also matched before a final newline
+        expr = expr[:-1]
+    head = PREFIX.match(expr)
+    if head is None:
+        return False
+    start, n = head.end(), len(expr)
+    ok = [False] * (n + 1)
+    nxt = [n + 1] * (n + 1)  # first ')' at or after j that ends a lambda's body and leaves an ok rest; n + 1 if none
+    semi = [n] * (n + 1)  # first ';' at or after j, or n
+    for j in range(n, start - 1, -1):
+        index = INDEX.match(expr, j)
+        if index is not None and index.end() == n:
+            ok[j] = True
+        item = FIXED.match(expr, j)
+        if item is not None and ok[item.end()]:
+            ok[j] = True
+        lam = LAMBDA.match(expr, j)
+        if lam is not None and nxt[lam.end()] < semi[lam.end()]:
+            ok[j] = True
+        if j < n:
+            nxt[j] = j if expr[j] == ")" and ok[j + 1] else nxt[j + 1]
+            semi[j] = j if expr[j] == ";" else semi[j + 1]
+    return ok[start]
+
 
 def test_the_expression_is_made_of_a_fixed_set_of_names_and_numbers(built):
-    allowed = re.compile(
-        r"^part\.(faces|edges)\(\)"
-        r"(\.filter_by\((Axis\.[XYZ]|GeomType\.[A-Z_]+|lambda [fe]: [^;]*)\)|\.sort_by\(Axis\.[XYZ]\)|\.group_by\(Axis\.[XYZ]\)\[-?\d+\])*"
-        r"\[-?\d+\]$"
-    )
     for ref in every_ref(built):
         selector = described(built, ref)["selector"]
-        assert selector is not None and allowed.match(selector["expression"]), selector
+        assert selector is not None and well_formed(selector["expression"]), selector
 
 
 def test_the_evaluation_has_no_builtins_but_abs(plate):
