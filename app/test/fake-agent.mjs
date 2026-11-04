@@ -83,6 +83,7 @@
 // `${VAR}` and `${VAR:-default}` expanded from its environment (one unset with no default is sent as written); an http
 // hook's `headers` have `$VAR` and `${VAR}` interpolated only for names in that hook's `allowedEnvVars`, any other
 // read as empty. With FAKE_AGENT_NO_EXPAND=1 it sends the MCP headers as written, as a CLI that expands nothing would.
+// With FAKE_AGENT_NO_HOOKS=1 it posts no hook at all, as a CLI whose settings keep hooks from reading TORNO_SESSION (every hook is answered 404).
 // With FAKE_AGENT_FAIL=<text> in stream mode it writes <text> to stderr and exits 1 at once, before a line of output
 // (a CLI that is too old for a flag, or signed out). With FAKE_AGENT_INIT_ERROR=<text> it answers `initialize` with that error.
 // With FAKE_AGENT_AUTH_ERROR=<text> in stream mode its first turn cannot authenticate, as under `--bare` or a login that ran
@@ -223,7 +224,7 @@ async function streamMode() {
 
   const post = async (event, extra = {}) => {
     const handler = settings.hooks?.[event]?.[0]?.hooks?.[0]
-    if (!handler?.url) return undefined
+    if (!handler?.url || process.env.FAKE_AGENT_NO_HOOKS === '1') return undefined
     const body = { session_id: conversation, cwd: process.cwd(), hook_event_name: event, ...extra }
     const reply = await fetch(handler.url, { method: 'POST', headers: { ...hookHeaders(handler), 'content-type': 'application/json' }, body: JSON.stringify(body) }).catch(() => undefined)
     return reply?.ok ? await reply.json().catch(() => undefined) : undefined

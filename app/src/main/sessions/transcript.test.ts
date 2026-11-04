@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ChatItem, ChatMeta } from '../../shared/chat'
 import type { AgentMessage } from './transport'
 import { onboardPrompt } from '../onboard'
-import { LOGIN_FAILED, Transcript } from './transcript'
+import { LOGIN_FAILED, NO_HOOKS, Transcript } from './transcript'
 
 // The reducer, fed what Claude Code 2.1.300 printed (app/test/fixtures/claude-stream.jsonl) and what torno itself
 // records (a prompt sent, a hook answered, a permission asked, a session ended).
@@ -302,7 +302,7 @@ describe('what is sent', () => {
     const U1 = 'aaaaaaaa-0000-4000-8000-000000000001'
     const U2 = 'aaaaaaaa-0000-4000-8000-000000000002'
     const life = (command_uuid: string, state: string): AgentMessage => ({ type: 'command_lifecycle', command_uuid, state, uuid: `ev-${command_uuid}-${state}`, session_id: 's' })
-    const t = new Transcript()
+    const t = new Transcript({ hookWaitMs: Infinity })
     t.userSent(text('A'), false, 'a0')
     t.message(life('a0', 'started'))
     t.message(toolUse('q', 'AskUserQuestion'))
@@ -884,6 +884,75 @@ describe('what the CLI says of itself (#116)', () => {
     expect(t.meta().context).toEqual({ used: 110, window: 200000 })
   })
 
+  describe('the hooks that never arrive', () => {
+    const life = (command_uuid: string, state: string): AgentMessage => ({ type: 'command_lifecycle', command_uuid, state, uuid: `ev-${command_uuid}-${state}`, session_id: 's' })
+    const notes = (t: Transcript): string[] => of(t, 'note').map((n) => n.text)
+
+    it('says so once, after a wait, when a started prompt brings no UserPromptSubmit', () => {
+      vi.useFakeTimers()
+      try {
+        const t = new Transcript({ hookWaitMs: 3000 })
+        t.userSent(text('go'), false, 'u1')
+        t.message(life('u1', 'started'))
+        t.message(init())
+        vi.advanceTimersByTime(2999)
+        expect(notes(t)).toEqual([])
+        vi.advanceTimersByTime(1)
+        expect(notes(t)).toEqual([NO_HOOKS])
+        expect(of(t, 'note')[0]).toMatchObject({ tone: 'warn' })
+        t.message(result({}))
+        t.userSent(text('again'), false, 'u2')
+        t.message(life('u2', 'started'))
+        t.message(result({}))
+        expect(notes(t)).toEqual([NO_HOOKS])
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('says it when the turn ends first, and not when the hook came', () => {
+      const t = new Transcript()
+      t.userSent(text('go'), false, 'u1')
+      t.message(life('u1', 'started'))
+      t.message(init())
+      t.message(result({}))
+      expect(notes(t)).toEqual([NO_HOOKS])
+      const h = new Transcript()
+      h.userSent(text('go'), false, 'u1')
+      h.message(life('u1', 'started'))
+      h.context({ text: '', sentMarkIds: [] })
+      h.message(init())
+      h.message(result({}))
+      expect(notes(h)).toEqual([])
+      // Nor for a command, which has no hook.
+      const c = new Transcript()
+      c.userSent(text('/compact'), false, 'c1')
+      c.message(life('c1', 'started'))
+      c.message(result({}))
+      expect(notes(c)).toEqual([])
+    })
+  })
+
+  it('puts the tokens a result counts on the turn, with the requests and each model, and nothing when it counts none', () => {
+    const t = new Transcript()
+    t.message(init({ model: 'claude-haiku-5-5' }))
+    t.message(
+      result({
+        num_turns: 3,
+        usage: { input_tokens: 4, output_tokens: 90, cache_read_input_tokens: 58637, cache_creation_input_tokens: 605 },
+        modelUsage: { 'claude-haiku-5-5': { inputTokens: 4, outputTokens: 90, cacheReadInputTokens: 58637, cacheCreationInputTokens: 605, contextWindow: 1000000 } }
+      })
+    )
+    const counts = { input: 4, output: 90, cacheRead: 58637, cacheCreation: 605 }
+    expect(of(t, 'turn')[0].usage).toEqual({ ...counts, requests: 3, models: { 'claude-haiku-5-5': counts } })
+    // Without modelUsage or num_turns.
+    t.message(result({ usage: { input_tokens: 1, output_tokens: 2 } }))
+    expect(of(t, 'turn')[1].usage).toEqual({ input: 1, output: 2, cacheRead: 0, cacheCreation: 0 })
+    // Without usage, none.
+    t.message(result({}))
+    expect(of(t, 'turn')[2]).not.toHaveProperty('usage')
+  })
+
   it('never throws at what it does not know', () => {
     const t = new Transcript({ plugin: PLUGIN, tested: TESTED })
     expect(() => {
@@ -1012,6 +1081,13 @@ describe('what the CLI printed for a permission and for /compact', () => {
     expect(items[0]).toMatchObject({ state: 'sent', text: '/compact' })
     expect(items[1]).toMatchObject({ text: 'Conversation compacted: 29,569 → 3,637 tokens', tone: 'quiet' })
     expect(items[2]).toMatchObject({ ok: true, stopped: false })
+  })
+
+  it('tells that the conversation was compacted', () => {
+    let compacted = 0
+    const t = new Transcript({ now: () => 1000, onCompact: () => (compacted += 1) })
+    t.message({ type: 'system', subtype: 'compact_boundary', compact_metadata: { trigger: 'auto', pre_tokens: 9, post_tokens: 3 } })
+    expect(compacted).toBe(1)
   })
 
   it('draws no note for the compaction summary, and shows what a local command printed as a quiet note', () => {

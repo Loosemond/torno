@@ -883,6 +883,13 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `version` (`claude_code_version`), `apiKeySource` and `pluginLoaded`; `result` adds `costUsd` (`total_cost_usd`) and
   `context` (the tokens of the last request, `usage.iterations`' last or else `usage`, against the `contextWindow` of
   the session's model in `modelUsage`; unchanged when the result has no tokens, as a `/compact`'s has none);
+  the `turn` item takes the tokens the `result` counts as `usage` (`TurnUsage`: `usage` summed, `num_turns` as `requests`,
+  and `modelUsage` per model; numbers only, so it is in the chat's log; none when the result counts none);
+  a `warn` note `NO_HOOKS` says once per session that the hooks do not arrive: a prompt of ours the CLI started
+  (`command_lifecycle`, not a `/` command) with no `UserPromptSubmit` by `hookWaitMs` (8 s) or the end of its turn, in a
+  session where none has come (a setting that limits `httpHookAllowedEnvVars` makes every hook 404). It never moves
+  the status; the stand-in's `FAKE_AGENT_NO_HOOKS=1` plays it. The terminal view cannot tell it: the manual's
+  troubleshooting names it.
   `api_retry` sets `retrying` (`{ attempt }`) until a `stream_event`, an `assistant`, a `user` or a `result` comes.
   Notes: a `warn` when torno's tools are `failed` (with the text of the entry of `mcp_server_errors` that is
   `torno`'s own: a `name`, `plugin`, `plugin_name` or `server` field that is `torno`, or a string that is or begins
@@ -987,7 +994,8 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   and atomically, when a session starts on it (`trimLog`). Switching `view` ends the session and resumes the
   conversation in the other kind (`session.json` is the same).
 - The first prompt of a new conversation (`newConversation`: a session not resumed, its first `UserPromptSubmit`;
-  or `fresh`, after /clear) is told in a last line the files of `reference/` (`referencesLine` in `context.ts`,
+  or `fresh`, after /clear or after a compaction: the `PostCompact` hook, which moves no status, or the stream's
+  `compact_boundary`, either sets `Session.compacted`, which the next prompt takes once as `fresh`) is told in a last line the files of `reference/` (`referencesLine` in `context.ts`,
   `listReferences`: plain files of create's names, photos then doodles, twelve named at most). It is no mark, and is
   left out when it does not fit in the context's limit. The onboarding prompt names them too; the repetition is
   accepted.

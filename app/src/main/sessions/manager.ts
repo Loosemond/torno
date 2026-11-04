@@ -60,6 +60,8 @@ interface Session {
   promptedIn: string
   /** A conversation begun with this session (not one resumed) that no prompt has been in yet: the next is told what is new to it. */
   unprompted: boolean
+  /** The conversation was compacted since the last prompt (the `PostCompact` hook, or the stream's `compact_boundary`): the next prompt is told as one of a fresh conversation, once. */
+  compacted: boolean
   /** No prompt has been in this session yet, resumed or not: the next is told what Claude Code reads of the object's folder. */
   firstPrompt: boolean
   status: SessionStatus
@@ -398,6 +400,10 @@ export class Sessions {
               ...(skills && adapter.plugin ? { plugin: adapter.plugin } : {}),
               ...(adapter.tested ? { tested: adapter.tested } : {}),
               ...(isEffort(opts.effort) ? { effort: opts.effort } : {}),
+              onCompact: () => {
+                const s = this.sessions.get(id)
+                if (s) s.compacted = true
+              },
               emit: (item) => {
                 chat!.seq += 1
                 this.emit('item', { sessionId: id, objectId: obj.id, item, seq: chat!.seq })
@@ -418,6 +424,7 @@ export class Sessions {
       conversationId,
       promptedIn: conversationId,
       unprompted: stored === null,
+      compacted: false,
       firstPrompt: true,
       status: 'starting',
       cols,
@@ -1182,6 +1189,7 @@ export class Sessions {
       if (this.deps.debug) console.error(`[torno] session ${session.id} hook ${event}, held back: ${held.reason}`)
       return sendJson(res, 200, held)
     }
+    if (event === 'PostCompact') session.compacted = true
     if (event !== 'SessionEnd') this.advance(session, event, fields)
     if (event === 'Stop' || event === 'StopFailure') session.turn = undefined
     if (event === 'UserPromptSubmit') session.turn = this.beginTurn(session)
@@ -1193,7 +1201,9 @@ export class Sessions {
     const objectId = session.object.id
     // Another conversation than the last prompt was in: the agent began anew, and knows no mark by its number.
     const named = typeof conversation === 'string' && UUID.test(conversation) ? conversation : undefined
-    const fresh = named !== undefined && named !== session.promptedIn
+    // Also after a compaction: the summary may have lost the marks and the references, so they are told again.
+    const fresh = (named !== undefined && named !== session.promptedIn) || session.compacted
+    session.compacted = false
     if (named !== undefined) session.promptedIn = named
     const newConversation = fresh || session.unprompted
     session.unprompted = false

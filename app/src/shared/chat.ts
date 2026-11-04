@@ -33,10 +33,28 @@ export type ChatItem =
   | { kind: 'tool'; id: string; toolUseId: string; name: string; torno: boolean; input: unknown; state: 'running' | 'done' | 'error' | 'stopped' | 'denied' | 'cancelled'; result?: string; images: ChatImage[]; detail?: unknown; steps?: number; inside?: string[] }
   /** The agent asks the person: to use a tool, or a question. `suggestions`: whether there is a rule to allow for the session. `why` of one that ended by the CLI's cancelling it (the turn was stopped); one that ended with the session has none. */
   | { kind: 'ask'; id: string; requestId: string; toolName: string; input: unknown; suggestions: boolean; description?: string; blockedPath?: string; state: 'open' | 'allowed' | 'denied' | 'ended'; answer?: string; why?: string }
-  /** The end of a turn, with what was pulled from torno in it (`pulledFromTorno`). */
-  | { kind: 'turn'; id: string; ok: boolean; stopped: boolean; seconds: number; pulled: Record<string, number>; error?: string }
+  /** The end of a turn, with what was pulled from torno in it (`pulledFromTorno`) and the tokens it used when the CLI said (`usage`). */
+  | { kind: 'turn'; id: string; ok: boolean; stopped: boolean; seconds: number; pulled: Record<string, number>; usage?: TurnUsage; error?: string }
   /** Something torno says about the conversation: the model changed, torno's tools are not connected, the session ended. `action`: a button beside it, `terminal` to run this object's sessions in Claude Code's own terminal (the chat could not use the login). */
   | { kind: 'note'; id: string; text: string; tone: 'quiet' | 'warn'; action?: 'terminal' }
+
+/** The tokens of one kind of request, as the CLI counts them. */
+export interface TokenCount {
+  input: number
+  output: number
+  cacheRead: number
+  cacheCreation: number
+}
+
+/**
+ * What a turn used, from the `result` that ended it (`usage`, `modelUsage`, `num_turns`): numbers only, kept with the
+ * turn in the chat's log. `models` is the same count for each model, where the CLI split it.
+ */
+export interface TurnUsage extends TokenCount {
+  /** Requests to the model in the turn (`num_turns`). */
+  requests?: number
+  models?: Record<string, TokenCount>
+}
 
 /** What is known of the session as a whole, apart from the items. */
 export interface ChatMeta {

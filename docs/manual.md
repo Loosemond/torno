@@ -735,10 +735,10 @@ Open marks: M2 (moved), M6 (unchecked)
   not read as a verdict on the edit. A line stays until its dimension passes
   or is resolved.
 - `Open marks` are the numbers of the marks still open, each with what the
-  last build did to it. After `/clear`, the first prompt of the new
-  conversation lists your open marks once more.
+  last build did to it. After `/clear`, or after the conversation was
+  compacted, the first prompt that follows lists your open marks once more.
 - The first prompt of a new conversation (a session that was not resumed, or
-  after `/clear`) ends with a line naming the files in `reference/` (twelve at
+  after `/clear`, or after a compaction) ends with a line naming the files in `reference/` (twelve at
   most, then how many more), to read when they matter.
 - The first prompt of every session, resumed or not, and the first after
   `/clear`, ends with a line naming the instruction files Claude Code reads
@@ -1463,7 +1463,7 @@ place.
 | `scans.json` | the scans of the project: where each source file is and its hash, how it was imported, and its alignment in each layout | travels |
 | `scans/<id>/mesh.bin`, `<mark>.mask` | the scan as torno draws and checks it, and the triangles of each region | the meshes are ignored (`scans/.gitignore`): a clone has the record, and the row offers "Import again" |
 | `agent.json` | whether Claude Code is shown as a chat or a terminal; without it, in a chat | travels |
-| `chat/<conversation>.jsonl` | what a chat session said and did, as text; no picture data, no address (a picture of `reference/` by its path) | ignored |
+| `chat/<conversation>.jsonl` | what a chat session said and did, as text (a turn's line holds the tokens it used, as numbers); no picture data, no address (a picture of `reference/` by its path) | ignored |
 | `session.json` | the conversation to resume | ignored |
 | `state.md` | the build, the parts, the views, the scans and the open marks as text | ignored |
 | `thumb.png`, `thumb.json` | the card's picture, and what it is of | ignored |
@@ -1634,6 +1634,15 @@ build is not built again until a source changes.
   future release. "Use the terminal" runs
   `claude` as you run it, under your login; `claude auth status` in a terminal
   says whether you are signed in.
+- **The chat says "Claude Code's hooks did not reach torno".** A prompt began
+  and the hook that carries your marks and the check of the Stop never came, in
+  this session. Torno gives the CLI a secret per session in `TORNO_SESSION`, and
+  each hook reads it from the environment; a setting of yours or of your
+  organisation that limits which variables hooks may read
+  (`httpHookAllowedEnvVars`) makes every hook fail unless it lists
+  `TORNO_SESSION`. Add it there, or take the limit off, and start the session
+  again. The note changes nothing else; in the terminal view the same fault
+  shows only as a status that never moves.
 - **A build takes minutes.** It is the model that takes them: see "What it
   costs" above. `TORNO_BUILD_TIMEOUT` raises the limit of 600 s.
 - **The agent says to press Rebuild, or a build failed for no reason of the
