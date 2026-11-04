@@ -49,7 +49,7 @@ describe('the safeguard of the evals', () => {
     expect(readFileSync(resolve(app, 'playwright.config.ts'), 'utf8')).toMatch(/testIgnore: \[[^\]]*'\*\*\/evals\/\*\*'/)
   })
 
-  it('checks the safeguard first, before it builds or starts anything', () => {
+  it('checks the safeguard first, before it starts anything or makes a folder', () => {
     const run = readFileSync(resolve(__dirname, '../evals/run.mjs'), 'utf8')
     const main = run.slice(run.indexOf('async function main'))
     expect(main.indexOf('guard(')).toBeGreaterThan(0)

@@ -1,0 +1,56 @@
+{
+  "object": "pin-joint",
+  "tier": "T3",
+  "prompts": [
+    "Make the two parts in the brief. Build it in the model file, check it with torno's tools, and say when it is done."
+  ],
+  "answers": {
+    "default": "I don't know: choose, and say what you chose."
+  },
+  "checks": [
+    {
+      "id": "valid",
+      "kind": "valid"
+    },
+    {
+      "id": "parts",
+      "kind": "parts",
+      "names": [
+        "block",
+        "pin"
+      ]
+    },
+    {
+      "id": "hole",
+      "kind": "hole",
+      "part": "block",
+      "diameter": 8.4,
+      "through": true,
+      "tol": 0.02
+    },
+    {
+      "id": "pin-x",
+      "kind": "size",
+      "part": "pin",
+      "axis": "x",
+      "expect": 8,
+      "tol": 0.02
+    },
+    {
+      "id": "pin-z",
+      "kind": "size",
+      "part": "pin",
+      "axis": "z",
+      "expect": 25,
+      "tol": 0.05
+    },
+    {
+      "id": "gap",
+      "kind": "clearance",
+      "a": "block",
+      "b": "pin",
+      "min": 0.19,
+      "max": 0.21
+    }
+  ]
+}

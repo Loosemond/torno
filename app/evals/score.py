@@ -19,7 +19,8 @@ The kinds (each takes ``layout``, by default the model's first):
 - ``clearance``: the least distance between ``a`` and ``b`` is at least ``min`` (and at most ``max`` if given).
 - ``overlap``: the volume ``a`` and ``b`` share is at most ``max`` (0 by default).
 - ``hole``: ``part`` has at least ``count`` (1) cylindrical holes of diameter ``diameter`` within ``tol``, through
-  the part when ``through`` is true, blind when false, either when absent.
+  the part when ``through`` is true, blind when false, either when absent; with ``near`` ([x, y, z]) only those whose
+  axis passes within ``within`` (1 mm) of that point.
 
 This file runs a model: it is given only a temporary copy of a case, never a person's workspace.
 """
@@ -87,8 +88,15 @@ def _holes(shape: Any) -> list[dict[str, Any]]:
         lo, hi = (box.min.X, box.min.Y, box.min.Z), (box.max.X, box.max.Y, box.max.Z)
         flo, fhi = (fb.min.X, fb.min.Y, fb.min.Z), (fb.max.X, fb.max.Y, fb.max.Z)
         through = aligned and abs(flo[along] - lo[along]) < 1e-3 and abs(fhi[along] - hi[along]) < 1e-3
-        holes.append({"diameter": 2 * cylinder.Radius(), "through": through})
+        holes.append({"diameter": 2 * cylinder.Radius(), "through": through, "axis": ((location.X(), location.Y(), location.Z()), (d.X(), d.Y(), d.Z()))})
     return holes
+
+
+def _off_axis(point: list[float], origin: tuple[float, ...], direction: tuple[float, ...]) -> float:
+    """How far a point is from a line through ``origin`` along the unit ``direction``."""
+    v = [point[i] - origin[i] for i in range(3)]
+    t = sum(v[i] * direction[i] for i in range(3))
+    return math.sqrt(max(0.0, sum(x * x for x in v) - t * t))
 
 
 def _one(check: dict[str, Any], scene: dict[str, dict[str, Any]]) -> dict[str, Any]:
@@ -143,6 +151,8 @@ def _one(check: dict[str, Any], scene: dict[str, dict[str, Any]]) -> dict[str, A
         return {"pass": value <= check.get("max", 0) + 1e-6, "value": value, "expect": check.get("max", 0), "exact": True}
     if kind == "hole":
         found = [h for h in _holes(part()) if abs(h["diameter"] - check["diameter"]) <= tol]
+        if "near" in check:
+            found = [h for h in found if _off_axis(check["near"], *h["axis"]) <= check.get("within", 1.0)]
         if "through" in check:
             found = [h for h in found if h["through"] == check["through"]]
         want = check.get("count", 1)

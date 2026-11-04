@@ -60,12 +60,14 @@ def test_every_kind_on_a_known_model(plate: Path):
         {"id": "through", "kind": "hole", "part": "plate", "diameter": 5, "through": True},
         {"id": "blind", "kind": "hole", "part": "plate", "diameter": 3, "through": False},
         {"id": "not-through", "kind": "hole", "part": "plate", "diameter": 3, "through": True},
+        {"id": "here", "kind": "hole", "part": "plate", "diameter": 5, "near": [10, 0, 50]},
+        {"id": "not-here", "kind": "hole", "part": "plate", "diameter": 5, "near": [-10, 0, 0]},
         {"id": "missing", "kind": "size", "part": "base", "axis": "x", "expect": 1},
     ]
     result = score(plate, checks)
     assert result["build"] == {"ok": True}
     got = by_id(result)
-    passing = {"valid", "names", "solids", "x", "ratio", "volume", "gap", "apart", "through", "blind"}
+    passing = {"valid", "names", "solids", "x", "ratio", "volume", "gap", "apart", "through", "blind", "here"}
     assert {k for k, c in got.items() if c["pass"]} == passing
     assert got["count"]["value"] == 2
     assert got["z"]["value"] == pytest.approx(6, abs=1e-3)
