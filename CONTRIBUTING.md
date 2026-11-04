@@ -15,6 +15,16 @@ is as useful as a pull request.
   what torno's security model is. torno runs a local HTTP server for the agent's tools, guarded by a token for
   each session, so anything that gets around that matters.
 
+## Behaving
+
+Be kind and assume good faith. Criticise the code and the idea, never the person. That one line is torno's code of
+conduct; it is a small project, and a long document would not add to it.
+
+## Questions
+
+For a question, or to show a part you made with torno, use
+[Discussions](https://github.com/luisg0nc/torno/discussions). Issues are for bugs and work.
+
 ## Setting up
 
 You need what the [README](README.md#requirements) lists: Node.js 22.12 or later, pnpm 10, uv and, to try sessions

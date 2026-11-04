@@ -185,7 +185,7 @@ turning, exploding, pinning, measuring, cutting and asking the agent, on the tes
 
 Issues and pull requests are welcome. torno is young, so for anything bigger than a fix, please open an issue
 first to talk it over. [CONTRIBUTING.md](CONTRIBUTING.md) covers setting up, where things are, the rules the code
-holds to, and the tests. To report a security problem, see [SECURITY.md](SECURITY.md).
+holds to, and the tests. Questions and parts you made go in [Discussions](https://github.com/luisg0nc/torno/discussions). To report a security problem, see [SECURITY.md](SECURITY.md).
 
 ## License
 
