@@ -1080,11 +1080,14 @@ What is exact, what is approximate and what is refused is under
 parts, across the axis you look most along, open towards you (the half taken
 away is the one on your side). A bar appears at the bottom of the viewport: X,
 Y and Z put the plane across that axis, again open towards you, "From face" puts it on the
-next flat face you click, the slider and the number beside it say how far
-along its normal the plane is from the middle of the parts, "Flip" takes away
+next flat face you click, the slider and the number beside it say where the
+plane is, as the agent is told: across an axis its place in the object frame
+(`y = 20`; type a number to move it), else how far along its normal it is from
+the middle of the parts (`12 mm along the normal`). The tick on the slider and
+"Middle" (there while the plane is elsewhere) are the middle of the parts. "Flip" takes away
 the other side and "Off" shows the parts whole again. What is on the side the
 plane's arrow points to is not drawn. Each solid part is closed where it is cut, in its
-own colour a step darker; a part that is not a closed solid (a scan, an open
+own colour a step darker, hatched with fine lines in its edge colour (in a picture for the agent too); a part that is not a closed solid (a scan, an open
 shell) is cut open. Drag the arrow on the plane to move it; a drag anywhere
 else turns the camera. The arrow keys move it by 1 mm, with Shift by 0.1 mm.
 On a cut face there is nothing of the model to pick, and the pointer says so;

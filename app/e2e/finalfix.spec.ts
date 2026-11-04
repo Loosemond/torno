@@ -81,7 +81,7 @@ test('X cuts at once, through the middle of the parts and open towards the viewe
   expect(await tool()).toBe('section')
 
   // The offset typed and kept with Enter: the plane moves, and the next letter is a tool's, not a figure in the field.
-  const field = page.getByLabel('Offset in millimetres')
+  const field = page.getByLabel('Plane position in millimetres')
   await field.click()
   await field.fill('2')
   await page.keyboard.press('Enter')

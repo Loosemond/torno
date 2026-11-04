@@ -162,8 +162,8 @@
 /* A rule to slide along: a hairline with a mark at the middle of the parts, and the plane as a tick across it. */
 .section-slider {
   appearance: none;
-  flex: 0 1 168px;
-  min-width: 72px;
+  flex: 0 1 120px;
+  min-width: 24px;
   height: 26px;
   margin: 0 var(--space-2) 0 var(--space-1);
   background:
@@ -209,13 +209,33 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  width: 84px;
+  width: 100px;
   height: 22px;
   padding: 0 6px;
   border: var(--divider);
   border-radius: 4px;
   background: var(--panel);
   cursor: text;
+}
+
+.section-offset:not([data-along]) {
+  width: 170px;
+}
+
+.section-axis-letter {
+  color: var(--ink);
+}
+
+.section-axis-letter[data-axis='x'] {
+  color: var(--axis-x);
+}
+
+.section-axis-letter[data-axis='y'] {
+  color: var(--axis-y);
+}
+
+.section-axis-letter[data-axis='z'] {
+  color: var(--axis-z);
 }
 
 .section-offset:focus-within {

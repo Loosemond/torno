@@ -72,7 +72,7 @@ test('after each step of a session of work, P takes the pin tool', async () => {
   await pinIsInHand('the explode bar')
   // The section: cut, a number typed and kept, a click in the view while one is being typed, off.
   await page.keyboard.press('x')
-  const offset = page.getByRole('textbox', { name: 'Offset in millimetres' })
+  const offset = page.getByRole('textbox', { name: 'Plane position in millimetres' })
   await offset.fill('3')
   await offset.press('Enter')
   await pinIsInHand('the offset kept with Enter')

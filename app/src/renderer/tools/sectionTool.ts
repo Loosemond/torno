@@ -6,7 +6,7 @@ import type { Vec3 } from '../../shared/marks'
 import type { SectionPlane } from '../../shared/view'
 import { actions, store } from '../state/store'
 import type { Hit } from '../viewport/picking'
-import { atOffset, planeFromFace, planeRect, sectionExtent, sectionOffset } from '../viewport/section'
+import { atOffset, planeFromFace, planeRect, placeOf, sectionExtent, sectionOffset } from '../viewport/section'
 import type { ViewportPointer } from '../viewport/Viewport'
 import { DESCRIBE_WITHIN_MS, DRAG_PX, dot, sub, within, type Tool, type ToolContext } from './Tool'
 
@@ -200,7 +200,7 @@ export function sectionTool(): Tool {
       if (!drag.to && Math.hypot(e.client[0] - drag.client[0], e.client[1] - drag.client[1]) < DRAG_PX) return
       drag.to = moved(e, drag, ctx)
       ctx.viewport.setSection?.(drag.to)
-      ctx.readout.show(e.client, `${number(sectionOffset(drag.to, boxOf(ctx)))} mm`)
+      ctx.readout.show(e.client, `${number(placeOf(drag.to, boxOf(ctx)).value)} mm`)
     },
     onKey(e: KeyboardEvent, ctx: ToolContext) {
       if (pressed(e, 'escape')) {
