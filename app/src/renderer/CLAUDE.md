@@ -831,10 +831,13 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   tolerance and an angle typed in, and Export is off while either is out of its range. A 3MF has "Open it once
   saved", off by default. The window sends names and numbers and never a path; once saved, the sheet says where,
   of which build, and what the read-back checked (`ExportSaved.checked`), every number in the monospace face.
-- **"Share"** in the status line (`ui/ShareMenu.tsx`, beside "Export…"; its menu opens upward) keeps the view as a file: a menu with the long
-  edge of a picture (`PICTURE_SIZES`, 1280 to 4000), "Marks" and "Axes and scale bar" (both on), "Save picture…", and,
-  enabled while a section is on screen, "Save section drawing…". The window draws the picture itself
-  (`pictureForPerson` in `state/agent.ts`, the code of `look` with `ImageRequest.person`) and hands main its bytes with
-  the object's id (`export.savePicture`); the drawing of the section is made in main (`export.saveSection`, the id
-  alone). Main asks where to save, so the window names no path. `person` is set only there: a request of the agent's,
-  which comes over `view:look`, is held to 2000 px (`connectLook`).
+- **The sheet is grouped by who will open the file** (`READERS` in `ui/ExportSheet.tsx`, inside the group "Format"): "A page to
+  look at" (HTML page), "The CAD file" (STEP, STL, 3MF), and, only where the sheet is of the open project's view
+  (`ofView`: an object on show, not the page of projects), "A picture" (PNG) and "A drawing of a section" (SVG, PDF).
+  A picture or a drawing is of the open project as it is on screen: the sheet then shows no list of projects, `ViewChoices`
+  in its place (a picture's long edge, `PICTURE_SIZES` 1280 to 4000, "Marks", "Axes and scale bar"; a drawing needs a section on
+  screen and says so, with Export off, when there is none). The window draws the picture itself (`pictureForPerson` in
+  `state/agent.ts`, the code of `look` with `ImageRequest.person`) and hands main its bytes with the object's id
+  (`export.savePicture`); the drawing is made in main (`export.saveSection(id, 'svg' | 'pdf')`, no bytes from the window).
+  Main asks where to save, so the window names no path. `person` is set only there: a request of the agent's, which comes
+  over `view:look`, is held to 2000 px (`connectLook`). Its saved line offers "Show in folder", never "Open in browser".

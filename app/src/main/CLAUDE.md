@@ -700,7 +700,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   file is gone. Under test they go through the `revealFile` and `openFile` hooks (`revealedFiles`,
   `openedFiles`) and nothing is shown or opened.
 
-- **A picture of the view** (`export:savePicture`; `FileFormat` `png` in `shared/exportdata.ts`): the window draws it
+- **A picture of the view** (`export:savePicture`; `FileFormat` `png` in `shared/exportdata.ts`; the export sheet's reader "A picture"): the window draws it
   (`pictureForPerson`, the renderer of `look` with `ImageRequest.person`: up to 4000 px, `MAX_PICTURE_EDGE`, and
   without the axes and scale bar when asked) and sends the PNG's bytes and the object's id; main reads the header
   (`checkedPicture`: a PNG, at most 4000 px and 64 MB, else refused), asks where to save (`askWhere`, the same dialog and
@@ -708,11 +708,11 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `writeExport`. The path is the dialog's alone and no agent has a tool for it; the agent's pictures stay within
   2000 px (`checkedImage`, `pictureSize` without `forPerson`).
 - **A drawing of the section on screen** (`export:saveSection`, `export/section.ts`, `export/sectionSvg.ts`; `FileFormat`
-  `svg`): the window sends the object's id only. Main takes the plane, the layout and the parts that are on from the
+  `svg`, or `pdf`): the window sends the object's id and `svg` or `pdf`. Main takes the plane, the layout and the parts that are on from the
   view the window last reported (`latestView`), asks the kernel for the outlines within `SECTION_DEFLECTION`
   (0.01 mm) of the last good build, in full (not the thinned points the `section` tool tells), refuses when there is no
   section on screen (`NO_SECTION`), nothing cut (`NOTHING_CUT`) or a build landed meanwhile (`NEW_BUILD`), and writes
-  the SVG through `askWhere` and `writeExport`. `sectionSvg` is pure: the file is in millimetres (its width and height
+  the SVG through `askWhere` and `writeExport`. A PDF (`export/pdf.ts` `pdfOfSvg`) is that SVG printed by `printToPDF` in a `BrowserWindow` that is never shown (`show: false`, sandboxed, no script, every request but the data URL cancelled) on a page of the drawing's own size in millimetres, made before the dialog is up. Both set `savedHere`, so the sheet's "Show in folder" works for them. `sectionSvg` is pure: the file is in millimetres (its width and height
   in `mm`, the viewBox in the same numbers, so one unit is one millimetre; no scaling), with a scale bar, a title block
   whose numbers are in full (`full`), and the dimension marks of the layout that are not resolved, are measured on the
   build (`measuredValue`) and have both ends within `IN_PLANE_MM` of the plane, with the value and, when set, `expected

@@ -146,38 +146,3 @@
 .menu-item:focus-visible {
   background: var(--accent-wash);
 }
-
-.picture-menu {
-  min-width: 190px;
-}
-
-.picture-choice {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-}
-
-.picture-choice[aria-checked='true'] {
-  color: var(--accent);
-}
-
-.picture-choice[aria-checked='true']::after {
-  content: '\2713';
-}
-
-.picture-menu [data-failed] {
-  color: var(--fail);
-}
-
-/* In the status line, at the foot of the window: the menu opens upward, ending at the button's right edge. */
-.share-menu {
-  position: relative;
-}
-
-.share-menu .menu {
-  top: auto;
-  right: 0;
-  bottom: calc(100% + 7px);
-  left: auto;
-}

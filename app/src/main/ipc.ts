@@ -21,6 +21,7 @@ import { type ModelDeps, checkModelFile, makeModelFile } from './export/model'
 import { defaultExportPath, exportPath, prepareExports, writeExport } from './export/save'
 import { checkedPicture } from './export/picture'
 import { makeSectionDrawing } from './export/section'
+import { pdfOfSvg } from './export/pdf'
 import { type InstructionList } from './instructions'
 import { KernelError, type KernelClient, startKernel } from './kernel/client'
 import { toArrayBuffer } from './kernel/frames'
@@ -1031,7 +1032,7 @@ export function registerIpc(
     if (opts.pickSave) picked = await opts.pickSave(defaultPath)
     else {
       const win = BrowserWindow.fromWebContents(event.sender)
-      const options: Electron.SaveDialogOptions = { title: format === 'png' || format === 'svg' ? 'Save' : 'Export', defaultPath, filters: [{ name: FORMAT_NAMES[format], extensions: [...EXTENSIONS[format]] }] }
+      const options: Electron.SaveDialogOptions = { title: format === 'png' || format === 'svg' || format === 'pdf' ? 'Save' : 'Export', defaultPath, filters: [{ name: FORMAT_NAMES[format], extensions: [...EXTENSIONS[format]] }] }
       const answer = await (win ? dialog.showSaveDialog(win, options) : dialog.showSaveDialog(options))
       picked = answer.canceled || !answer.filePath ? null : answer.filePath
     }
@@ -1117,6 +1118,7 @@ export function registerIpc(
       const path = await askWhere(event, defaultExportPath(obj.dir, obj.name, deps.last(obj.id)?.revision, 'png'), 'png')
       if (path === null) return null
       await writeExport(path, png as Uint8Array)
+      savedHere = path
       return { path, bytes: (png as Uint8Array).length, dropped: [] }
     })
   )
@@ -1124,7 +1126,7 @@ export function registerIpc(
   // A drawing of the section on screen, for someone who will make the part: an SVG at true scale from the kernel's
   // outlines of the plane the window reports (`export/section.ts`), written like any export. The window names the
   // object and nothing else.
-  handle('export:saveSection', (event, objectId: unknown) =>
+  handle('export:saveSection', (event, objectId: unknown, as: unknown) =>
     plainly(async (): Promise<ExportSaved | null> => {
       const ws = requireWorkspace()
       const deps = exportDeps()
@@ -1134,10 +1136,13 @@ export function registerIpc(
       )
       const obj = deps.object(drawing.objectId)!
       await prepareExports(obj.dir)
-      const path = await askWhere(event, defaultExportPath(obj.dir, `${drawing.name}-section`, drawing.revision, 'svg'), 'svg')
+      const format = as === 'pdf' ? 'pdf' : 'svg'
+      // The PDF is the SVG printed by a window nobody sees, before the dialog is up: it is of the build there was.
+      const bytes = format === 'pdf' ? await pdfOfSvg(drawing.svg, drawing.width, drawing.height) : Buffer.from(drawing.svg, 'utf8')
+      const path = await askWhere(event, defaultExportPath(obj.dir, `${drawing.name}-section`, drawing.revision, format), format)
       if (path === null) return null
-      const bytes = Buffer.from(drawing.svg, 'utf8')
       await writeExport(path, bytes)
+      savedHere = path
       return { path, bytes: bytes.length, dropped: [], revision: drawing.revision }
     })
   )

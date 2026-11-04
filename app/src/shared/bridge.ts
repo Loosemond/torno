@@ -244,8 +244,8 @@ export interface TornoBridge {
     save(req: ExportRequest): Promise<ExportSaved | null>
     /** Keeps a picture of the view the window drew (a PNG, up to 4000 px on its long edge): asks where to save (under test: `__tornoMain.pickSave`) and writes it there. Null when the dialog was cancelled. The path is the dialog's alone. */
     savePicture(objectId: string, png: Uint8Array): Promise<ExportSaved | null>
-    /** Keeps a drawing (an SVG, at true scale, with a scale bar and a title block) of the section on screen: main asks the kernel for the outlines, asks where to save and writes it there. Null when the dialog was cancelled. Rejects when there is no section on screen. The path is the dialog's alone. */
-    saveSection(objectId: string): Promise<ExportSaved | null>
+    /** Keeps a drawing (an SVG, or a PDF made of it, at true scale, with a scale bar and a title block) of the section on screen: main asks the kernel for the outlines, asks where to save and writes it there. Null when the dialog was cancelled. Rejects when there is no section on screen. The path is the dialog's alone. */
+    saveSection(objectId: string, as: 'svg' | 'pdf'): Promise<ExportSaved | null>
     /** Shows the file this sheet saved last in its folder. It takes no path: main keeps the one it wrote. Rejects when the file is gone. */
     reveal(): Promise<void>
     /** Has the system open the file this sheet saved last (a page, in the browser). No path either. */
