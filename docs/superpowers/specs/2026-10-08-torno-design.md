@@ -118,6 +118,8 @@ So today's objects load unchanged. `airbox.py` has only `printable`, so it shows
 
 A small helper package, `torno`, is importable from models: `torno.Scene`, `torno.reference(shape)`, `torno.tag(face_or_edge, "name")`. Tagged geometry gets a named ref (`lid/mount_face`) that survives topology changes. The helper is optional.
 
+*Note, 2026-11-04: none of this is built. The loader does not look for `torno_scene()`, and there is no `torno` package, `torno.reference` or `torno.tag`. `torno_scene()` is struck. Named faces and edges are to come as a plain `tags(p, parts)` function, like `groups(p)`, per #65. Reference bodies are to come per #57. Until then, the `torno` helper in this section and the `torno.tag` in Geometry identity are a plan, not a feature.*
+
 ### Process model
 
 Measured on this machine: importing build123d takes 2 to 4 s, the helmet stand builds and tessellates in about 1 s, and `airbox.py` takes about 30 s. So:
