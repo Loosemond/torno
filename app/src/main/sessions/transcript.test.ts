@@ -884,6 +884,26 @@ describe('what the CLI says of itself (#116)', () => {
     expect(t.meta().context).toEqual({ used: 110, window: 200000 })
   })
 
+  it('puts the tokens a result counts on the turn, with the requests and each model, and nothing when it counts none', () => {
+    const t = new Transcript()
+    t.message(init({ model: 'claude-haiku-5-5' }))
+    t.message(
+      result({
+        num_turns: 3,
+        usage: { input_tokens: 4, output_tokens: 90, cache_read_input_tokens: 58637, cache_creation_input_tokens: 605 },
+        modelUsage: { 'claude-haiku-5-5': { inputTokens: 4, outputTokens: 90, cacheReadInputTokens: 58637, cacheCreationInputTokens: 605, contextWindow: 1000000 } }
+      })
+    )
+    const counts = { input: 4, output: 90, cacheRead: 58637, cacheCreation: 605 }
+    expect(of(t, 'turn')[0].usage).toEqual({ ...counts, requests: 3, models: { 'claude-haiku-5-5': counts } })
+    // Without modelUsage or num_turns.
+    t.message(result({ usage: { input_tokens: 1, output_tokens: 2 } }))
+    expect(of(t, 'turn')[1].usage).toEqual({ input: 1, output: 2, cacheRead: 0, cacheCreation: 0 })
+    // Without usage, none.
+    t.message(result({}))
+    expect(of(t, 'turn')[2]).not.toHaveProperty('usage')
+  })
+
   it('never throws at what it does not know', () => {
     const t = new Transcript({ plugin: PLUGIN, tested: TESTED })
     expect(() => {

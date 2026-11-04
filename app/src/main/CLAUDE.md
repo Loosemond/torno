@@ -875,6 +875,8 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `version` (`claude_code_version`), `apiKeySource` and `pluginLoaded`; `result` adds `costUsd` (`total_cost_usd`) and
   `context` (the tokens of the last request, `usage.iterations`' last or else `usage`, against the `contextWindow` of
   the session's model in `modelUsage`; unchanged when the result has no tokens, as a `/compact`'s has none);
+  the `turn` item takes the tokens the `result` counts as `usage` (`TurnUsage`: `usage` summed, `num_turns` as `requests`,
+  and `modelUsage` per model; numbers only, so it is in the chat's log; none when the result counts none);
   `api_retry` sets `retrying` (`{ attempt }`) until a `stream_event`, an `assistant`, a `user` or a `result` comes.
   Notes: a `warn` when torno's tools are `failed` (with the text of the entry of `mcp_server_errors` that is
   `torno`'s own: a `name`, `plugin`, `plugin_name` or `server` field that is `torno`, or a string that is or begins

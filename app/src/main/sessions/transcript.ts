@@ -1,4 +1,4 @@
-import { type ChatImage, type ChatItem, type ChatMeta, type Effort, MAX_ITEMS, TORNO_TOOL_PREFIX, isTornoTool, toolLabel } from '../../shared/chat'
+import { type ChatImage, type ChatItem, type ChatMeta, type Effort, MAX_ITEMS, type TokenCount, type TurnUsage, TORNO_TOOL_PREFIX, isTornoTool, toolLabel } from '../../shared/chat'
 import type { DrawnOver } from '../../shared/drawing'
 import type { BuildDigest } from '../../shared/sanity'
 import { sessionRules } from './permissions'
@@ -62,6 +62,31 @@ export interface TranscriptOptions {
   effort?: Effort
   /** The CLI compacted the conversation (a `compact_boundary`). */
   onCompact?: () => void
+}
+
+/** The tokens a count holds, or none when it holds no number. */
+function countOf(raw: unknown): TokenCount | undefined {
+  const u = obj(raw)
+  if (!u) return undefined
+  const input = num(u.input_tokens ?? u.inputTokens)
+  const output = num(u.output_tokens ?? u.outputTokens)
+  const cacheRead = num(u.cache_read_input_tokens ?? u.cacheReadInputTokens)
+  const cacheCreation = num(u.cache_creation_input_tokens ?? u.cacheCreationInputTokens)
+  if (input === undefined && output === undefined && cacheRead === undefined && cacheCreation === undefined) return undefined
+  return { input: input ?? 0, output: output ?? 0, cacheRead: cacheRead ?? 0, cacheCreation: cacheCreation ?? 0 }
+}
+
+/** What a turn used, read off the `result` that ended it; none when it says no number (a result of no turns says zeros, which are kept). */
+function usageOf(m: AgentMessage): TurnUsage | undefined {
+  const total = countOf(m.usage)
+  if (!total) return undefined
+  const requests = num(m.num_turns)
+  const models: Record<string, TokenCount> = {}
+  for (const [name, raw] of Object.entries(obj(m.modelUsage) ?? {})) {
+    const count = countOf(raw)
+    if (count) models[name] = count
+  }
+  return { ...total, ...(requests !== undefined ? { requests } : {}), ...(Object.keys(models).length > 0 ? { models } : {}) }
 }
 
 /** A block of the message being streamed, by its index. */
@@ -744,7 +769,8 @@ export class Transcript {
       const first = Array.isArray(m.errors) ? m.errors.map((e) => str(e) ?? str(obj(e)?.message)).find((e) => e) : undefined
       error = first ?? (m.is_error === true && typeof m.result === 'string' && m.result !== '' ? m.result : (str(m.subtype) ?? 'failed'))
     }
-    this.put({ kind: 'turn', id: this.newId('i'), ok, stopped, seconds: seconds(took), pulled: this.pulled, ...(error !== undefined ? { error: this.redact(error) } : {}) })
+    const usage = usageOf(m)
+    this.put({ kind: 'turn', id: this.newId('i'), ok, stopped, seconds: seconds(took), pulled: this.pulled, ...(usage ? { usage } : {}), ...(error !== undefined ? { error: this.redact(error) } : {}) })
     this.pulled = {}
     this.denials(m.permission_denials)
     this.spent(m)

@@ -1441,7 +1441,7 @@ place.
 | `scans.json` | the scans of the project: where each source file is and its hash, how it was imported, and its alignment in each layout | travels |
 | `scans/<id>/mesh.bin`, `<mark>.mask` | the scan as torno draws and checks it, and the triangles of each region | the meshes are ignored (`scans/.gitignore`): a clone has the record, and the row offers "Import again" |
 | `agent.json` | whether Claude Code is shown as a chat or a terminal; without it, in a chat | travels |
-| `chat/<conversation>.jsonl` | what a chat session said and did, as text; no picture data, no address (a picture of `reference/` by its path) | ignored |
+| `chat/<conversation>.jsonl` | what a chat session said and did, as text (a turn's line holds the tokens it used, as numbers); no picture data, no address (a picture of `reference/` by its path) | ignored |
 | `session.json` | the conversation to resume | ignored |
 | `state.md` | the build, the parts, the views, the scans and the open marks as text | ignored |
 | `thumb.png`, `thumb.json` | the card's picture, and what it is of | ignored |
