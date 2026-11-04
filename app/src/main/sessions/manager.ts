@@ -25,6 +25,7 @@ import { drawingText } from './drawing'
 import { sessionRules } from './permissions'
 import { agentEnv } from './agentEnv'
 import { findCommand } from './choice'
+import { killGroup } from './signals'
 import { SESSION_FILE, storeConversation, storedConversation, UUID } from './resume'
 import { HOOK_EVENTS, reduceStatus } from './status'
 import type { AgentAsk, AgentMessage, AgentTransport, AskAnswer, PromptBlock } from './transport'
@@ -472,7 +473,7 @@ export class Sessions {
   /** The session running in an object's folder. */
   current(objectId: string): SessionInfo | null {
     const s = this.of(objectId)
-    return s ? { sessionId: s.id, status: s.status, cols: s.cols, rows: s.rows, pid: (s.pty ?? s.agent)?.pid ?? 0, view: s.view } : null
+    return s ? { sessionId: s.id, status: s.status, cols: s.cols, rows: s.rows, pid: s.pty?.pid ?? (s.agent && 'pid' in s.agent ? Number(s.agent.pid) : 0), view: s.view } : null
   }
 
   /** Whether a session is being started in an object's folder and is not there yet. */
@@ -1010,12 +1011,12 @@ export class Sessions {
       s.killTimer = setTimeout(() => killGroup(child.pid), KILL_AFTER_MS)
     } else if (!s.killTimer && s.agent) {
       // Its stdin ends and it leaves by itself; one that does not is asked to, then killed, with what it started.
-      const { pid } = s.agent
+      const agent = s.agent
       // One at work is interrupted first, so that it does not run its turn out (or its tools) before it goes.
       if (s.status === 'working' || s.status === 'needs_input') s.agent.interrupt(1000).catch(() => undefined)
       s.agent.end()
-      s.termTimer = setTimeout(() => signalGroup(pid, 'SIGTERM'), TERM_AFTER_MS)
-      s.killTimer = setTimeout(() => killGroup(pid), 2 * TERM_AFTER_MS)
+      s.termTimer = setTimeout(() => agent.terminate(), TERM_AFTER_MS)
+      s.killTimer = setTimeout(() => agent.kill(), 2 * TERM_AFTER_MS)
     }
     return s.exited
   }
@@ -1278,26 +1279,5 @@ function signal(child: pty.IPty, name: string): void {
   }
 }
 
-/**
- * Kill an agent that ignored the hangup, and with it whatever it started: a
- * PTY's child leads a process group of its own. The process alone, if the
- * group is no longer there. Nothing for a pid that is not above 1.
- */
-export function killGroup(pid: number, kill: (target: number, signal: string) => void = process.kill): void {
-  signalGroup(pid, 'SIGKILL', kill)
-}
 
-/** A signal to the group an agent leads, and to the process alone if the group is no longer there. */
-function signalGroup(pid: number, name: string, kill: (target: number, signal: string) => void = process.kill): void {
-  // Never 0 or 1 negated: -0 is this process's own group, and -1 every process it may signal.
-  if (!Number.isInteger(pid) || pid <= 1) return
-  for (const target of [-pid, pid]) {
-    try {
-      kill(target, name)
-      return
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'ESRCH') return
-    }
-  }
-}
-
+export { killGroup }

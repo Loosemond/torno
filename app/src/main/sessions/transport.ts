@@ -46,8 +46,6 @@ export interface AgentEvents {
  * Code's, whatever carries them: the transcript reads them as they are.
  */
 export interface AgentTransport {
-  /** The agent's process, which leads a group of its own: `Sessions.stop` signals the group when the agent does not leave once `end` was called. */
-  readonly pid: number
   on<E extends keyof AgentEvents>(event: E, cb: AgentEvents[E]): void
   /** A prompt for the conversation (text, and pictures), with an id of its own that the agent names it by when it takes it up. The agent queues it if it is at work. */
   prompt(content: PromptBlock[], conversationId: string, uuid?: string): void
@@ -62,4 +60,8 @@ export interface AgentTransport {
   answer(requestId: string, response: AskAnswer): void
   /** The session is over: the agent finishes what it is doing and leaves by itself. */
   end(): void
+  /** The agent did not leave once `end` was called: ask it to, and stop whatever it started. */
+  terminate(): void
+  /** It still did not: end it, and whatever it started, at once. */
+  kill(): void
 }
