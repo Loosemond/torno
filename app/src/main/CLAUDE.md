@@ -1200,10 +1200,15 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   deleted).
 - Photos come as paths, copied as `reference/photo-<n>.<ext>` (png, jpg, jpeg, webp; at most 25 MB; `lstat` and an
   `O_NOFOLLOW` open, so no link, folder or pipe; read through the open handle, never more than the size said). Doodles
-  come as PNG bytes (signature checked, at most 8 MB). Scans are not copied (`objects:onboard` imports them) and other objects are named
+  come as PNG bytes (signature checked, at most 8 MB). Vendor STEP files (bought parts; `.step`/`.stp`) come as paths too, copied as they are to `reference/<their name>`
+  (`stepFiles` in `shared/objectName.ts` names them, window and main alike: the stem made safe, the ending lower case, `-2` for a name taken, in any case), at most 50 MB
+  (`MAX_STEP_BYTES`), through the same `readRegular` (no link, folder or pipe). They are listed in the brief after the doodles and
+  named in the first prompt as a reference body for `import_step` and `references(p)` (`OnboardDraft.steps`: `reference/<file>` and a note;
+  the file is checked as a plain file of `reference/` with a STEP name). torno reads nothing of them. `objects:pickStep` is their dialog
+  (`__tornoMain.pickStep`, `stepPicks` count). Scans are not copied (`objects:onboard` imports them) and other objects are named
   by id; the path of a scan is refused if it holds a control character, a line break above all, as it is a line of `brief.md`,
-  which writes a path under the home folder with `~`. At most 12 photos, 6 doodles, 4 scans and 8 objects (`MOST_REFERENCES` in `shared/objectName.ts`, held by the window and main alike). `brief.md` is `# name`, the description, and `## References` with a line per item in the
-  order photos, doodles, scans, objects.
+  which writes a path under the home folder with `~`. At most 12 photos, 6 doodles, 4 bought parts (STEP), 4 scans and 8 objects (`MOST_REFERENCES` in `shared/objectName.ts`, held by the window and main alike). `brief.md` is `# name`, the description, and `## References` with a line per item in the
+  order photos, doodles, STEP files, scans, objects.
 - `objects:create` answers after `rescan`, so the listing has the object; if the workspace was left meanwhile, or it
   does not list the object, it rejects saying the object "was made, but ..." (the window then does not offer the
   draft again). It validates the request (name, caps, every note, every scan and object, the same photo, scan or object given

@@ -11,6 +11,7 @@ const draft = (): Draft => ({
     { uid: 'b', path: '/home/me/two.webp', file: 'two.webp', note: '', image: new Uint8Array([2]), url: 'blob:b' }
   ],
   doodles: [{ uid: 'c', strokes: [], png: new Uint8Array([3]), note: 'the shape', url: 'blob:c' }],
+  steps: [{ uid: 'f', path: '/p/608zz.STEP', file: '608zz.STEP', note: 'the bearing' }],
   scans: [{ uid: 'd', path: '/s/clip.stl', file: 'clip.stl', note: 'old one' }],
   objects: [{ uid: 'e', id: 'plain', note: 'same style' }]
 })
@@ -38,7 +39,7 @@ describe('making the object', () => {
     expect(outcome).toEqual({ kind: 'done', objectId: 'cable-clip' })
     expect(calls).toEqual(['create', 'listed', 'discard', 'open', 'onboard'])
     const req = (made.create as ReturnType<typeof vi.fn>).mock.calls[0][0] as CreateRequest
-    expect(req).toMatchObject({ name: 'cable-clip', description: 'A clip for a 6 mm cable.', photos: [{ path: '/home/me/IMG_1.JPG', note: 'desk edge' }, { path: '/home/me/two.webp', note: '' }], scans: [{ path: '/s/clip.stl', note: 'old one' }], objects: [{ id: 'plain', note: 'same style' }] })
+    expect(req).toMatchObject({ name: 'cable-clip', description: 'A clip for a 6 mm cable.', photos: [{ path: '/home/me/IMG_1.JPG', note: 'desk edge' }, { path: '/home/me/two.webp', note: '' }], steps: [{ path: '/p/608zz.STEP', note: 'the bearing' }], scans: [{ path: '/s/clip.stl', note: 'old one' }], objects: [{ id: 'plain', note: 'same style' }] })
     expect(req.doodles).toEqual([{ png: new Uint8Array([3]), note: 'the shape' }])
     expect(made.onboard).toHaveBeenCalledTimes(1)
     expect((made.onboard as ReturnType<typeof vi.fn>).mock.calls[0]).toEqual([
@@ -50,6 +51,7 @@ describe('making the object', () => {
           { file: 'reference/photo-2.webp', note: '', image: new Uint8Array([2]) },
           { file: 'reference/doodle-1.png', note: 'the shape', image: new Uint8Array([3]) }
         ],
+        steps: [{ file: 'reference/608zz.step', note: 'the bearing' }],
         scans: [{ path: '/s/clip.stl', note: 'old one' }],
         objects: [{ id: 'plain', note: 'same style' }]
       }

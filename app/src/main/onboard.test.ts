@@ -266,7 +266,7 @@ describe('onboardObject', () => {
       ...over
     }
   }
-  const draft = (over: Partial<OnboardDraft> = {}): OnboardDraft => ({ description: 'A clip.', items: [], scans: [], objects: [], ...over })
+  const draft = (over: Partial<OnboardDraft> = {}): OnboardDraft => ({ description: 'A clip.', items: [], steps: [], scans: [], objects: [], ...over })
 
   beforeEach(() => {
     base = mkdtempSync(join(realpathSync(tmpdir()), 'torno-onboard-'))
@@ -277,6 +277,18 @@ describe('onboardObject', () => {
     sent = []
   })
   afterEach(() => rmSync(base, { recursive: true, force: true }))
+
+  it('names a vendor STEP file in the prompt, as a reference body to place with import_step, and previews the same (#57)', async () => {
+    writeFileSync(join(base, 'cable-clip', 'reference', '608zz.step'), 'x')
+    const steps = [{ file: 'reference/608zz.step', note: 'the bearing' }]
+    const shown = await previewPrompt(deps(), 'cable-clip', { description: 'A clip.', items: [], steps, scans: [], objects: [] })
+    expect(shown.text).toContain('- reference/608zz.step: the bearing. A vendor\'s STEP file of a bought part')
+    expect(shown.text).toContain('import_step(Path(__file__).parent / "reference" / "608zz.step")')
+    expect(shown.text).toContain('references(p)')
+    await onboardObject(deps(), 'cable-clip', draft({ steps }))
+    expect(shown.text).toBe(sent[0].blocks[0].text)
+    await expect(onboardObject(deps(), 'cable-clip', draft({ steps: [{ file: '../../etc/x.step', note: '' }] }))).rejects.toThrow(/STEP file of reference/)
+  })
 
   it('previews the very text it sends, writing and starting nothing (#84)', async () => {
     mkdirSync(join(base, 'lid', '.torno'))
@@ -289,6 +301,7 @@ describe('onboardObject', () => {
     const shown = await previewPrompt(deps(), 'cable-clip', {
       description: d.description,
       items: d.items.map((i) => ({ file: i.file, note: i.note, picture: true })),
+      steps: d.steps,
       scans: d.scans,
       objects: d.objects
     })

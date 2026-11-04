@@ -25,6 +25,8 @@ export interface CreateRequest {
   photos: Array<{ path: string; note: string }>
   /** PNG bytes of a drawing: `reference/doodle-<n>.png`. */
   doodles: Array<{ png: Uint8Array; note: string }>
+  /** Vendor STEP files of bought parts (`.step`, `.stp`, at most 50 MB): copied into `reference/` under their own names (`stepFiles`). */
+  steps: Array<{ path: string; note: string }>
   /** Not copied: imported into the object after it is made. */
   scans: Array<{ path: string; note: string }>
   /** Other objects of the workspace, by id. */
@@ -40,6 +42,8 @@ export interface OnboardDraft {
   description: string
   /** The photos, then the doodles, as `create` named them: `reference/photo-1.jpg`, `reference/doodle-1.png`. */
   items: Array<{ file: string; note: string; image?: Uint8Array }>
+  /** The vendor STEP files, as `create` named them: `reference/608zz.step`. */
+  steps: Array<{ file: string; note: string }>
   /** The scans to import into the new object, by the path the dialog or the drop gave. */
   scans: Array<{ path: string; note: string }>
   objects: Array<{ id: string; note: string }>
@@ -51,6 +55,7 @@ export interface OnboardDraft {
 export interface PromptPreviewDraft {
   description: string
   items: Array<{ file: string; note: string; picture: boolean }>
+  steps: Array<{ file: string; note: string }>
   scans: Array<{ path: string; note: string }>
   objects: Array<{ id: string; note: string }>
 }
@@ -171,6 +176,8 @@ export interface TornoBridge {
     pickPhotos(): Promise<string[]>
     /** The scan dialog (`scans.pick`). */
     pickScan(): Promise<string | null>
+    /** The dialog for a vendor STEP file (`.step`, `.stp`); under test, what `__tornoMain.pickStep` holds. null when cancelled. */
+    pickStep(): Promise<string | null>
     /** Where a file dropped on the window is on the disk (`webUtils.getPathForFile`); '' for one that is nowhere. */
     pathOf(file: File): string
     /** The bytes of an image file the dialog or a drop gave (a plain PNG, JPEG or WebP file of at most 25 MB), to draw it and scale a copy for the prompt. */

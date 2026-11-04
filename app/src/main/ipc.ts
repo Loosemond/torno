@@ -8,6 +8,7 @@ import { EXPORT_FORMATS, EXTENSIONS, FORMAT_NAMES, type FileFormat, type ExportP
 import type { Described, MeasureProbe, MeasuredOnce } from '../shared/geometry'
 import type { BuildIdentity } from '../shared/git'
 import type { MarkPatch, NewMark, NewRegion, Replacement } from '../shared/marks'
+import { STEP_FORMATS } from '../shared/objectName'
 import { type AlignMade, type NewAlignment, type ScanInfo, type ScanUnit, type ScanUp, SCAN_FORMATS, alignmentOf, standingOf } from '../shared/scans'
 import type { Scene } from '../shared/scene'
 import type { SceneFile } from '../shared/scenefile'
@@ -79,7 +80,7 @@ function handle(channel: string, fn: (event: Electron.IpcMainInvokeEvent, ...arg
 //           marks:dismissProblem, geometry:describe, geometry:measure,
 //           asks:list, scans:list, scans:pick, scans:import, scans:convert, scans:rename, scans:remove, scans:align, scans:mesh,
 //           scans:problem (also sent to the renderer), scans:dismissProblem, scans:reimport, scans:undoAlign, scans:alignHolds,
-//           objects:pickPhotos, objects:readPhoto, objects:create, objects:onboard, objects:previewPrompt, objects:taken, show:cards, show:thumbnail, export:plan, export:save, export:savePicture, export:saveSection
+//           objects:pickPhotos, objects:pickStep, objects:readPhoto, objects:create, objects:onboard, objects:previewPrompt, objects:taken, show:cards, show:thumbnail, export:plan, export:save, export:savePicture, export:saveSection
 //   from the renderer: export:done, show:saveThumbnail, object:saveSceneFile, view:report, view:lookReply, view:showReply, view:highlightReply,
 //           view:drawSectionReply, view:saveViewReply, session:write, session:resize, session:insert,
 //           chat:answer, asks:answer
@@ -489,6 +490,7 @@ export function registerIpc(
     pickFile?: () => Promise<string | null>
     /** Stands in for the photo dialog of a new object: the files to add, or [] for none. */
     pickPhotos?: () => Promise<string[]>
+    pickStep?: () => Promise<string | null>
     /** Stands in for the save dialog of an export: given the path it would open on, the path to write, or null for none. */
     pickSave?: (defaultPath: string) => Promise<string | null>
     /** Stands in for the question asked before an export replaces a file the save dialog did not ask about: yes or no. */
@@ -882,6 +884,13 @@ export function registerIpc(
     if (opts.pickFile) return opts.pickFile()
     const win = BrowserWindow.fromWebContents(event.sender)
     const options: Electron.OpenDialogOptions = { title: 'Import scan', properties: ['openFile'], filters: [{ name: 'Scans', extensions: SCAN_FORMATS.map((format) => format.slice(1)) }] }
+    const picked = await (win ? dialog.showOpenDialog(win, options) : dialog.showOpenDialog(options))
+    return picked.canceled || picked.filePaths.length === 0 ? null : picked.filePaths[0]
+  })
+  handle('objects:pickStep', async (event): Promise<string | null> => {
+    if (opts.pickStep) return opts.pickStep()
+    const win = BrowserWindow.fromWebContents(event.sender)
+    const options: Electron.OpenDialogOptions = { title: 'Add a bought part', properties: ['openFile'], filters: [{ name: 'STEP files', extensions: STEP_FORMATS.map((format) => format.slice(1)) }] }
     const picked = await (win ? dialog.showOpenDialog(win, options) : dialog.showOpenDialog(options))
     return picked.canceled || picked.filePaths.length === 0 ? null : picked.filePaths[0]
   })

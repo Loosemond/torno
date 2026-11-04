@@ -14,7 +14,7 @@ const appDir = resolve(__dirname, '..')
 const fixtures = resolve(appDir, '../kernel/tests/fixtures/ws')
 const fakeAgent = resolve(appDir, 'test/fake-agent.mjs')
 
-type Main = { pickPhotos: string[]; photoPicks: number; pickFile: string | null }
+type Main = { pickPhotos: string[]; photoPicks: number; pickFile: string | null; pickStep: string | null }
 const temp = (name: string): string => mkdtempSync(join(realpathSync(tmpdir()), `torno-e2e-onboard-${name}-`))
 const copyOfWorkspace = (): string => {
   const root = temp('ws')
@@ -44,6 +44,7 @@ test.describe('a new object', () => {
   const big = () => join(files, 'desk-3000.png')
   const webp = () => join(files, 'bench.webp')
   const plate = () => join(files, 'plate.stl')
+  const bearing = () => join(files, '608ZZ.STEP')
 
   const state = (): Promise<TornoState> => page.evaluate(() => window.__tornoTest!.state())
   const newPage = () => page.getByRole('region', { name: 'New project' })
@@ -65,6 +66,7 @@ test.describe('a new object', () => {
     files = temp('files')
     writeFileSync(big(), png(3000, 2000))
     writeFileSync(plate(), stl(box([60, 50, 2], [0, 0, -10])))
+    writeFileSync(bearing(), 'ISO-10303-21;\nENDSEC;\n')
     ;({ app, page } = await start(root, `node ${fakeAgent}`))
     // A WebP is made by the window itself: a test has no encoder, and the window is what reads it.
     const encoded = await page.evaluate(async () => {
@@ -178,7 +180,7 @@ test.describe('a new object', () => {
     })
     expect(said).toBe(true)
     await expect(newPage()).toContainText('sketch.png: That file has no place on the disk')
-    await expect(newPage()).toContainText('notes.txt is neither a picture nor a scan')
+    await expect(newPage()).toContainText('notes.txt is neither a picture, a STEP file nor a scan')
     await expect(cards('photos')).toHaveCount(2)
     // A file over 25 MB is refused before it is read.
     await page.evaluate(() => {
@@ -273,6 +275,19 @@ test.describe('a new object', () => {
     await page.getByRole('alertdialog', { name: 'Discard this doodle?' }).getByRole('button', { name: 'Discard' }).click()
   })
 
+  test('a vendor STEP file is given as a bought part, with a note, and the preview names it for import_step', async () => {
+    await hook(app, { pickStep: bearing() })
+    await newPage().getByRole('button', { name: 'Add a bought part…' }).click()
+    await expect(cards('steps')).toHaveCount(1)
+    await expect(cards('steps').first()).toContainText('Bought part')
+    await expect(cards('steps').first()).toContainText('608ZZ.STEP')
+    await cards('steps').first().getByLabel(/^Note for /).fill('the bearing, 8 x 22 x 7')
+    // The same file twice is one.
+    await newPage().getByRole('button', { name: 'Add a bought part…' }).click()
+    await expect(newPage()).toContainText('608ZZ.STEP is there already')
+    await expect(cards('steps')).toHaveCount(1)
+  })
+
   test('a scan and another object of the workspace are given with their notes', async () => {
     await hook(app, { pickFile: plate() })
     await newPage().getByRole('button', { name: 'Add a scan…' }).click()
@@ -299,7 +314,7 @@ test.describe('a new object', () => {
     await expect(menu).toHaveCount(0)
     await expect(newPage()).toBeVisible()
     await expect(newPage().locator('.new-will')).toContainText('reference/')
-    await expect(newPage().locator('.new-will')).toContainText('3 files')
+    await expect(newPage().locator('.new-will')).toContainText('4 files')
   })
 
   test('Create makes the object, lists it, opens it, and the first prompt reaches the agent with the pictures scaled to 1280 px', async () => {
@@ -319,10 +334,10 @@ test.describe('a new object', () => {
     // The folder: the template, the brief with every note, the originals copied as they were, and nothing else.
     const dir = join(root, 'cable-clip')
     expect(readdirSync(dir).filter((n) => n !== '.torno').sort()).toEqual(['brief.md', 'cable_clip.py', 'reference'])
-    expect(readdirSync(join(dir, 'reference')).sort()).toEqual(['doodle-1.png', 'photo-1.png', 'photo-2.webp'])
+    expect(readdirSync(join(dir, 'reference')).sort()).toEqual(['608ZZ.step', 'doodle-1.png', 'photo-1.png', 'photo-2.webp'])
     expect(readFileSync(join(dir, 'reference', 'photo-1.png')).equals(readFileSync(big()))).toBe(true)
     const brief = readFileSync(join(dir, 'brief.md'), 'utf8')
-    for (const part of ['A clip that holds a 6 mm cable', 'the desk edge, 18 mm thick', 'the shape of the jaw', 'the desk, scanned', 'same style', '../plain/']) expect(brief).toContain(part)
+    for (const part of ['A clip that holds a 6 mm cable', 'the desk edge, 18 mm thick', 'the shape of the jaw', 'the desk, scanned', 'same style', 'reference/608ZZ.step: the bearing, 8 x 22 x 7', '../plain/']) expect(brief).toContain(part)
     expect(readdirSync(root).filter((n) => n.startsWith('.'))).toEqual([])
 
     // The chat: one prompt, with the photos and the doodle as pictures scaled to 1280 px at most, and the agent answered.
@@ -330,6 +345,8 @@ test.describe('a new object', () => {
     await expect(dock.locator('.chat')).toBeVisible({ timeout: 30_000 })
     await expect(dock.locator('.chat-user').first()).toContainText('This is a new project, cable-clip')
     await expect(dock.locator('.chat-user').first()).toContainText('the desk edge, 18 mm thick')
+    await expect(dock.locator('.chat-user').first()).toContainText('import_step(Path(__file__).parent / "reference" / "608ZZ.step")')
+    expect(readFileSync(join(dir, 'reference', '608ZZ.step'), 'utf8')).toBe('ISO-10303-21;\nENDSEC;\n')
     await expect(dock.locator('.chat-thumb img')).toHaveCount(3)
     const widths = await dock.locator('.chat-thumb img').evaluateAll((imgs) => imgs.map((img) => (img as HTMLImageElement).naturalWidth))
     expect(widths).toEqual([1280, 800, 1200])
@@ -497,6 +514,11 @@ test.describe('the window while a new object is made', () => {
     await expect(dock().locator('.draft-pane')).toContainText('cable-clip')
     await expect(dock().locator('.draft-pane')).toContainText('reference/photo-1.png')
     await expect(dock().locator('.draft-pane')).toContainText('attached: picture 1')
+    // A bought part is named in the preview, with how the agent is to place it.
+    await hook(app, { pickStep: join(files, '608ZZ.STEP') })
+    await page.getByRole('region', { name: 'New project' }).getByRole('button', { name: 'Add a bought part…' }).click()
+    await expect(dock().locator('.draft-pane-text')).toContainText('reference/608ZZ.step')
+    await expect(dock().locator('.draft-pane-text')).toContainText('import_step(')
     // The list folded to its switcher: no object is current, and the switcher reads "New object", pressed.
     await expect(list().locator('[aria-current="true"]')).toHaveCount(0)
     await expect(switcher(page)).toHaveText('New project')

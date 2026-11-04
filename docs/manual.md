@@ -485,6 +485,11 @@ hold, sizes you know, how it will be made), and then for what you have, each wit
   scaled to 1280 px on its long edge; the original is copied to `reference/photo-<n>.<ext>` in the project.
 - **Doodles** ("Draw…"): up to 6, drawn on a board (below). Claude gets each as a PNG with dark ink on white,
   over a light grid (1 square = 40 px of the board, no scale, and the prompt says so), whichever theme you drew it in, and `reference/` keeps it.
+- **Bought parts** ("Add a bought part…", or dropped): a vendor's STEP file (`.step` or `.stp`) of a screw, a bearing, a
+  board, a motor; up to 4, 50 MB each (a larger file is refused, and is never read whole). The file is copied as it is into `reference/` under its own name
+  (made safe for a file name; `608zz.step`, or `608zz-2.step` if two have the name), and the prompt names it and tells Claude to read it in the
+  model with `import_step` and return it among `references(p)` (see "Bought parts" under the model), not as a part to print. torno reads
+  nothing of it itself.
 - **Scans** ("Add a scan…", or dropped): up to 4. They are imported into the project as "Import scan…" does, not
   copied and not aligned; Claude is told each scan's file name and id, and that it is not aligned (you align it in
   torno); `brief.md` keeps the path it came from, with `~` for your home folder.
@@ -509,7 +514,7 @@ cube, to be replaced), `brief.md` (your words and a line for each reference with
 `.torno/` folder is made as for any project. It is made in a hidden temporary folder beside it and renamed into
 place as the last step, so it is whole or not there, and it never goes into or over a folder that exists (an
 empty one of that name is used). A temporary folder a crash left is swept away at the next opening of the
-workspace once it is ten minutes old, unless it holds files in `reference/` (your doodles may be nowhere else):
+workspace once it is ten minutes old, unless it holds files in `reference/` (your doodles and STEP files may be nowhere else):
 such a leftover, a hidden `.<name>.torno-new-<hex>` folder in the workspace, is yours to look at and delete. Then torno opens the project, imports the scans, starts Claude Code in a
 chat and sends one prompt with everything. The prompt asks Claude to list the sizes that decide fit or function and
 say where each comes from (your words, a note, a scan, another project, or nowhere), and to ask you for those that come
