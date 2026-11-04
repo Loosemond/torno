@@ -116,11 +116,18 @@ type Vec3 = [number, number, number]
 const refText = 'A ref names a part (lid), one of its faces (lid/F12) or edges (lid/E3), as given by marks, scene and describe.'
 const layoutText = 'The layout the refs are of, as listed by scene. Default: the one on screen.'
 
+const sceneInput = {
+  layout: z.string().optional().describe('List the parts of that layout. Default: the one on screen; the parts of the others are counted, not listed.')
+}
+
 const marksInput = {
   status: z
     .enum(['draft', 'sent', 'resolved', 'open'])
     .optional()
-    .describe('Only the marks of that status: draft (not yet told to you), sent, resolved, or open for all that are not resolved. Default: all.'),
+    .describe('Only the marks of that status: draft (not yet told to you), sent, resolved, or open for all that are not resolved. Default: open (resolved marks only on request, or by ids).'),
+  ids: z.array(z.string()).optional().describe('Only these marks, by number: ["M4"]. Whatever their status; a stroke is then given with all its points.'),
+  limit: z.number().int().optional().describe('The most marks to list. Default 50, at most 200.'),
+  next: z.string().optional().describe('Where to go on after a list that left marks out: the number the answer gives under next (M51).'),
   layout: z.string().optional().describe(`${layoutText} A region of a scan is told where the scan stands in that layout; every other mark is in its own.`)
 }
 
@@ -288,6 +295,9 @@ const resolveMarkInput = {
 
 export interface MarksArgs {
   status?: 'draft' | 'sent' | 'resolved' | 'open'
+  ids?: string[]
+  limit?: number
+  next?: string
   layout?: string
 }
 export interface DescribeArgs {
@@ -357,8 +367,9 @@ export const TOOLS = {
     title: 'Scene and build',
     annotations: READ_ONLY,
     meta: ALWAYS_LOADED,
+    inputSchema: sceneInput,
     description:
-      'Returns JSON for the project this session works on: the build status, revision and error, output (the last lines the model printed in the build that ended last, failed or good, outputCut when earlier lines were left out), its layouts, every part with size, bounding box, volume, face and edge counts in mm (sizeExact and volumeExact say whether the size and the volume are exact; reversed, only where there is any, lists the part’s solids turned inside out; solids is how many it has, openShells, only above 0, how many of its shells are not closed, and meshDisagrees with meshVolume, only then, that its mesh encloses other than its volume), what the user sees (layout, visible parts, camera, section, and explode when they have the parts drawn apart for display), under views the views saved by name (whose each is, its layout, whether it holds a section or an explode, how many parts it hides), and, under dimensions, how many of the unresolved dimensions pass, fail and are not measured on that revision, and under scans the scans the user imported, each with how its alignment in that layout stands, in a word (call scans for the whole of it), under groups the groups of parts the model’s groups(p) declares, each with its parts in the layout shown and whether they are visible (all, some, none), each part naming its group; a group name can be given wherever parts are named, and under params the fields of the model’s Params dataclass as the kernel read them from the source: name, type as written, default (the value Params() holds, null when it is no plain value), literal (whether the default in the source is a literal; an expression or a default_factory is not) and doc (the field’s comment, or null; to change one, edit its default in the model file). Call it after every edit of the model to check that the build passed. Sizes and volumes here are for orientation (sizeExact and volumeExact say which are exact): call measure for a number to rely on.'
+      'Returns JSON for the project this session works on: the build status, revision and error, output (the last lines the model printed in the build that ended last, failed or good, outputCut when earlier lines were left out), its layouts, every part with size, bounding box, volume, face and edge counts in mm (sizeExact and volumeExact say whether the size and the volume are exact; reversed, only where there is any, lists the part’s solids turned inside out; solids is how many it has, openShells, only above 0, how many of its shells are not closed, and meshDisagrees with meshVolume, only then, that its mesh encloses other than its volume), what the user sees (layout, visible parts, camera, section, and explode when they have the parts drawn apart for display), under views the views saved by name (whose each is, its layout, whether it holds a section or an explode, how many parts it hides), and, under dimensions, how many of the unresolved dimensions pass, fail and are not measured on that revision, and under scans the scans the user imported, each with how its alignment in that layout stands, in a word (call scans for the whole of it), under groups the groups of parts the model’s groups(p) declares, each with its parts in the layout shown and whether they are visible (all, some, none), each part naming its group; a group name can be given wherever parts are named, and under params the fields of the model’s Params dataclass as the kernel read them from the source: name, type as written, default (the value Params() holds, null when it is no plain value), literal (whether the default in the source is a literal; an expression or a default_factory is not) and doc (the field’s comment, or null; to change one, edit its default in the model file). It lists the parts of one layout (the one on screen, or layout) and counts those of the others, and past 200 parts, or when the list would not fit, gives the name, size and group of each part only (partsTruncated; describe gives the rest), so call it after every edit of the model to check that the build passed. Sizes and volumes here are for orientation (sizeExact and volumeExact say which are exact): call measure for a number to rely on.'
   },
   look: {
     title: 'Look at the view',
@@ -373,7 +384,7 @@ export const TOOLS = {
     annotations: READ_ONLY,
     meta: ALWAYS_LOADED,
     description:
-      "Returns JSON with the revision of the build it is of, a stale note when a newer build is running or failed, and the marks on this project, the user's and your own: each with its number (M3), kind, note, status, layout, the ref and descriptor of what it is on, its coordinates in mm in the frame of its layout, for a stroke its points, and a line that says it in words; a region is a part of a scan the user painted and named with its note (\"wiring loom, can be pushed aside\"): it holds scan, triangles, area, its size along its own axes and whether it is flat, and, where its scan is aligned in the layout asked (toldIn), centroid, axes, the box it lies within (bbox) and plane in the frame of that layout, all approximate, with alignment saying in a word how that alignment stands (aligned, rough, in doubt, not checked), and its number is what scan_clash takes in ignore, scan_deviation in region and measure as an end; a dimension also holds value, how, points and verdict when they were measured on that revision (its measuredRevision), wasValue and wasRevision in their place when what it holds is of an older build, and resolvedValue, resolvedVerdict and resolvedOnRevision once it is resolved and no longer measured. Marks are how the user points at the part; new ones are told to you with the prompt, a line each, so call this for all of their data, or when you are told that more marks were left out. An anchorState other than ok means the build moved the surface or dropped the part, and a checkedRevision that is absent or is not the revision means the mark has not been checked against that build: either way the ref may no longer name what the mark is on.",
+      "Returns JSON with the revision of the build it is of, a stale note when a newer build is running or failed, and the marks on this project, the user's and your own: each with its number (M3), kind, note, status, layout, the ref and descriptor of what it is on, its coordinates in mm in the frame of its layout, for a stroke a summary of its points (pointsSummary: count, first, last and box; all of them only when you name it in ids), and a line that says it in words; a region is a part of a scan the user painted and named with its note (\"wiring loom, can be pushed aside\"): it holds scan, triangles, area, its size along its own axes and whether it is flat, and, where its scan is aligned in the layout asked (toldIn), centroid, axes, the box it lies within (bbox) and plane in the frame of that layout, all approximate, with alignment saying in a word how that alignment stands (aligned, rough, in doubt, not checked), and its number is what scan_clash takes in ignore, scan_deviation in region and measure as an end; a dimension also holds value, how, points and verdict when they were measured on that revision (its measuredRevision), wasValue and wasRevision in their place when what it holds is of an older build, and resolvedValue, resolvedVerdict and resolvedOnRevision once it is resolved and no longer measured. Marks are how the user points at the part; new ones are told to you with the prompt, a line each, so call this for their data, or when you are told that more marks were left out; it lists the open ones, 50 at a time (omitted says how many were left out and next where to go on; status resolved or ids gives the others). An anchorState other than ok means the build moved the surface or dropped the part, and a checkedRevision that is absent or is not the revision means the mark has not been checked against that build: either way the ref may no longer name what the mark is on.",
     inputSchema: marksInput
   },
   describe: {
