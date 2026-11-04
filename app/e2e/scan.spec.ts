@@ -471,6 +471,29 @@ test('a scan is renamed from its detail; an empty name is refused, and Escape le
   expect((await state()).scans.find((scan) => scan.id === 'S3')?.name).toBe('hatch')
 })
 
+// Issue #95.
+test('a scan read as metres that is far larger than the parts is compared with them, and is in view after its import', async () => {
+  const big = join(root, 'engine bay.stl')
+  writeFileSync(big, stl(box([13, 13, 1], [0, 0, 0])))
+  await pickFile(big)
+  await page.getByRole('button', { name: 'Import scan…' }).click()
+  const sheet = page.getByRole('dialog', { name: 'How is S4 read?' })
+  await expect(sheet.locator('[data-part="size"]')).toHaveText('Its size would be 13000 × 13000 × 1000 mm')
+  await expect(sheet.locator('[data-part="parts"]')).toContainText('The parts of assembly: about')
+  await expect(sheet.locator('[data-part="doubt"]')).toContainText('times the parts: is it in millimetres?')
+  // The detail does not ask what the sheet asks.
+  await row('S4').getByRole('button', { name: 'Details of S4' }).evaluate((b: HTMLElement) => b.click())
+  await expect(row('S4').locator('.scan-detail')).toBeVisible()
+  await expect(row('S4').locator('.scan-guess')).toHaveCount(0)
+  await expect(row('S4').getByRole('combobox', { name: 'Unit of S4' })).toHaveCount(0)
+  // Brought into view with the parts, once, though nothing was framed by hand.
+  await expect.poll(async () => (await scans()).find((scan) => scan.id === 'S4')?.clipped).toBe(false)
+  expect(await page.evaluate(() => { const c = window.__tornoTest!.camera(); return Math.hypot(...c.position.map((p, i) => p - c.target[i])) })).toBeGreaterThan(5000)
+  await sheet.getByRole('combobox', { name: 'Unit of S4' }).selectOption('mm')
+  await expect(sheet.locator('[data-part="doubt"]')).toHaveCount(0)
+  await sheet.getByRole('button', { name: 'Later' }).click()
+})
+
 test.describe('a large scan', () => {
   // A launch and a copy of its own: the one above is closed first, and the file's `afterAll` clears this one away.
   test.beforeAll(async () => {

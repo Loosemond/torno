@@ -330,3 +330,7 @@ input.scan-name-field {
   margin-top: var(--space-1);
   font-size: var(--text-small);
 }
+
+.scan-sheet-warn {
+  color: var(--warn);
+}

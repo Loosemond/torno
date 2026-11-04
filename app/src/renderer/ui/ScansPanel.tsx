@@ -106,7 +106,7 @@ export function ScansPanel() {
           </button>
         </p>
       )}
-      {askingOf && <ScanReadSheet key={askingOf.id} scan={askingOf} convert={(as) => void convertScan(objectId, askingOf.id, as)} layoutsOf={numberedList} />}
+      {askingOf && <ScanReadSheet key={askingOf.id} scan={askingOf} convert={(as) => convertScan(objectId, askingOf.id, as)} layoutsOf={numberedList} />}
       {!folded && scans.length === 0 && importing === null && <p className="section-note">Drop a scan on the view, or import one.</p>}
       {!folded && scans.length > 0 && (
         <ul className="rows">
@@ -133,6 +133,8 @@ function ScanRow({ objectId, scan, open, onToggle }: { objectId: string; scan: S
   // The regions painted on it, which lose their triangles with it: said before it is removed.
   const regions = useStore((s) => s.marks.filter((mark) => mark.kind === 'region' && mark.scan === id && mark.anchorState !== 'orphaned').length)
   const guess = guessOf(scan)
+  // While the sheet at the top asks how it is read, the detail does not ask it again.
+  const sheetUp = useStore((s) => s.scanAsking === id)
   const [unit, setUnit] = useState<ScanUnit>(scan.imported.unit)
   const [up, setUp] = useState<ScanUp>(scan.imported.up)
   const [busy, setBusy] = useState(false)
@@ -227,7 +229,7 @@ function ScanRow({ objectId, scan, open, onToggle }: { objectId: string; scan: S
           <p className="scan-read" data-guessed={guess ? '' : undefined}>
             {numbered(importText(scan.imported))}
           </p>
-          {guess && (
+          {guess && !sheetUp && (
             <p className="scan-guess">
               {guess}: right?{' '}
               <button
@@ -329,6 +331,7 @@ function ScanRow({ objectId, scan, open, onToggle }: { objectId: string; scan: S
             </button>
           </div>
           <div className="scan-fields">
+            {!sheetUp && (
             <div className="scan-field">
               <span className="scan-label">Read as</span>
               <select
@@ -373,6 +376,7 @@ function ScanRow({ objectId, scan, open, onToggle }: { objectId: string; scan: S
                 Apply
               </button>
             </div>
+            )}
             <div className="scan-field">
               <span className="scan-label">Colour</span>
               <div className="scan-choice" role="group" aria-label={`Colour of ${id}`}>

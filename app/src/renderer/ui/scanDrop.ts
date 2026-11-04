@@ -64,6 +64,8 @@ function reading<T>(objectId: string, name: string, start: () => Promise<T>): Pr
 /** Has main import a file into an object as a scan. */
 export function importScan(objectId: string, path: string): void {
   void reading(objectId, basename(path), () => window.torno.scans.import(objectId, path)).then((scan) => {
+    // Once, with the parts: a scan read a thousand times off is out of sight, and the sheet's question is about what is seen.
+    if (scan && store.getState().objectId === objectId) actions.frameScan(scan.id)
     // A guess at its unit or up axis is asked about once, now, while the object is still the open one: a wrong unit is a thousandfold.
     if (scan && (scan.imported.assumed.unit || scan.imported.assumed.up) && store.getState().objectId === objectId) actions.askScanRead(scan.id)
   })

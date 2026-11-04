@@ -329,3 +329,27 @@ export function importText(imported: ScanImport): string {
 }
 
 const count = (n: number): string => n.toLocaleString('en-US')
+
+/** How many times longer the scan's diagonal is than the parts' before the sheet asks whether the unit is right. */
+export const UNIT_DOUBT = 100
+
+/**
+ * A scan's size set against the parts of the layout, both as boxes' sides in mm: how many times the scan's diagonal is
+ * the parts', and, when that is more than `UNIT_DOUBT` times either way, the unit that would bring them nearest
+ * (a ratio is read to two figures: it is a guess at a unit, not a measure). Null without parts or without a size.
+ */
+export function sizeAgainst(scan: Vec3, parts: Vec3, readAs: ScanUnit): { ratio: number; suggest: ScanUnit | null } | null {
+  const a = Math.hypot(...scan)
+  const b = Math.hypot(...parts)
+  if (!(a > 0) || !(b > 0)) return null
+  const ratio = a / b
+  if (ratio <= UNIT_DOUBT && ratio >= 1 / UNIT_DOUBT) return { ratio, suggest: null }
+  let best: ScanUnit | null = null
+  let nearest = Math.abs(Math.log(ratio))
+  for (const unit of Object.keys(UNIT_MM) as ScanUnit[]) {
+    if (unit === readAs) continue
+    const off = Math.abs(Math.log((ratio * UNIT_MM[unit]) / UNIT_MM[readAs]))
+    if (off < nearest) [best, nearest] = [unit, off]
+  }
+  return { ratio, suggest: best }
+}

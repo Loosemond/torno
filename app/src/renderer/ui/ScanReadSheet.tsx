@@ -1,12 +1,27 @@
-import { useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { number } from '../../shared/format'
 import { pressed } from '../../shared/keys'
-import { type ScanInfo, type ScanUnit, type ScanUp, UNIT_MM, sizeAs } from '../../shared/scans'
-import { actions } from '../state/store'
+import { type ScanInfo, type ScanUnit, type ScanUp, UNIT_MM, sizeAgainst, sizeAs } from '../../shared/scans'
+import type { Vec3 } from '../../shared/marks'
+import { actions, useStore } from '../state/store'
 import { Confirm } from './Confirm'
 import { numbered } from './numbered'
 import { UNIT_WORD } from './scanState'
 import { chosen, pointerChoice } from './typing'
+
+/** The sides of the box that holds all these, or null of none. */
+function sizeOfBoxes(boxes: Array<{ min: Vec3; max: Vec3 }>): Vec3 | null {
+  if (boxes.length === 0) return null
+  const lo = [0, 1, 2].map((a) => Math.min(...boxes.map((b) => b.min[a])))
+  const hi = [0, 1, 2].map((a) => Math.max(...boxes.map((b) => b.max[a])))
+  return [hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]]
+}
+
+/** `About 1,000 times`, or `About 1/1,000 of`: to two figures. */
+function timesText(ratio: number): string {
+  const two = (n: number): string => Number(n.toPrecision(2)).toLocaleString('en-US')
+  return ratio >= 1 ? `About ${two(ratio)} times` : `About 1/${two(1 / ratio)} of`
+}
 
 const UNITS = Object.keys(UNIT_MM) as ScanUnit[]
 
@@ -16,7 +31,7 @@ const UNITS = Object.keys(UNIT_MM) as ScanUnit[]
  * view meanwhile, which is the preview; the size it would have is said here. Not modal: "Later" (or Escape) puts
  * it away, and the question stays in the scan's detail.
  */
-export function ScanReadSheet({ scan, convert, layoutsOf }: { scan: ScanInfo; convert: (as: { unit: ScanUnit; up: ScanUp }) => void; layoutsOf: (names: string[]) => ReactNode }) {
+export function ScanReadSheet({ scan, convert, layoutsOf }: { scan: ScanInfo; convert: (as: { unit: ScanUnit; up: ScanUp }) => Promise<void>; layoutsOf: (names: string[]) => ReactNode }) {
   const { id, imported } = scan
   const [unit, setUnit] = useState<ScanUnit>(imported.unit)
   const [up, setUp] = useState<ScanUp>(imported.up)
@@ -26,9 +41,18 @@ export function ScanReadSheet({ scan, convert, layoutsOf }: { scan: ScanInfo; co
   const size = sizeAs(imported, { unit, up })
     .map((c) => number(c))
     .join(' × ')
+  const scene = useStore((s) => s.scene)
+  const layout = useStore((s) => s.layout)
+  const parts = useMemo(() => scene?.parts.filter((part) => part.layout === layout) ?? [], [scene, layout])
+  const partsSize = sizeOfBoxes(parts.map((part) => part.bbox))
+  const against = partsSize ? sizeAgainst(sizeAs(imported, { unit, up }), partsSize, unit) : null
+  const exact = parts.length > 0 && parts.every((part) => part.bboxExact === true)
   const done = (as: { unit: ScanUnit; up: ScanUp }): void => {
     actions.askScanRead(null)
-    convert(as)
+    // A scan read another way has another size: it is brought into view again once main has it so.
+    void convert(as).then(() => {
+      if (as.unit !== imported.unit || as.up !== imported.up) actions.frameScan(id)
+    })
   }
 
   return (
@@ -49,6 +73,16 @@ export function ScanReadSheet({ scan, convert, layoutsOf }: { scan: ScanInfo; co
       <p className="scan-sheet-size" data-part="size">
         {numbered(`Its size would be ${size} mm`)}
       </p>
+      {partsSize && (
+        <p className="scan-sheet-size" data-part="parts">
+          {numbered(`${parts.length === 1 ? 'The part' : 'The parts'} of ${layout}: about ${partsSize.map((c) => number(c)).join(' × ')} mm${exact ? '' : ', as drawn'}`)}
+        </p>
+      )}
+      {against?.suggest && (
+        <p className="scan-sheet-warn" data-part="doubt">
+          {numbered(`${timesText(against.ratio)} the parts: is it in ${UNIT_WORD[against.suggest]}?`)}
+        </p>
+      )}
       <div className="scan-field">
         <select
           className="scan-select num"

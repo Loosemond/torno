@@ -1094,11 +1094,18 @@ metres when the whole is under 20 units across, with Y up for OBJ and Z up
 otherwise. Right after an import in the window, when either was assumed, a
 short sheet at the top of the Scans panel asks once: `How is S1 read?`, with the
 unit and the up axis and the size the scan would have read so (`Its size would
-be 120 × 120 × 0 mm`); the scan is drawn in the view meanwhile. "Keep" says the
+be 120 × 120 × 0 mm`) and, under it, the size of the parts of the layout shown
+(`The parts of assembly: about 40 × 40 × 41 mm`); when the two diagonals are
+more than 100 times apart either way, a line in the warning colour says how many
+times and names the unit that would bring them near (`About 1,000 times the
+parts: is it in millimetres?`). The scan is brought into view with the parts once,
+right after the import and again after "Apply"; the views and `F` still frame
+the parts only. The scan is drawn in the view meanwhile. "Keep" says the
 guess is right, "Apply" reads it as chosen, "Later" puts the question away. Until
 it is answered the row has a dot after the name, and its detail says the size and
 what was assumed (`120 × 120 × 0 mm, from m, Z up (assumed)`) and asks
-`Read as metres, Z up: right?` with "Yes" and the unit and axis under it.
+`Read as metres, Z up: right?` with "Yes" and the unit and axis under it (not
+while the sheet is up, which asks the same).
 Changing either drops the scan's alignments, which torno says before it does it.
 
 **The Scans panel.** Each scan (`S1`, `S2`, never reused) has a row of one
