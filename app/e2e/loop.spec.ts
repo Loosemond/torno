@@ -244,7 +244,8 @@ test('dragging orbits the camera, and main is told where it came to rest', async
   await page.mouse.up()
   const after = await camera()
   expect(after.position).not.toEqual(before.position)
-  expect(after.target).toEqual(before.target)
+  // The turn is about the point under the pointer (#103), so the target has moved along the view.
+  expect(after.target).not.toEqual(before.target)
 
   await expect.poll(async () => (await mainView('bracket'))?.camera.position, { timeout: 5_000 }).toEqual(after.position)
   expect(await mainView('bracket')).toMatchObject({

@@ -179,7 +179,14 @@ test('rebuilt thicker and without its post: the first pin has drifted onto the f
     expect([id, boxes.note.width > 60]).toEqual([id, true])
   }
   for (const selector of ['.marks-body', '[data-region="left"]']) {
-    const [scroll, client] = await page.locator(selector).evaluate((el) => [el.scrollWidth, el.clientWidth])
+    // Without the column's splitter, which overhangs its right border by 5 px on purpose (552a366, "Let the person make the left column wider").
+    const [scroll, client] = await page.locator(selector).evaluate((el) => {
+      const edge = el.querySelector<HTMLElement>('.left-edge')
+      if (edge) edge.hidden = true
+      const sizes = [el.scrollWidth, el.clientWidth]
+      if (edge) edge.hidden = false
+      return sizes
+    })
     expect([selector, scroll <= client]).toEqual([selector, true])
   }
   // The active row shows its note whole, wrapped, and the list still does not scroll sideways.

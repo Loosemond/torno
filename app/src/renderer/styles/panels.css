@@ -540,6 +540,7 @@ button.param-button:focus-visible {
   background: transparent;
   color: inherit;
   font: inherit;
+  font-family: var(--font-mono); /* a part's name is a ref: the .num face, which "font: inherit" would take back */
   font-size: var(--text-small);
   text-align: left;
 }
