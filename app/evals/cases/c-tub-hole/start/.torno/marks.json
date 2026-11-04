@@ -1,0 +1,64 @@
+{
+  "next": 2,
+  "marks": [
+    {
+      "author": "user",
+      "status": "sent",
+      "anchorState": "ok",
+      "layout": "assembly",
+      "revision": 1,
+      "camera": {
+        "position": [
+          120,
+          -90,
+          60
+        ],
+        "target": [
+          0,
+          0,
+          10
+        ],
+        "up": [
+          0,
+          0,
+          1
+        ],
+        "ortho": false,
+        "fov": 35,
+        "zoom": 1
+      },
+      "createdAt": "2026-11-01T10:00:00.000Z",
+      "id": "M1",
+      "kind": "dimension",
+      "note": "lid stays 2 mm",
+      "measure": "distance",
+      "a": {
+        "point": [
+          0,
+          0,
+          15
+        ],
+        "normal": [
+          0,
+          0,
+          -1
+        ],
+        "part": "lid"
+      },
+      "b": {
+        "point": [
+          0,
+          0,
+          17
+        ],
+        "normal": [
+          0,
+          0,
+          1
+        ],
+        "part": "lid"
+      },
+      "expected": 2
+    }
+  ]
+}

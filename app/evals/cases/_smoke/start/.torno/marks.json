@@ -1,0 +1,123 @@
+{
+  "next": 3,
+  "marks": [
+    {
+      "author": "user",
+      "status": "sent",
+      "anchorState": "ok",
+      "layout": "assembly",
+      "revision": 1,
+      "camera": {
+        "position": [
+          120,
+          -90,
+          60
+        ],
+        "target": [
+          0,
+          0,
+          10
+        ],
+        "up": [
+          0,
+          0,
+          1
+        ],
+        "ortho": false,
+        "fov": 35,
+        "zoom": 1
+      },
+      "createdAt": "2026-11-01T10:00:00.000Z",
+      "id": "M1",
+      "kind": "dimension",
+      "note": "length",
+      "measure": "distance",
+      "a": {
+        "point": [
+          -15,
+          0,
+          0
+        ],
+        "normal": [
+          -1,
+          0,
+          0
+        ],
+        "part": "block"
+      },
+      "b": {
+        "point": [
+          15,
+          0,
+          0
+        ],
+        "normal": [
+          1,
+          0,
+          0
+        ],
+        "part": "block"
+      },
+      "expected": 30
+    },
+    {
+      "author": "user",
+      "status": "sent",
+      "anchorState": "ok",
+      "layout": "assembly",
+      "revision": 1,
+      "camera": {
+        "position": [
+          120,
+          -90,
+          60
+        ],
+        "target": [
+          0,
+          0,
+          10
+        ],
+        "up": [
+          0,
+          0,
+          1
+        ],
+        "ortho": false,
+        "fov": 35,
+        "zoom": 1
+      },
+      "createdAt": "2026-11-01T10:00:00.000Z",
+      "id": "M2",
+      "kind": "dimension",
+      "note": "meant to fail",
+      "measure": "distance",
+      "a": {
+        "point": [
+          0,
+          -10,
+          0
+        ],
+        "normal": [
+          0,
+          -1,
+          0
+        ],
+        "part": "block"
+      },
+      "b": {
+        "point": [
+          0,
+          10,
+          0
+        ],
+        "normal": [
+          0,
+          1,
+          0
+        ],
+        "part": "block"
+      },
+      "expected": 25
+    }
+  ]
+}
