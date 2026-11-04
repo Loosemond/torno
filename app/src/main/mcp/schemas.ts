@@ -269,6 +269,10 @@ const diffInput = {
   from: z.number().int().optional().describe('The revision to compare from, as scene and the build status give it. Default: the successful build before the last.'),
   to: z.number().int().optional().describe('The revision to compare to. Default: the last successful build.')
 }
+const expectInput = {
+  checks: z.array(z.unknown()).describe('What the next edit should change, 1 to 20 checks, each one of: {"part": "plate", "volume": {"change": -1200, "tolerance": 50}} (a part\'s volume, faces, edges or size, as a value or a change from now; size is [x, y, z]); {"measure": {"kind": "diameter", "a": "plate/F9"}, "expected": 6.4, "tolerance": 0.05} (a measurement as measure takes it); {"unchanged": ["lid", "hinge"]} (those parts keep their volume, box and counts).'),
+  note: z.string().optional().describe('A few words on what the edit is for; told back with the verdict.')
+}
 const checkInput = {
   kind: z.enum(['overlap', 'clearance', 'interference', 'mesh', 'overhang', 'thin', 'bed']).describe('overlap and clearance are of the two parts a and b; mesh, overhang and thin are of the part a; interference and bed are of the whole layout.'),
   a: z.string().optional().describe('The name of a part, as listed by scene. Not for interference or bed.'),
@@ -459,6 +463,13 @@ export const TOOLS = {
       "Returns JSON of what changed between two successful builds (by default the one before the last and the last; only those two are kept): for each layout the parts added and removed, and for each part in both its volume, the size of its box and its min corner, before, after and the change in mm and mm³, each with exact (false where either build's number is approximate, as scene's sizeExact and volumeExact say), its face, edge and solid counts before and after, changed, and a line saying what changed (the volume's change also in percent; a number that is not exact has changed only by more than both builds' doubt of it). Call it after an edit to see what it did; numbers are the kernel's of each build, for orientation (call measure for one to rely on), and face or edge counts that changed mean refs such as lid/F12 may name other faces now, so describe a ref again before relying on it.",
     inputSchema: diffInput
   },
+  expect: {
+    title: 'Say what an edit should change',
+    annotations: CHANGES_VIEW_OR_MARKS,
+    description:
+      "Returns JSON that says what was kept, and holds the next successful build against what an edit should change, once the build lands: the answer to the edit then says how many checks were met and which not, with the numbers (≈ where the kernel's is not exact, judged within its doubt; a ref of a face or edge of a part whose face or edge count changed is told as moved and not measured). A check is a part's volume, faces, edges or size as a value or a change, a measurement with its expected value, or parts that stay unchanged. Call it before an edit to state what it should do; it is yours, held in memory for that one build, no mark, and never holds anything back; scene gives the last verdict.",
+    inputSchema: expectInput
+  },
   try_fillet: {
     title: 'Try a fillet or chamfer',
     annotations: READ_ONLY,
@@ -506,6 +517,7 @@ export const SERVER_INSTRUCTIONS = `torno's server reads and measures the CAD pa
 - section: the outlines a plane cuts of the parts, with their areas, and a 2D drawing of the cut.
 - check: overlap and clearance between parts, interference of a whole layout, a closed mesh, and for printing overhangs, thin walls and the fit on a bed.
 - diff: what changed between the last two successful builds: parts added or removed, volume, size and face counts.
+- expect: say before an edit what it should change (volume, faces, size, a measurement, parts unchanged); the build after it is checked against that.
 - try_fillet: try a fillet or chamfer of some edges on the last build and throw it away: whether it works, the largest radius that does, which edges or pairs fail.
 - scans: the scans the person imported, and how each is aligned to the model.
 - scan_clash: what of a scan is inside a part, as clusters with their depth.

@@ -12,6 +12,8 @@ import type { ChatItem, ChatMeta, Effort } from '../../shared/chat'
 import type { PromptBlock, StreamMessage } from './stream'
 import type { BuildState } from '../../shared/build'
 import type { ViewDrawing } from '../../shared/drawing'
+import { Expectations, withExpectation } from '../mcp/expectTools'
+import type { ToolDeps } from '../mcp/tools'
 import { buildContextFor, contextFor, type ContextDeps, type PromptContext } from '../context'
 import { startKernel } from '../kernel/client'
 import type { Scene } from '../../shared/scene'
@@ -2119,7 +2121,7 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
       grace?: number
       /** How long a Stop waits for a build that runs. */
       stop?: number
-      context?: (id: string) => PromptContext
+      context?: (id: string) => PromptContext | Promise<PromptContext>
       scene?: (id: string) => { revision: number; scene: Scene } | undefined
       verdicts?: (id: string, revision: number | undefined) => BuildVerdicts | undefined
       settled?: (id: string, revision: number, until: number) => Promise<void>
@@ -2802,6 +2804,33 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
       rmSync(ws, { recursive: true, force: true })
     }
   }, 60_000)
+
+  it('tells what the agent expected of an edit in the answer to that edit, once', async () => {
+    let kept: { revision: number; scene: Scene } = keptAs(1)
+    const store = new Expectations()
+    const toolDeps = { scene: () => kept } as unknown as ToolDeps
+    // As index.ts makes it: the context of the build, and the verdict of the expectation, by the same function.
+    const { obj, post, edit } = await begun({ scene: () => kept, context: async (id) => withExpectation(store, toolDeps, id, told(id)) })
+    states.set(obj.id, ok(obj.id, 1))
+    store.hold(obj.id, 1, kept.scene, 'assembly', { checks: [{ part: 'plate', volume: { change: -100, tolerance: 1 }, faces: { change: 1 } }, { unchanged: ['plate'] }], note: 'thin it' })
+    await post('UserPromptSubmit', { prompt: 'thin the plate' })
+    const first = edit()
+    setTimeout(() => land(building(obj.id, 1)), 50)
+    setTimeout(() => {
+      kept = keptAs(8)
+      land(ok(obj.id, 8))
+    }, 200)
+    const text = ((await first) as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput.additionalContext
+    expect(text).toContain('r8 ok\nexpected (r8) "thin it": 2 met, 1 not: plate changed')
+    // The next edit's build is told without it: it was told once.
+    const second = edit()
+    setTimeout(() => land(building(obj.id, 8)), 50)
+    setTimeout(() => {
+      kept = keptAs(9)
+      land(ok(obj.id, 9))
+    }, 200)
+    expect(await second).toEqual(context('r9 ok'))
+  })
 
   it('holds no Stop back for a defect of the first build of an object, in a turn that edited nothing', async () => {
     let kept: { revision: number; scene: Scene } | undefined

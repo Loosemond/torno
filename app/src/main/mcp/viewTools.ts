@@ -159,6 +159,7 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
     ? { parts: detailed, extra: {} }
     : { parts: inLayout.map(compact), extra: { partsTruncated: true, partsOmitted: 'volume, face and edge counts, solids and their warnings, the box; call describe with a part name for them' } }
   Object.assign(listing.extra, { partsLayout: partsLayout ?? null }, Object.keys(elsewhere).length > 0 ? { partsInOtherLayouts: elsewhere, partsNote: 'The parts of the other layouts are counted here, not listed: call scene with layout to list them.' } : {})
+  const expected = deps.expectations?.last(objectId)
   const result = {
     object: obj.id,
     model: scene.model,
@@ -185,6 +186,8 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
     section: view?.section ? sectionData(view.section) : null,
     // How their screen draws the parts apart, if it does. For display only: every part above is where it was built.
     explode,
+    // What the agent expected of an edit and how the build after it stood: told once with the edit, kept here.
+    ...(expected ? { expect: { revision: expected.revision, met: expected.met, notMet: expected.missed, ...(expected.note ? { note: expected.note } : {}) } } : {}),
     // Of the last build that worked (`build.revision`): call marks for which, and why.
     ...(checks.length > 0 ? { dimensions: { pass: count('pass'), fail: count('fail'), notMeasured: count('unmeasured', 'unmeasurable') } } : {}),
     // How each alignment stands, not a bare yes: one that is rough, in doubt or was never checked against this build is not "aligned: true".
