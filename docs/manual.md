@@ -1948,7 +1948,10 @@ a hidden window, sends the prompts through the chat with `claude --model <model>
 from the case. Then it scores the model as the agent left it: `app/evals/score.py`, with torno's kernel loader, checks
 validity, part names, solids, sizes and ratios, volume, clearance, overlap and holes on the B-rep (each pass or fail
 with its number, exact only where the kernel says so), and an `mcp` check calls a torno tool through the project's
-MCP address. The cases: three of primitives and plates (T1), four printable parts with fillets, bosses and a lid
+MCP address. The person's dimensions in a case's start (`start/.torno/marks.json`, with an expected value) are checks
+too, read through `marks`: one passes only with its verdict measured on the last build. A `diff` check holds the last
+edit (the two builds `diff` keeps) to the parts the case lets it change: a part with other face, edge or solid counts,
+or moved, fails it, and so does a part come or gone; the volume and size checks hold the rest against the start. The cases: three of primitives and plates (T1), four printable parts with fillets, bosses and a lid
 that fits (T2), two of mating parts (T3), two that leave a dimension out (asking is right), two pairs of the same
 edit by a mark and by text alone, and two edits that must change nothing else. The report is one JSON line per run
 in `app/evals/out/<date>-<commit>-<label>.jsonl` (ignored by git), with checks passed, the build apart, whether it

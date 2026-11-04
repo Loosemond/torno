@@ -50,6 +50,13 @@
       "axis": "z",
       "expect": 30,
       "tol": 0.001
+    },
+    {
+      "id": "diff",
+      "kind": "diff",
+      "only": [
+        "tub"
+      ]
     }
   ]
 }
