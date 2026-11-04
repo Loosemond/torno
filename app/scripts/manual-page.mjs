@@ -32,6 +32,16 @@ export function slug(text, taken = new Map()) {
 
 const escape = (text) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
+/** Markup without its tags; repeated until nothing changes, so taking one tag out cannot leave another whole. */
+function stripTags(markup) {
+  let text = markup
+  for (let before = ''; before !== text; ) {
+    before = text
+    text = text.replace(/<[^>]*>/g, '')
+  }
+  return text
+}
+
 /** The page's body and its headings (level 2 and 3), from the manual's Markdown. */
 export function renderManual(markdown) {
   const headings = []
@@ -40,7 +50,7 @@ export function renderManual(markdown) {
     renderer: {
       heading({ tokens, depth }) {
         const inline = this.parser.parseInline(tokens)
-        const text = inline.replace(/<[^>]*>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&')
+        const text = stripTags(inline).replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&')
         const id = slug(text, taken)
         if (depth === 2 || depth === 3) headings.push({ depth, id, text })
         return `<h${depth} id="${id}"><a class="anchor" href="#${id}" aria-label="Link to this heading">#</a>${inline}</h${depth}>\n`

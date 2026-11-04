@@ -1980,7 +1980,7 @@ describe('the transcript of a chat session', () => {
     expect(tSessions.endedChat(c.obj.id)).toBeUndefined()
     await tSessions.stop(c.id)
     expect(tSessions.endedChat(c.obj.id)).toBe(c.id)
-    const again = await start({ folder: c.obj.id.replace('transcript-', 'transcript-') })
+    const again = await start({ folder: c.obj.id })
     expect(again.obj.id).toBe(c.obj.id)
     expect(tSessions.endedChat(c.obj.id)).toBeUndefined()
   })

@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import type { ChatItem } from '../../../shared/chat'
 import { ChatItems } from './Items'
+import { plainText } from '../../../test/plainText'
 
 const user: ChatItem = { kind: 'user', id: 'i1', text: 'make it thicker', images: [], state: 'sent', at: 1 }
 const tool: ChatItem = { kind: 'tool', id: 'i2', toolUseId: 'toolu_1', name: 'Edit', torno: false, input: { file_path: '/ws/part/part.py' }, state: 'done', images: [] }
@@ -16,11 +17,11 @@ describe('what is drawn under an item', () => {
     expect(out.match(/class="chat-item chat-added"/g)).toHaveLength(1)
     expect(out.match(/class="chat-item chat-build"/g)).toHaveLength(1)
     expect(out.indexOf('chat-build')).toBeGreaterThan(out.indexOf('data-kind="tool"'))
-    expect(out.replace(/<[^>]*>/g, '')).toContain('torno added')
+    expect(plainText(out)).toContain('torno added')
   })
 
   it('names a failed build in what torno added to a prompt as the build after the revision on show', () => {
-    const out = drawn([user, { ...forPrompt, marks: [], buildState: 'failed' }]).replace(/<[^>]*>/g, '')
+    const out = plainText(drawn([user, { ...forPrompt, marks: [], buildState: 'failed' }]))
     expect(out).toContain('build after r1 failed')
   })
 
@@ -33,7 +34,7 @@ describe('what is drawn under an item', () => {
   it('ends a turn with what it did to the project, and what it pulled from torno on a line of its own', () => {
     const turn: ChatItem = { kind: 'turn', id: 'i9', ok: true, stopped: false, seconds: 4.2, pulled: { look: 1 } }
     const out = drawn([user, forPrompt, tool, forEdit, turn])
-    const line = out.slice(out.indexOf('data-kind="turn"')).replace(/<[^>]*>/g, '')
+    const line = plainText(out.slice(out.indexOf('data-kind="turn"')))
     expect(line).toContain('Done in 4.2 s')
     expect(line).toContain('part.py edited')
     expect(line).toContain('r1')
@@ -66,7 +67,7 @@ describe('a turn that has ended', () => {
   it('draws the agent\'s list as a card of its own', () => {
     const out = drawn([user, todo, turn])
     expect(out).toContain('data-kind="tasks"')
-    expect(out.replace(/<[^>]*>/g, '')).toContain('Looking')
+    expect(plainText(out)).toContain('Looking')
     expect(out).not.toContain('data-kind="tool"')
   })
 })

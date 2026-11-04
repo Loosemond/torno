@@ -3,11 +3,12 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { DimensionMark, Mark } from '../../shared/marks'
 import { ChecksSummary } from './ChecksSummary'
+import { plainText } from '../../test/plainText'
 
 const CAMERA = { position: [100, -100, 80], target: [0, 0, 10], up: [0, 0, 1], ortho: false, fov: 35, zoom: 1 }
 const dim = (id: string, over: object = {}): DimensionMark =>
   ({ id, kind: 'dimension', measure: 'diameter', author: 'user', note: '', status: 'sent', anchorState: 'ok', layout: 'assembly', revision: 3, camera: CAMERA, createdAt: 't', a: { point: [0, 0, 0], part: 'base', ref: 'base/F9' }, value: 8, how: 'cylinder', measuredRevision: 12, expected: 8, verdict: 'pass', ...over }) as DimensionMark
-const text = (marks: Mark[], revision: number): string => renderToStaticMarkup(createElement(ChecksSummary, { marks, revision })).replace(/<[^>]+>/g, '')
+const text = (marks: Mark[], revision: number): string => plainText(renderToStaticMarkup(createElement(ChecksSummary, { marks, revision })))
 
 describe('the summary of the checks', () => {
   it('counts what passes and what fails on the build, in words', () => {

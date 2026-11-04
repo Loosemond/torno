@@ -1,4 +1,5 @@
 import { BrowserWindow, session } from 'electron'
+import { randomUUID } from 'node:crypto'
 
 // A PDF of a drawing of a section: the SVG (`sectionSvg`) printed by Electron's `printToPDF` in a window that is
 // never shown (`show: false`, no preload, no node, sandboxed), on a page of the drawing's own size in millimetres, so
@@ -11,7 +12,7 @@ const MOST_MM = 5000
 /** The bytes of a PDF of `svg`, a drawing `width` by `height` mm. Rejects with a sentence when it cannot be made. */
 export async function pdfOfSvg(svg: string, width: number, height: number): Promise<Buffer> {
   if (!(width > 0 && height > 0 && width <= MOST_MM && height <= MOST_MM)) throw new Error(`The drawing is ${Math.round(width)} by ${Math.round(height)} mm, too large for a page`)
-  const own = session.fromPartition(`torno-pdf-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+  const own = session.fromPartition(`torno-pdf-${Date.now()}-${randomUUID()}`)
   own.webRequest.onBeforeRequest((details, done) => done({ cancel: !details.url.startsWith('data:') }))
   const win = new BrowserWindow({ show: false, width: 800, height: 600, webPreferences: { session: own, contextIsolation: true, nodeIntegration: false, sandbox: true, javascript: false, webSecurity: true, backgroundThrottling: false } })
   try {

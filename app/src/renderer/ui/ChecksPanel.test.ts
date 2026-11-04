@@ -7,11 +7,12 @@ import { COLUMN_DEFAULT } from '../state/column'
 import { store } from '../state/store'
 import { ChecksPanel } from './ChecksPanel'
 import { checkRow, checksSaid } from './checkRows'
+import { plainText } from '../../test/plainText'
 
 const fits: ModelCheck = { name: 'lid fits the tub', kind: 'clearance', status: 'fail', value: 0.12, unit: 'mm', min: 0.15, max: 0.25, exact: true, how: 'least distance between the parts' }
 const walls: ModelCheck = { name: 'walls', kind: 'thin', status: 'pass', value: null, unit: 'mm', min: 1.2, max: null, exact: false, how: 'by sampling' }
 const gone: ModelCheck = { name: 'same part', kind: 'clearance', status: 'error', reason: 'a and b are the same part', unit: 'mm', min: 0, max: null }
-const words = (markup: string): string => markup.replace(/<[^>]*>/g, "")
+const words = (markup: string): string => plainText(markup)
 const scene = (checks: ModelCheck[] | undefined, more: Partial<Scene> = {}): Scene => ({ model: 'm.py', layouts: ['assembly'], parts: [], seconds: 0, output: '', checks, ...more }) as unknown as Scene
 
 describe('the Checks section of the left column', () => {
