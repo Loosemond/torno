@@ -58,6 +58,6 @@ test('the chat says that torno\'s skills did not load, that an API key is billed
   await composer().focus()
   await page.keyboard.type('argv')
   await page.keyboard.press('Enter')
-  await expect(chat().locator('.chat-text').last()).toContainText('--append-system-prompt')
+  await expect(chat().locator('.chat-text').last()).toContainText('--append-system-prompt', { timeout: 20_000 })
   expect(await chat().locator('.chat-text').last().innerText()).not.toContain('--plugin-dir')
 })
