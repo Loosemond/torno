@@ -74,7 +74,11 @@ describe('BuildLog', () => {
 
   it('keeps the last 500 lines', async () => {
     const log = new BuildLog()
-    for (let i = 1; i <= MOST_LINES + 3; i++) await log.record(box, i, scene)
+    // Seed a full file directly, then let a few builds land over the cap.
+    const seeded = Array.from({ length: MOST_LINES }, (_, i) => JSON.stringify({ revision: i + 1, at: 'x', run: 'old', sources: 's' }))
+    mkdirSync(join(box.dir, '.torno'), { recursive: true })
+    writeFileSync(join(box.dir, '.torno', BUILDS_FILE), `${seeded.join('\n')}\n`)
+    for (let i = MOST_LINES + 1; i <= MOST_LINES + 3; i++) await log.record(box, i, scene)
     await log.settled()
     const on = await readBuilds(box.dir)
     expect(on).toHaveLength(MOST_LINES)
