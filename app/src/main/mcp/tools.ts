@@ -255,17 +255,49 @@ export function ofBuild(deps: ToolDeps, objectId: string): { revision: number | 
   return { revision, ...(why ? { stale: `${why}, so this is still what is known of r${revision}: refs and descriptors may not hold for the model as it now is` } : {}) }
 }
 
+const MARKS_LIMIT = 50
+const MARKS_MAX = 200
+const markNumber = (id: string): number => Number(id.slice(1))
+
+/** A stroke without its points, which run to 400 and some 10 KB: how many, the first, the last and the box they lie in, all in full. */
+function strokeSummarised(data: object): object {
+  const { points, points2d, ...rest } = data as { kind?: string; points?: number[][]; points2d?: number[][] }
+  const all = points ?? points2d
+  if ((rest as { kind?: string }).kind !== 'stroke' || !all || all.length === 0) return data
+  const min = all[0].map((_, i) => Math.min(...all.map((p) => p[i])))
+  const max = all[0].map((_, i) => Math.max(...all.map((p) => p[i])))
+  return { ...rest, pointsSummary: { space: points ? 'surface' : 'plane', count: all.length, first: all[0], last: all[all.length - 1], bbox: { min, max } } }
+}
+
 export async function marksTool(deps: ToolDeps, objectId: string, args: MarksArgs): Promise<ToolResult> {
   const marks = await marksOf(deps, objectId)
   if ('content' in marks) return marks
-  const wanted = args.status
+  const wanted = args.status ?? (args.ids ? undefined : 'open')
   const build = ofBuild(deps, objectId)
-  const listed = marks.filter((m) => wanted === undefined || (wanted === 'open' ? m.status !== 'resolved' : m.status === wanted))
+  const named = args.ids && new Set(args.ids)
+  const matching = marks.filter((m) => (named ? named.has(m.id) : wanted === undefined || (wanted === 'open' ? m.status !== 'resolved' : m.status === wanted)))
+  const missing = args.ids?.filter((id) => !marks.some((m) => m.id === id))
+  const from = args.next === undefined ? 0 : matching.findIndex((m) => markNumber(m.id) >= markNumber(args.next!))
+  const limit = Math.min(Math.max(Number.isFinite(args.limit) ? Math.floor(args.limit!) : MARKS_LIMIT, 1), MARKS_MAX)
+  const rest = from < 0 ? [] : matching.slice(from)
+  const listed = rest.slice(0, limit)
+  const omitted = matching.length - listed.length - (from < 0 ? matching.length : from)
   const scans = await scansFor(deps, objectId, listed)
   const wrong = noSuchLayout(deps, objectId, args.layout)
   if (wrong) return wrong
   const layout = regionLayout(deps, objectId, args.layout)
-  return json({ ...build, marks: listed.map((m) => withLine(m, build.revision ?? undefined, scans, layout, deps.scene(objectId)?.scene)) })
+  const strokes = !named && listed.some((m) => m.kind === 'stroke')
+  return json({
+    ...build,
+    marks: listed.map((m) => {
+      const told = withLine(m, build.revision ?? undefined, scans, layout, deps.scene(objectId)?.scene)
+      return named ? told : strokeSummarised(told)
+    }),
+    ...(wanted === 'open' && !named ? { listed: 'open marks; resolved ones with status resolved, or by ids' } : {}),
+    ...(missing && missing.length > 0 ? { missing } : {}),
+    ...(omitted > 0 ? { truncated: true, omitted, next: rest[listed.length].id } : {}),
+    ...(strokes ? { strokesSummarised: 'a stroke holds a summary of its points; name it in ids for all of them' } : {})
+  })
 }
 
 /**

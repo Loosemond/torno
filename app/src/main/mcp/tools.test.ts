@@ -814,9 +814,10 @@ describe('marks', () => {
 
   it('is JSON of every mark with all its fields, a stroke with its points', async () => {
     const deps = fake()
-    const result = await marksTool(deps, 'bracket', {})
+    const result = await marksTool(deps, 'bracket', { status: 'resolved', ids: undefined, limit: 50 })
     expect(result.isError).toBeUndefined()
-    const { marks } = jsonOf(result)
+    const all = jsonOf(await marksTool(deps, 'bracket', { ids: ['M1', 'M2', 'M3', 'M4'] }))
+    const { marks } = all
     expect(marks.map((m: Mark) => m.id)).toEqual(['M1', 'M2', 'M3', 'M4'])
     // What modelling leaves in the last digits is not passed on.
     expect(marks[0]).toEqual({
@@ -873,6 +874,32 @@ describe('marks', () => {
     expect(mark).toMatchObject({ line: 'M1 diameter: not measured yet, base/F9 (expected 8 ± 0.05)' })
   })
 
+  it('lists the open marks by default, summarises strokes unless named, and pages with next', async () => {
+    const deps = fake()
+    const many: Mark[] = Array.from({ length: 120 }, (_, i) => {
+      const id = `M${i + 1}`
+      return i % 12 === 0
+        ? ({ ...MARK_BASE, id, kind: 'stroke', space: 'surface', anchor: { point: [0, 0, 0], part: 'base' }, points: Array.from({ length: 400 }, (_, k) => [k / 7, Math.sin(k), 2]) } as unknown as Mark)
+        : ({ ...MARK_BASE, id, kind: 'pin', anchor: { point: [i, 0, 0], part: 'base' }, status: 'sent', note: `pin ${i}` } as unknown as Mark)
+    })
+    deps.w.list = many
+    const first = textOf(await marksTool(deps, 'bracket', {}))
+    expect(first.length).toBeLessThan(50_000)
+    const page = JSON.parse(first)
+    expect(page.marks).toHaveLength(50)
+    expect(page).toMatchObject({ truncated: true, omitted: 70, next: 'M51' })
+    expect(page.marks[0].pointsSummary).toMatchObject({ count: 400, first: [0, 0, 2], space: 'surface' })
+    expect(page.marks[0]).not.toHaveProperty('points')
+    const second = jsonOf(await marksTool(deps, 'bracket', { next: page.next }))
+    expect(second.marks[0].id).toBe('M51')
+    expect(second).toMatchObject({ omitted: 20, next: 'M101' })
+    expect(jsonOf(await marksTool(deps, 'bracket', { next: 'M101' })).marks).toHaveLength(20)
+    const whole = jsonOf(await marksTool(deps, 'bracket', { ids: ['M1', 'M99'] }))
+    expect(whole.marks[0].points).toHaveLength(400)
+    expect(whole.marks[1].id).toBe('M99')
+    expect(jsonOf(await marksTool(deps, 'bracket', { ids: ['M900'] }))).toMatchObject({ marks: [], missing: ['M900'] })
+  })
+
   it('keeps to one status when asked, and open is all that are not resolved', async () => {
     const ids = async (status: 'draft' | 'sent' | 'resolved' | 'open') => jsonOf(await marksTool(fake(), 'bracket', { status })).marks.map((m: Mark) => m.id)
     expect(await ids('draft')).toEqual(['M1'])
@@ -883,7 +910,7 @@ describe('marks', () => {
 
   it('needs no build, and says when the object is unknown or its marks cannot be read', async () => {
     const unbuilt = jsonOf(await marksTool(fake({ state: null, noScene: true }), 'bracket', {}))
-    expect(unbuilt.marks).toHaveLength(4)
+    expect(unbuilt.marks).toHaveLength(3)
     expect(unbuilt.revision).toBeNull()
     expect(await marksTool(fake(), 'nothing', {})).toEqual({ isError: true, content: [{ type: 'text', text: 'unknown project: nothing' }] })
     const unreadable = fake({ marks: async () => Promise.reject(new Error('EACCES: permission denied')) })

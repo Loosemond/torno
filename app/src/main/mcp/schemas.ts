@@ -120,7 +120,10 @@ const marksInput = {
   status: z
     .enum(['draft', 'sent', 'resolved', 'open'])
     .optional()
-    .describe('Only the marks of that status: draft (not yet told to you), sent, resolved, or open for all that are not resolved. Default: all.'),
+    .describe('Only the marks of that status: draft (not yet told to you), sent, resolved, or open for all that are not resolved. Default: open (resolved marks only on request, or by ids).'),
+  ids: z.array(z.string()).optional().describe('Only these marks, by number: ["M4"]. Whatever their status; a stroke is then given with all its points.'),
+  limit: z.number().int().optional().describe('The most marks to list. Default 50, at most 200.'),
+  next: z.string().optional().describe('Where to go on after a list that left marks out: the number the answer gives under next (M51).'),
   layout: z.string().optional().describe(`${layoutText} A region of a scan is told where the scan stands in that layout; every other mark is in its own.`)
 }
 
@@ -288,6 +291,9 @@ const resolveMarkInput = {
 
 export interface MarksArgs {
   status?: 'draft' | 'sent' | 'resolved' | 'open'
+  ids?: string[]
+  limit?: number
+  next?: string
   layout?: string
 }
 export interface DescribeArgs {
@@ -373,7 +379,7 @@ export const TOOLS = {
     annotations: READ_ONLY,
     meta: ALWAYS_LOADED,
     description:
-      "Returns JSON with the revision of the build it is of, a stale note when a newer build is running or failed, and the marks on this project, the user's and your own: each with its number (M3), kind, note, status, layout, the ref and descriptor of what it is on, its coordinates in mm in the frame of its layout, for a stroke its points, and a line that says it in words; a region is a part of a scan the user painted and named with its note (\"wiring loom, can be pushed aside\"): it holds scan, triangles, area, its size along its own axes and whether it is flat, and, where its scan is aligned in the layout asked (toldIn), centroid, axes, the box it lies within (bbox) and plane in the frame of that layout, all approximate, with alignment saying in a word how that alignment stands (aligned, rough, in doubt, not checked), and its number is what scan_clash takes in ignore, scan_deviation in region and measure as an end; a dimension also holds value, how, points and verdict when they were measured on that revision (its measuredRevision), wasValue and wasRevision in their place when what it holds is of an older build, and resolvedValue, resolvedVerdict and resolvedOnRevision once it is resolved and no longer measured. Marks are how the user points at the part; new ones are told to you with the prompt, a line each, so call this for all of their data, or when you are told that more marks were left out. An anchorState other than ok means the build moved the surface or dropped the part, and a checkedRevision that is absent or is not the revision means the mark has not been checked against that build: either way the ref may no longer name what the mark is on.",
+      "Returns JSON with the revision of the build it is of, a stale note when a newer build is running or failed, and the marks on this project, the user's and your own: each with its number (M3), kind, note, status, layout, the ref and descriptor of what it is on, its coordinates in mm in the frame of its layout, for a stroke a summary of its points (pointsSummary: count, first, last and box; all of them only when you name it in ids), and a line that says it in words; a region is a part of a scan the user painted and named with its note (\"wiring loom, can be pushed aside\"): it holds scan, triangles, area, its size along its own axes and whether it is flat, and, where its scan is aligned in the layout asked (toldIn), centroid, axes, the box it lies within (bbox) and plane in the frame of that layout, all approximate, with alignment saying in a word how that alignment stands (aligned, rough, in doubt, not checked), and its number is what scan_clash takes in ignore, scan_deviation in region and measure as an end; a dimension also holds value, how, points and verdict when they were measured on that revision (its measuredRevision), wasValue and wasRevision in their place when what it holds is of an older build, and resolvedValue, resolvedVerdict and resolvedOnRevision once it is resolved and no longer measured. Marks are how the user points at the part; new ones are told to you with the prompt, a line each, so call this for their data, or when you are told that more marks were left out; it lists the open ones, 50 at a time (omitted says how many were left out and next where to go on; status resolved or ids gives the others). An anchorState other than ok means the build moved the surface or dropped the part, and a checkedRevision that is absent or is not the revision means the mark has not been checked against that build: either way the ref may no longer name what the mark is on.",
     inputSchema: marksInput
   },
   describe: {
