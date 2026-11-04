@@ -662,6 +662,17 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   hook as any export, opening in `.torno/exports/`, default name `<name>-r<revision>.png`) and writes through
   `writeExport`. The path is the dialog's alone and no agent has a tool for it; the agent's pictures stay within
   2000 px (`checkedImage`, `pictureSize` without `forPerson`).
+- **A drawing of the section on screen** (`export:saveSection`, `export/section.ts`, `export/sectionSvg.ts`; `FileFormat`
+  `svg`): the window sends the object's id only. Main takes the plane, the layout and the parts that are on from the
+  view the window last reported (`latestView`), asks the kernel for the outlines within `SECTION_DEFLECTION`
+  (0.01 mm) of the last good build, in full (not the thinned points the `section` tool tells), refuses when there is no
+  section on screen (`NO_SECTION`), nothing cut (`NOTHING_CUT`) or a build landed meanwhile (`NEW_BUILD`), and writes
+  the SVG through `askWhere` and `writeExport`. `sectionSvg` is pure: the file is in millimetres (its width and height
+  in `mm`, the viewBox in the same numbers, so one unit is one millimetre; no scaling), with a scale bar, a title block
+  whose numbers are in full (`full`), and the dimension marks of the layout that are not resolved, are measured on the
+  build (`measuredValue`) and have both ends within `IN_PLANE_MM` of the plane, with the value and, when set, `expected
+  ± tolerance`; the others are listed in `left`. The source hash of the build (#62) goes in the title block through
+  `SectionDeps.source`, which nothing passes yet.
 
 ## Agents
 

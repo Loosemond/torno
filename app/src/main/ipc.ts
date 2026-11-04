@@ -19,10 +19,11 @@ import { loadAssets } from './export/html'
 import { type ModelDeps, checkModelFile, makeModelFile } from './export/model'
 import { defaultExportPath, exportPath, prepareExports, writeExport } from './export/save'
 import { checkedPicture } from './export/picture'
+import { makeSectionDrawing } from './export/section'
 import { type InstructionList } from './instructions'
 import { KernelError, type KernelClient, startKernel } from './kernel/client'
 import { toArrayBuffer } from './kernel/frames'
-import { forgetViews, reportView, resolveRequest } from './look'
+import { forgetViews, latestView, reportView, resolveRequest } from './look'
 import { type AskedAnchor, type Retrying, asPlaced, asReplaced, checkMarks, followMarks, nearestReply, retrying } from './marks/reanchor'
 import { addDimension, dueAfterEdit, measureOnce, remeasure } from './marks/measure'
 import { type RegionDeps, addRegion, convertScan, removeMark, repaintRegion, tendRegions } from './marks/regions'
@@ -68,7 +69,7 @@ function handle(channel: string, fn: (event: Electron.IpcMainInvokeEvent, ...arg
 //           marks:dismissProblem, geometry:describe, geometry:measure,
 //           scans:list, scans:pick, scans:import, scans:convert, scans:rename, scans:remove, scans:align, scans:mesh,
 //           scans:problem (also sent to the renderer), scans:dismissProblem, scans:reimport, scans:undoAlign, scans:alignHolds,
-//           objects:pickPhotos, objects:readPhoto, objects:create, objects:onboard, objects:taken, show:cards, show:thumbnail, export:plan, export:save, export:savePicture
+//           objects:pickPhotos, objects:readPhoto, objects:create, objects:onboard, objects:taken, show:cards, show:thumbnail, export:plan, export:save, export:savePicture, export:saveSection
 //   from the renderer: export:done, show:saveThumbnail, object:saveSceneFile, view:report, view:lookReply, view:showReply, view:highlightReply,
 //           view:drawSectionReply, view:saveViewReply, session:write, session:resize, session:insert,
 //           chat:answer
@@ -1052,6 +1053,27 @@ export function registerIpc(
       if (path === null) return null
       await writeExport(path, png as Uint8Array)
       return { path, bytes: (png as Uint8Array).length, dropped: [] }
+    })
+  )
+
+  // A drawing of the section on screen, for someone who will make the part: an SVG at true scale from the kernel's
+  // outlines of the plane the window reports (`export/section.ts`), written like any export. The window names the
+  // object and nothing else.
+  handle('export:saveSection', (event, objectId: unknown) =>
+    plainly(async (): Promise<ExportSaved | null> => {
+      const ws = requireWorkspace()
+      const deps = exportDeps()
+      const drawing = await makeSectionDrawing(
+        { object: deps.object, last: deps.last, view: latestView, marks: deps.marks, query: <T>(id: string, name: string, args: Record<string, unknown>) => ws.builds.query<T>(id, name, args), now: deps.now },
+        String(objectId)
+      )
+      const obj = deps.object(drawing.objectId)!
+      await prepareExports(obj.dir)
+      const path = await askWhere(event, defaultExportPath(obj.dir, `${drawing.name}-section`, drawing.revision, 'svg'), 'svg')
+      if (path === null) return null
+      const bytes = Buffer.from(drawing.svg, 'utf8')
+      await writeExport(path, bytes)
+      return { path, bytes: bytes.length, dropped: [], revision: drawing.revision }
     })
   )
 

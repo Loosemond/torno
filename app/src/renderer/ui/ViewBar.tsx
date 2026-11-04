@@ -4,7 +4,6 @@ import type { ViewName } from '../../shared/view'
 import { actions, explodeNow, store, useStore } from '../state/store'
 import type { Viewport } from '../viewport/Viewport'
 import { ExplodeBar, ExplodeToggle, toggleExplode } from './ExplodeControl'
-import { PictureMenu } from './PictureMenu'
 import { TYPING } from './typing'
 import { ViewsStrip } from './ViewsStrip'
 
@@ -182,9 +181,6 @@ export function ViewBar({ viewport }: { viewport: Viewport }) {
       <span className="viewbar-rule" aria-hidden="true" />
 
       <ExplodeToggle />
-      <span className="viewbar-rule" aria-hidden="true" />
-
-      <PictureMenu />
       </div>
       {/* Under the bar while the parts are apart or its button is pressed. */}
       <ExplodeBar viewport={viewport} />

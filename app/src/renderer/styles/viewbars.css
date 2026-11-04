@@ -169,3 +169,15 @@
 .picture-menu [data-failed] {
   color: var(--fail);
 }
+
+/* In the status line, at the foot of the window: the menu opens upward, ending at the button's right edge. */
+.share-menu {
+  position: relative;
+}
+
+.share-menu .menu {
+  top: auto;
+  right: 0;
+  bottom: calc(100% + 7px);
+  left: auto;
+}

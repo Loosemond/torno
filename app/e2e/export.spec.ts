@@ -370,8 +370,8 @@ test('a picture of the view is saved where the dialog says, as large as 4000 px,
     return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) }
   }
   await open('hollow')
-  const menu = page.getByRole('menu', { name: 'Save a picture of the view' })
-  const picture = page.getByRole('toolbar', { name: 'View' }).getByRole('button', { name: 'Picture', exact: true })
+  const menu = page.getByRole('menu', { name: 'Share the view' })
+  const picture = page.getByRole('button', { name: 'Share', exact: true })
   const before = (await hooks()).savePicks
   await picture.click()
   await menu.getByRole('menuitemradio', { name: '4000' }).click()
@@ -403,6 +403,53 @@ test('a picture of the view is saved where the dialog says, as large as 4000 px,
   expect(Math.max(agents.width, agents.height)).toBe(2000)
   await page.keyboard.press('Escape')
   await expect(menu).toHaveCount(0)
+})
+
+test('a drawing of the section on screen is saved as an SVG at true scale, with the dimension that lies in the plane', async () => {
+  await open('hollow')
+  const menu = page.getByRole('menu', { name: 'Share the view' })
+  const share = page.getByRole('button', { name: 'Share', exact: true })
+  const drawing = menu.getByRole('menuitem', { name: 'Save section drawing…' })
+  // With nothing cut there is nothing to draw.
+  await share.click()
+  await expect(drawing).toBeDisabled()
+  await page.keyboard.press('Escape')
+  // A plane across Z through the dimension M2 (z = 10).
+  await page.keyboard.press('x')
+  const bar = page.locator('.sectionbar')
+  await bar.getByRole('button', { name: 'Cut across Z' }).click()
+  const middle = (await state()).section!.origin[2]
+  await bar.getByRole('textbox', { name: 'Offset in millimetres' }).fill(String(10 - middle))
+  await page.keyboard.press('Enter')
+  await expect.poll(async () => (await state()).section?.origin[2]).toBeCloseTo(10, 6)
+  // The plane is told to main with the view before it is drawn from.
+  await expect.poll(async () => app.evaluate(() => (globalThis as unknown as { __tornoMain: { latestView: (id: string) => { section?: { origin: number[] } } | undefined } }).__tornoMain.latestView('hollow')?.section?.origin[2])).toBeCloseTo(10, 6)
+  const out = join(outDir, 'section.svg')
+  await setSave(out)
+  await share.click()
+  await drawing.click()
+  await expect(menu.getByRole('status')).toHaveText('Saved section.svg', { timeout: 30_000 })
+  const svg = readFileSync(out, 'utf8')
+  expect(svg).toMatch(/^<\?xml/)
+  // True scale: the sheet is named in millimetres and its units are millimetres.
+  const sheet = /width="([\d.]+)mm" height="([\d.]+)mm" viewBox="0 0 ([\d.]+) ([\d.]+)"/.exec(svg)!
+  expect([sheet[1], sheet[2]]).toEqual([sheet[3], sheet[4]])
+  // The dimension M2 is 40 mm in the plane, and is drawn 40 mm long.
+  const line = /<g data-dimension="M2"[^>]*>\s*<line x1="([\d.-]+)" y1="([\d.-]+)" x2="([\d.-]+)" y2="([\d.-]+)"/.exec(svg)!
+  expect(Math.hypot(Number(line[3]) - Number(line[1]), Number(line[4]) - Number(line[2]))).toBeCloseTo(40, 3)
+  expect(svg).toContain('M2 40 mm (passes)')
+  expect(svg).toContain('expected 40 ± 0.05')
+  expect(svg).toContain('>hollow<')
+  expect(svg).toContain('>r1<')
+  expect(svg).toContain('1:1')
+  // Nothing of this machine is in it (the one address is the SVG namespace, which a file on its own needs).
+  expect(svg).not.toContain(root)
+  expect(svg).not.toContain(homedir())
+  expect(svg.replace('http://www.w3.org/2000/svg', '')).not.toMatch(/https?:\/\//)
+  expect((await hooks()).saveOffered).toBe(join(root, 'hollow', '.torno', 'exports', 'hollow-section-r1.svg'))
+  expect(readdirSync(outDir).filter((name) => name.endsWith('.tmp'))).toEqual([])
+  await page.keyboard.press('Escape')
+  await bar.getByRole('button', { name: 'Off' }).click()
 })
 
 test('several objects go into one file from the page of objects, each unpacked when it is first shown', async () => {

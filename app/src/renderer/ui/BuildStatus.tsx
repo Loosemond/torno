@@ -10,6 +10,7 @@ import { BuildErrorSheet } from './BuildErrorSheet'
 import { UNCHECKED_AFTER_MS, useLasting } from './MarkRow'
 import { AGENT_LABEL } from '../../shared/agents'
 import { focusAsk, waitingObjects } from './sessionSign'
+import { ShareMenu } from './ShareMenu'
 
 /** `2 dimensions fail`, `1 dimension not measured`. */
 export function dimensionCount(count: number, what: 'fail' | 'not measured'): string {
@@ -193,6 +194,7 @@ export function BuildStatus({ onOpen }: { onOpen: (id: string) => void }) {
         )}
       </span>
       {/* The open object, as one HTML file or a file of the model. With the page of objects up, the page has the button for them all. */}
+      {objectId !== null && !paged && !creating && <ShareMenu />}
       {objectId !== null && !paged && !creating && (
         <button type="button" className="status-export" title="Export this project: one HTML file that opens by itself, or a STEP, STL or 3MF file" onClick={() => actions.exportSheet([objectId])}>
           Export…
