@@ -261,6 +261,19 @@ function connect(viewport: Viewport, readout: Readout): () => void {
       goToRow(id)
       // A mark of the person's not yet sent: its note opens beside it, to be written.
       if (mark.author === 'user' && mark.status === 'draft') actions.openNote({ objectId: s.objectId, layout: s.layout, id })
+    },
+    // A tool that takes presses has the drag that starts on a chip once it passes the click threshold.
+    tool: {
+      takes: (e) => {
+        if (!tool || tool.id === 'select' || e.alt) return false
+        const c = context()
+        return c.stale === null && !c.exploded
+      },
+      holdCamera: () => viewport.holdCamera(true),
+      releaseCamera: () => viewport.holdCamera(false),
+      send: (e) => {
+        if (tool) routePointer(tool, e, context())
+      }
     }
   })
   const putDown = () => {

@@ -911,7 +911,9 @@ the mark's row lights, and its note is read out beside the pointer on one line
 its row into view, opened, without moving the camera; for a mark of yours not
 yet sent, its note opens beside it to be written. A click on a chip is the
 chip's whatever tool is in hand: no pin is left under it. A drag that starts on
-a chip turns the camera, as anywhere else.
+a chip turns the camera with Select in hand, as anywhere else; with Draw, Arrow, Shape, Region or another
+tool that drags, it goes to the tool once it has moved past a click, so a stroke may begin under a chip (and
+the camera stays still).
 
 - A mark you change after it was sent (its note, or a shape's place, size,
   kind or intent) is a draft again, and is told once more as `(changed)`.

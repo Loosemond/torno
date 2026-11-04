@@ -127,6 +127,15 @@ export class PointerRouter {
     if (!enabled || !this.held) this.host.orbit.enabled = enabled
   }
 
+  /**
+   * The orbit is off for the press under way; the release gives it back as navigation was last asked
+   * (`onPointerEvent`). Given back sooner (`on` false), it is the camera's unless a tool has switched navigation off.
+   */
+  holdOrbit(on: boolean): void {
+    if (on) this.host.orbit.enabled = false
+    else if (this.navigation && !this.host.gizmo.dragging) this.host.orbit.enabled = true
+  }
+
   /** Where the pointer is over the canvas, in client pixels; null when it has left, or was never there. */
   get at(): [number, number] | null {
     return this.over ? [this.last[0], this.last[1]] : null
