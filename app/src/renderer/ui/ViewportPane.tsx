@@ -8,7 +8,7 @@ import { measuredValue } from '../../shared/dimension'
 import type { Vec3 } from '../../shared/marks'
 import type { Scene } from '../../shared/scene'
 import { type LookRequest, type LookResult, type SectionPlane, type ViewState, MAX_SELECTION_REPORTED, NOT_A_PLANE, sectionOf } from '../../shared/view'
-import { agentStore, connectAgent, picture, setPictures } from '../state/agent'
+import { agentStore, connectAgent, picture, setPictures, type PersonPicture } from '../state/agent'
 import { describe, describeWhole, descriptorOf } from '../state/descriptors'
 import { newCut } from '../../shared/cut'
 import { partsNamed } from '../../shared/groups'
@@ -60,7 +60,7 @@ const NO_SCENE: Scene = { model: '', layouts: [], parts: [], seconds: 0, output:
  * all read in the turn the picture is drawn in: a build that lands while the
  * PNG is being made does not change what the picture is said to be of.
  */
-async function look(viewport: Viewport, req: LookRequest): Promise<LookResult> {
+async function look(viewport: Viewport, req: LookRequest, person?: PersonPicture): Promise<LookResult> {
   let drawn: { objectId: string; revision: number; stale: boolean } | undefined
   let section: SectionPlane | 'current' | null = 'current'
   if (req.section === null) section = null
@@ -83,7 +83,7 @@ async function look(viewport: Viewport, req: LookRequest): Promise<LookResult> {
       keys = parts.filter((part) => named.includes(part.name)).map((part) => part.key)
     }
     drawn = { objectId: s.objectId, revision: s.revision, stale: s.build?.stale ?? false }
-    return { view: req.view ?? 'current', layout, visibleKeys: keys, size: req.size, marks: req.marks ?? true, section, scans: req.scans, explode, ...(req.scanColour ? { scanColour: req.scanColour } : {}), ...(req.frame ? { frame: req.frame } : {}), ...(req.focus ? { focus: req.focus } : {}), ...(typeof req.viewName === 'string' ? { viewName: req.viewName } : {}) }
+    return { view: req.view ?? 'current', layout, visibleKeys: keys, size: req.size, marks: req.marks ?? true, section, scans: req.scans, explode, ...(req.scanColour ? { scanColour: req.scanColour } : {}), ...(req.frame ? { frame: req.frame } : {}), ...(req.focus ? { focus: req.focus } : {}), ...(typeof req.viewName === 'string' ? { viewName: req.viewName } : {}), ...(person ? { person } : {}) }
   })
   return { ...picture, ...drawn! }
 }
@@ -410,7 +410,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
   const offAgent = connectAgent(viewport)
 
   // Main's requests for a picture are answered by the app (`connectLook`), with this viewport while it is there.
-  setPictures((request) => look(viewport, request))
+  setPictures((request, person) => look(viewport, request, person))
 
   // What a drawing on the view asks of it: the camera, what the screen shows (while that holds, a point of the
   // picture is the same point of the canvas: the picture has the canvas's camera and aspect), and what is under points.

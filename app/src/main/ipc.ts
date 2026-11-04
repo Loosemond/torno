@@ -4,7 +4,7 @@ import { homedir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import type { BuildState } from '../shared/build'
-import { EXPORT_FORMATS, EXTENSIONS, FORMAT_NAMES, type ExportFormat, type ExportPlan, type ExportRequest, type ExportSaved, type ModelFormat } from '../shared/exportdata'
+import { EXPORT_FORMATS, EXTENSIONS, FORMAT_NAMES, type FileFormat, type ExportPlan, type ExportRequest, type ExportSaved, type ModelFormat } from '../shared/exportdata'
 import type { Described, MeasureProbe, MeasuredOnce } from '../shared/geometry'
 import type { BuildIdentity } from '../shared/git'
 import type { MarkPatch, NewMark, NewRegion, Replacement } from '../shared/marks'
@@ -22,10 +22,13 @@ import { type ExportDeps, exportFile, exportPlan, forgetExportScans } from './ex
 import { loadAssets } from './export/html'
 import { type ModelDeps, checkModelFile, makeModelFile } from './export/model'
 import { defaultExportPath, exportPath, prepareExports, writeExport } from './export/save'
+import { checkedPicture } from './export/picture'
+import { makeSectionDrawing } from './export/section'
+import { pdfOfSvg } from './export/pdf'
 import { type InstructionList } from './instructions'
 import { KernelError, type KernelClient, startKernel } from './kernel/client'
 import { toArrayBuffer } from './kernel/frames'
-import { forgetViews, reportView, resolveRequest } from './look'
+import { forgetViews, latestView, reportView, resolveRequest } from './look'
 import { type AskedAnchor, type Retrying, asPlaced, asReplaced, checkMarks, followMarks, nearestReply, retrying } from './marks/reanchor'
 import { addDimension, dueAfterEdit, measureOnce, remeasure } from './marks/measure'
 import { type RegionDeps, addRegion, convertScan, removeMark, repaintRegion, restoreMark, tendRegions } from './marks/regions'
@@ -74,7 +77,7 @@ function handle(channel: string, fn: (event: Electron.IpcMainInvokeEvent, ...arg
 //           marks:dismissProblem, geometry:describe, geometry:measure,
 //           asks:list, scans:list, scans:pick, scans:import, scans:convert, scans:rename, scans:remove, scans:align, scans:mesh,
 //           scans:problem (also sent to the renderer), scans:dismissProblem, scans:reimport, scans:undoAlign, scans:alignHolds,
-//           objects:pickPhotos, objects:readPhoto, objects:create, objects:onboard, objects:previewPrompt, objects:taken, show:cards, show:thumbnail, export:plan, export:save
+//           objects:pickPhotos, objects:readPhoto, objects:create, objects:onboard, objects:previewPrompt, objects:taken, show:cards, show:thumbnail, export:plan, export:save, export:savePicture, export:saveSection
 //   from the renderer: export:done, show:saveThumbnail, object:saveSceneFile, view:report, view:lookReply, view:showReply, view:highlightReply,
 //           view:drawSectionReply, view:saveViewReply, session:write, session:resize, session:insert,
 //           chat:answer, asks:answer
@@ -1054,12 +1057,12 @@ export function registerIpc(
     return { object: deps.object, last: deps.last, sceneFile: deps.sceneFile, query: (id, name, args, opts) => ws.builds.query(id, name, args, opts) }
   }
   /** Where the person says the file goes: the save dialog (under test `pickSave`), then torno's question when the name it ends in is of a file the dialog never asked about. Null for none. */
-  const askWhere = async (event: Electron.IpcMainInvokeEvent, defaultPath: string, format: ExportFormat): Promise<string | null> => {
+  const askWhere = async (event: Electron.IpcMainInvokeEvent, defaultPath: string, format: FileFormat): Promise<string | null> => {
     let picked: string | null
     if (opts.pickSave) picked = await opts.pickSave(defaultPath)
     else {
       const win = BrowserWindow.fromWebContents(event.sender)
-      const options: Electron.SaveDialogOptions = { title: 'Export', defaultPath, filters: [{ name: FORMAT_NAMES[format], extensions: [...EXTENSIONS[format]] }] }
+      const options: Electron.SaveDialogOptions = { title: format === 'png' || format === 'svg' || format === 'pdf' ? 'Save' : 'Export', defaultPath, filters: [{ name: FORMAT_NAMES[format], extensions: [...EXTENSIONS[format]] }] }
       const answer = await (win ? dialog.showSaveDialog(win, options) : dialog.showSaveDialog(options))
       picked = answer.canceled || !answer.filePath ? null : answer.filePath
     }
@@ -1131,6 +1134,48 @@ export function registerIpc(
     }
     return { path, bytes: file.bytes.length, dropped: [], checked, revision: file.revision, ...(opened ? { notOpened: opened } : {}) }
   }
+
+  // A picture of the view the person keeps: the window drew it (as large as 4000 px on its long edge, which the
+  // agent's pictures may not be), main checks that it is a PNG, asks where to save and writes it like any export.
+  // The path is the dialog's alone; no agent has a tool for it.
+  handle('export:savePicture', (event, objectId: unknown, png: unknown) =>
+    plainly(async (): Promise<ExportSaved | null> => {
+      const deps = exportDeps()
+      const obj = typeof objectId === 'string' ? deps.object(objectId) : undefined
+      if (!obj) throw new Error('That project is not in this folder.')
+      if (!checkedPicture(png)) throw new Error('That is not a picture torno can save: a PNG of at most 4000 px.')
+      await prepareExports(obj.dir)
+      const path = await askWhere(event, defaultExportPath(obj.dir, obj.name, deps.last(obj.id)?.revision, 'png'), 'png')
+      if (path === null) return null
+      await writeExport(path, png as Uint8Array)
+      savedHere = path
+      return { path, bytes: (png as Uint8Array).length, dropped: [] }
+    })
+  )
+
+  // A drawing of the section on screen, for someone who will make the part: an SVG at true scale from the kernel's
+  // outlines of the plane the window reports (`export/section.ts`), written like any export. The window names the
+  // object and nothing else.
+  handle('export:saveSection', (event, objectId: unknown, as: unknown) =>
+    plainly(async (): Promise<ExportSaved | null> => {
+      const ws = requireWorkspace()
+      const deps = exportDeps()
+      const drawing = await makeSectionDrawing(
+        { object: deps.object, last: deps.last, view: latestView, marks: deps.marks, query: <T>(id: string, name: string, args: Record<string, unknown>) => ws.builds.query<T>(id, name, args), now: deps.now },
+        String(objectId)
+      )
+      const obj = deps.object(drawing.objectId)!
+      await prepareExports(obj.dir)
+      const format = as === 'pdf' ? 'pdf' : 'svg'
+      // The PDF is the SVG printed by a window nobody sees, before the dialog is up: it is of the build there was.
+      const bytes = format === 'pdf' ? await pdfOfSvg(drawing.svg, drawing.width, drawing.height) : Buffer.from(drawing.svg, 'utf8')
+      const path = await askWhere(event, defaultExportPath(obj.dir, `${drawing.name}-section`, drawing.revision, format), format)
+      if (path === null) return null
+      await writeExport(path, bytes)
+      savedHere = path
+      return { path, bytes: bytes.length, dropped: [], revision: drawing.revision }
+    })
+  )
 
   // The sheet was put away: what was reduced for it is let go, and the file it wrote is no longer its to show.
   ipcMain.on('export:done', () => {

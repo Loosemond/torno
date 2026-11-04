@@ -1559,7 +1559,8 @@ Looking at the page builds nothing, opens nothing and writes nothing.
 "Export…" in the line at the bottom (the open project), in the head of the page
 of projects (any of them), on a card, or `Ctrl+Shift+E`, writes **one HTML
 file** for someone who has no torno, or a **STEP, STL or 3MF** file of one
-project (below). It is made from the last build of this run, so a project must
+project (below), or, of the project on show, a **picture** of the view or a
+**drawing of its section** (below). It is made from the last build of this run, so a project must
 have been opened first. Nothing is uploaded: the file goes where the save
 dialog says, which opens in `.torno/exports/`.
 
@@ -1628,6 +1629,31 @@ named, and the sheet says what was checked: `Checked: 3MF, 2 objects, 184,220
 triangles, closed, volume within 0.04 % of the model`. Checked, not printed. A
 3MF can be opened once saved in the program your system opens 3MF files with,
 your slicer, when "Open it once saved" is ticked.
+
+### A picture of the view, and a drawing of its section
+
+The sheet is grouped by who will open the file: **a page to look at** (the HTML page), **the CAD file** (STEP, STL,
+3MF), and, when the sheet is of the project on show, **a picture** (PNG) and **a drawing of a section** (SVG, PDF),
+which are of the view as it is on screen. Nothing is uploaded, and no agent has a tool for any of them: the save
+dialog opens in `.torno/exports/` with a name offered, and the file is written whole or not at all (a name without
+the ending gets it).
+
+- **PNG** is the view as it is (the camera, the layout, the parts that are on, the section or the explode, the scans),
+  for a forum, a chat or a document (`<name>-r<revision>.png`). It is drawn by the same code as the pictures the agent is
+  given. You choose its long edge, 1280, 2000, 3000 or 4000 pixels, whether the marks are in it, and whether the axes and
+  the scale bar are. A picture you keep is not for the agent, so the 2000 pixels the agent's pictures stop at do not hold
+  for it; `look` is still held to them.
+- **SVG**, while a section is on screen, is a drawing of the cut for someone who will make the part
+  (`<name>-section-r<revision>.svg`). The outlines are the kernel's, within 0.01 mm, laid flat in the plane's own axes
+  at true scale: one unit of the file is one millimetre, so a 40 mm edge is 40 mm long, and the sheet says so (print
+  it at 100 %). It has a scale bar, a title block (the project, the layout, the build, the date, the plane's origin
+  and normal and the sheet's axes in full, how far the outlines may stray, and what was cut of each part with its
+  area, `≈` where the area is not exact), and each dimension that lies in the plane (both ends within 0.01 mm of
+  it), not resolved and measured on this build, as a line with the value torno measured and, when you set them,
+  what was expected and the tolerance. A dimension that is not in the plane, or not measured on this build, is left
+  out.
+- **PDF** is that drawing printed on a page of its own size in millimetres (`<name>-section-r<revision>.pdf`), by a
+  window torno never shows.
 
 ## Keys
 
@@ -2145,6 +2171,8 @@ On the screen:
 - **A scan file dropped on the view.** Drag a GLB or STL from the file manager onto the parts: it is imported as "Import scan…" would.
 - **The folder dialog.** "Open folder" on the first screen, and "Open folder…" in the menu of the folder button at the top left: the system's folder dialog opens, and the folder chosen is opened.
 - **The save dialog of an export.** "Export…", then "Export": the system's save dialog opens in `.torno/exports/` with a name offered, and the file is written where you say.
+- **The save dialog of a picture.** "Export…", PNG, 4000 px, "Export": the system's save dialog opens in `.torno/exports/` with `<name>-r<revision>.png` offered, and the PNG opens in an image viewer at 4000 px on its long edge, with the view as it was on screen.
+- **A section drawing in other programs.** "Export…", SVG with a section on screen: the SVG opens in a browser, Inkscape and a CAD program, its 40 mm edge measures 40 mm there, and printed at 100 % a ruler agrees with the scale bar.
 - **The replace question.** Save an export as `x` where `x.html` exists: torno asks before it replaces that file, and "Cancel" writes nothing.
 - **A 3MF opened in a slicer.** Export a 3MF of a plate of two parts or more and open it in PrusaSlicer, Bambu Studio, OrcaSlicer and Cura: each part is an object of its name, in millimetres, where torno set it; it slices with no repair asked for. "Open it once saved" opens it in the slicer the system gives `.3mf` files to. Tests read the file back with lib3mf only.
 - **An STL in a slicer, a STEP in a CAD program.** Open an STL of a round part in a slicer: no facets you can see on its holes at 0.01 mm. Open a STEP in FreeCAD and in Fusion or Onshape: the parts are named bodies in their colours, in millimetres, and a volume measured there is the one torno told; a part named with an accent (`tampa ção`) keeps it there, as torno writes names in UTF-8. Tests read it back with OCC only.
