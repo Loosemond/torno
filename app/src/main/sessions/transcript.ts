@@ -1,4 +1,4 @@
-import { type ChatImage, type ChatItem, type ChatMeta, type Effort, MAX_ITEMS, TORNO_TOOL_PREFIX, isTornoTool, toolLabel } from '../../shared/chat'
+import { type ChatImage, type ChatItem, type ChatMeta, type Effort, MAX_ITEMS, MODE_NOTE, TORNO_TOOL_PREFIX, isTornoTool, toolLabel } from '../../shared/chat'
 import type { DrawnOver } from '../../shared/drawing'
 import type { BuildDigest } from '../../shared/sanity'
 import { sessionRules } from './permissions'
@@ -163,6 +163,15 @@ export class Transcript {
   }
 
   // --- what torno records ---------------------------------------------------------------------------------
+
+  /** The CLI took the mode torno asked of it for this session (`set_permission_mode`): it goes on the meta, and is said in a note. */
+  modeSet(mode: string): void {
+    this.run(() => {
+      if (this.info.permissionMode === mode) return
+      this.put({ kind: 'note', id: this.newId('i'), text: `Edits: ${MODE_NOTE[mode] ?? mode}`, tone: 'quiet' })
+      this.setMeta({ ...this.info, permissionMode: mode })
+    })
+  }
 
   /** The CLI took the effort torno asked of it for this session (`apply_flag_settings`): it goes on the meta, and is said in a note. */
   effortSet(effort: Effort): void {
@@ -468,10 +477,12 @@ export class Transcript {
       const connected = servers ? servers.some((s) => s.name === 'torno' && s.status === 'connected') : undefined
       const version = str(m.claude_code_version)
       const keySource = str(m.apiKeySource)
+      const mode = str(m.permissionMode)
       const plugin = this.pluginState(m)
       let next: ChatMeta = {
         ...this.info,
         ...(model ? { model } : {}),
+        ...(mode ? { permissionMode: mode } : {}),
         ...(connected !== undefined ? { tornoConnected: connected } : {}),
         ...(version ? { version } : {}),
         ...(keySource !== undefined ? { apiKeySource: keySource } : {}),

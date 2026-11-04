@@ -32,7 +32,7 @@ import { type AlignCheckDeps, checkingAlignments, heldNow, keepChecking, tiedToM
 import { frameOf } from './scans/alignments'
 import type { ScanStore } from './scans/store'
 import { forgetSceneFiles, loadSceneFile, saveSceneFile, sceneFileNow } from './scenefile'
-import { EFFORTS, isEffort, MODEL_ALIASES, MODEL_NAME, type ChatAnswer } from '../shared/chat'
+import { EFFORTS, isEffort, isMode, MODES, MODEL_ALIASES, MODEL_NAME, type ChatAnswer } from '../shared/chat'
 import type { AgentView, CreateRequest, OnboardDraft } from '../shared/bridge'
 import { readChoice, writeChoice } from './sessions/choice'
 import { drawingOf } from './sessions/drawing'
@@ -705,6 +705,11 @@ export function registerIpc(
     if (!ofThisWorkspace(String(sessionId))) throw new Refusal('This session has ended')
     if (!isEffort(effort)) throw new Refusal(`Not an effort: Claude Code takes ${EFFORTS.join(', ')}`)
     await requireSessions().setEffort(String(sessionId), effort)
+  })
+  handle('chat:setMode', async (_event, sessionId: string, mode: string) => {
+    if (!ofThisWorkspace(String(sessionId))) throw new Refusal('This session has ended')
+    if (!isMode(mode)) throw new Refusal(`Not a mode: torno offers ${MODES.join(', ')}`)
+    await requireSessions().setMode(String(sessionId), mode)
   })
   handle('chat:models', () => opts.knownModels?.list() ?? [...MODEL_ALIASES])
 

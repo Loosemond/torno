@@ -190,6 +190,7 @@ async function streamMode() {
   // `--model=<name>` and `--effort=<level>`, as torno passes them: the model is the `model` of every `init`, the effort its `effort`.
   const flag = (name) => argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3)
   let model = flag('model') ?? 'fake-model'
+  let permissionMode = 'default'
   let effort = flag('effort')
   /** FAKE_AGENT_AUTH_ERROR: what the CLI says when its first turn cannot authenticate; none once said. */
   let unauthenticated = process.env.FAKE_AGENT_AUTH_ERROR || undefined
@@ -425,7 +426,7 @@ async function streamMode() {
     const done = () => entries.forEach((e) => life(e.uuid, 'completed'))
     // A prompt that is no turn (a slash command that only does something): an init, no hooks, no result.
     if (text.trim() === '/noop') {
-      out({ type: 'system', subtype: 'init', cwd: process.cwd(), model, tools: [], mcp_servers: [], fake_argv: argv, ...(effort ? { effort } : {}), ...account, ...base, uuid: next('uuid') })
+      out({ type: 'system', subtype: 'init', cwd: process.cwd(), model, permissionMode, tools: [], mcp_servers: [], fake_argv: argv, ...(effort ? { effort } : {}), ...account, ...base, uuid: next('uuid') })
       return done()
     }
     // A command the CLI takes up with no `init`, no hook and no result: it only says something else (a rate limit).
@@ -434,7 +435,7 @@ async function streamMode() {
       return done()
     }
     if (text.trim() === '/compact') {
-      out({ type: 'system', subtype: 'init', cwd: process.cwd(), model, tools: [], mcp_servers: [{ name: 'torno', status: 'connected' }], fake_argv: argv, ...(effort ? { effort } : {}), ...account, ...base, uuid: next('uuid') })
+      out({ type: 'system', subtype: 'init', cwd: process.cwd(), model, permissionMode, tools: [], mcp_servers: [{ name: 'torno', status: 'connected' }], fake_argv: argv, ...(effort ? { effort } : {}), ...account, ...base, uuid: next('uuid') })
       out({ type: 'system', subtype: 'compact_boundary', compact_metadata: { trigger: 'manual', pre_tokens: 29569, post_tokens: 3637 }, ...base, uuid: next('uuid') })
       out({ type: 'user', message: { role: 'user', content: '<local-command-stdout>Compacted </local-command-stdout>' }, isReplay: true, ...base, uuid: next('uuid') })
       out({ type: 'result', subtype: 'success', is_error: false, duration_ms: 0, num_turns: 0, stop_reason: null, usage: { input_tokens: 0, output_tokens: 0 }, ...base, uuid: next('uuid') })
@@ -453,7 +454,7 @@ async function streamMode() {
       const submitted = await post('UserPromptSubmit', { prompt: entry.content.filter((b) => b?.type === 'text').map((b) => b.text).join('\n') })
       contexts.push(submitted?.hookSpecificOutput?.additionalContext)
     }
-    out({ type: 'system', subtype: 'init', cwd: process.cwd(), model, tools: [], mcp_servers: [{ name: 'torno', status: 'connected' }], fake_argv: argv, ...(effort ? { effort } : {}), ...account, ...base, uuid: next('uuid') })
+    out({ type: 'system', subtype: 'init', cwd: process.cwd(), model, permissionMode, tools: [], mcp_servers: [{ name: 'torno', status: 'connected' }], fake_argv: argv, ...(effort ? { effort } : {}), ...account, ...base, uuid: next('uuid') })
     for (const context of contexts) if (context) out({ type: 'system', subtype: 'hook_response', hook_event: 'UserPromptSubmit', output: context, ...base, uuid: next('uuid') })
     // A first turn that could not authenticate: the CLI's own message, typed, in place of the model's; `StopFailure` in place of `Stop`.
     if (unauthenticated !== undefined) {
@@ -510,6 +511,13 @@ async function streamMode() {
           { value: 'haiku', displayName: 'Haiku', supportsEffort: true, supportedEffortLevels: ['low', 'medium', 'high'] }
         ]
       })
+    } else if (request?.subtype === 'set_permission_mode') {
+      // As the CLI does: a mode it does not know is refused; one taken is the `permissionMode` of the next `init`.
+      if (!['default', 'acceptEdits', 'plan', 'bypassPermissions', 'auto'].includes(request.mode)) out({ type: 'control_response', response: { subtype: 'error', request_id, error: 'set_permission_mode: unknown mode' } })
+      else {
+        permissionMode = request.mode
+        reply({ mode: request.mode })
+      }
     } else if (request?.subtype === 'set_model') {
       model = request.model
       reply({})

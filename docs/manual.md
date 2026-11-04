@@ -570,7 +570,11 @@ no mark `M3`, a build `r9` that has not been made, a part the build does not hav
   (see below). **The effort** is the menu beside it: "Default effort" until you
   choose one (or one was chosen when the project was made), then the level, from
   those the model takes. It too is for this session only, and a note in the chat
-  says each change. A line under the box shows the rate limit once more than half of
+  says each change. **The edits menu** beside them sets how Claude Code asks
+  before it changes something: "Ask before edits", "Accept edits" (edits go
+  through without a question; other asks still come to you) or "Plan only". It is
+  for this session only too, and your settings are not written. A mode your own
+  settings start the session in stands as it is until you choose one. A line under the box shows the rate limit once more than half of
   it is used.
 
 "Chat · Terminal" under the header switches the same conversation between the
@@ -1797,6 +1801,12 @@ With a real agent:
 - **The chat with the real Claude Code.** In a session in chat: a prompt with a pin or two marked (the "torno added" line shows them and they turn to sent); a command that asks permission, answered "Allow", then another with "Allow for this session" (the next like it is not asked, and `~/.claude/settings.json` and the project's `.claude/` are as they were), then one "Deny"; a question (`AskUserQuestion`) answered with an option and with "Other"; a plan in plan mode approved; "Attach view" (the agent describes what you see); the model menu (the next answer is from that model, and `/model` in the terminal still shows your default); the effort menu (a level chosen is taken, `/effort` in the terminal still shows your default, and `~/.claude/settings.json` is as it was); a new project made with a model and an effort chosen beside "Create" (its first answer is from that model, at that effort); `/compact` (one note, the conversation goes on); "Terminal", then "Chat" again: the same conversation, its earlier part shown.
 - **Making a new project with the real Claude Code.** "New project" with a name, a description, two photos from a phone (one large), a doodle, a scan and a reference to another project, each with a note, then "Create": the project is opened, its chat shows the one prompt with the pictures, Claude Code's reply speaks of them and of the notes, the scan is in the Scans list, `reference/` holds the original photos, and nothing else was written in the workspace. The stand-in agent has taken the prompt; the real CLI has not.
 - **Asking for the missing sizes, with the real Claude Code.** Make a project whose description gives one size and leaves out the rest (a lid for a box of an unnamed size, screws not named): before the first write of the model, Claude Code asks once, in a card with at most four questions, each with a typical value among its options and "Other" taking "build with assumptions"; it asks nothing about a fillet radius; after the answers it builds, and a size you did not give is a field of `Params` commented "assumed" and listed in its reply. Then ask for a new feature with no key size (a hole for "a screw"): it asks once, not again. The stand-in agent only plays the card; the real model's choice to ask has not been seen, and the eval harness (#121) does not yet measure it.
+- **The edits menu with the real Claude Code.** In a chat, choose "Accept edits" and ask for a change: the CLI
+  should take the edit without asking, and the menu should show the mode again after the next prompt; then "Plan
+  only", then "Ask before edits". torno sends the control request `set_permission_mode` (`mode`), the one the
+  Agent SDK documents, answered here only by the stand-in: check that the real CLI answers it in `-p` stream-json,
+  that its `init` and `status` report `permissionMode` after it, and that the "Allow for this session" of an Edit
+  ask still writes nothing in `.claude/`.
 - **Claude Code and torno's skills.** `--plugin-dir` works under `-p` (chat) and in the terminal view: in each, `/skills` (or asking the agent) lists `torno:torno-model`, `torno:build123d`, `torno:scans` and `torno:dimensions`, a model written in an empty project uses `torno-model` and builds with both layouts on the first try, and nothing was written under `~/.claude` or in the project's `.claude/`. The stand-in only shows the flag is passed. Asked how an argument of build123d is written, the agent searches `reference/api-0.13.0.txt` of the `build123d` skill (its `${CLAUDE_SKILL_DIR}` is filled in with the real folder, in the packaged app too) instead of running Python, and `claude plugin validate app/resources/agent-plugin` passes.
 - **A failed fillet, with the real Claude Code.** Ask for a fillet that cannot be made as asked (the plate above, all
   its vertical edges at R6): the result of the edit says why under the error, and the agent reads it, calls

@@ -43,6 +43,8 @@ export interface ChatMeta {
   model?: string
   /** The effort torno started the session with or set since; absent: the person's own default, which the CLI does not say. */
   effort?: Effort
+  /** How the CLI asks about edits (`permissionMode` of its `init`, or set since by `set_permission_mode`); absent until it has said. */
+  permissionMode?: string
   /** Whether the CLI says the MCP server of torno is connected; absent until it has said. */
   tornoConnected?: boolean
   /** The version of Claude Code (`claude_code_version` of its `init`); absent until it has said. */
@@ -72,6 +74,16 @@ export interface ChatModel {
   displayName: string
   /** The efforts the CLI says the model takes, in its order; empty when it takes none; absent when the CLI did not say. */
   efforts?: Effort[]
+}
+
+/** The modes torno offers for a session, in Claude Code's words (`set_permission_mode`). Others the CLI reports are shown as they are, never offered. */
+export const MODES = ['default', 'acceptEdits', 'plan'] as const
+export type Mode = (typeof MODES)[number]
+/** How a mode is named to the person (the menu and the note in the chat). */
+export const MODE_NOTE: Readonly<Record<string, string>> = { default: 'ask first', acceptEdits: 'accept edits', plan: 'plan only' }
+
+export function isMode(v: unknown): v is Mode {
+  return typeof v === 'string' && (MODES as readonly string[]).includes(v)
 }
 
 /** The efforts Claude Code knows (`--effort`, `effortLevel`), least first. */
