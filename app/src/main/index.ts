@@ -26,7 +26,7 @@ import { mountMcp } from './mcp/server'
 import { DEFAULT_SIZE } from './mcp/schemas'
 import { onNotOwn } from './own'
 import { agentPluginDir, kernelDir, kernelRun, ownEnvironment, windowIcon } from './paths'
-import { Expectations } from './mcp/expectTools'
+import { Expectations, withExpectation } from './mcp/expectTools'
 import type { ToolDeps } from './mcp/tools'
 import { saveView } from './mcp/views'
 import { systemPrompt } from './prompt'
@@ -490,12 +490,8 @@ void app.whenReady().then(async () => {
     },
     // An edit of the model is answered with the build it started, and a Stop held back once over a build the turn left failed or unseen.
     build: buildState,
-    buildContextFor: async (id, toolName) => {
-      const told = buildContextFor(editDeps, id, await marks.list(id).catch(() => []), { toolName })
-      // What the agent said the edit should change (`expect`), told once with the build it was held against.
-      const expected = told.text ? await expectations.settle(toolDeps, id).catch(() => undefined) : undefined
-      return expected ? { ...told, text: `${told.text}\n${expected}` } : told
-    },
+    // What the agent said the edit should change (`expect`) is told once, with the build it was held against.
+    buildContextFor: async (id, toolName) => withExpectation(expectations, toolDeps, id, buildContextFor(editDeps, id, await marks.list(id).catch(() => []), { toolName })),
     // A hard defect the turn's builds brought is held against its Stop, once; and an edit's dimensions are of its build.
     scene: lastScene,
     settled: (id, revision, until) => verdicts.settled(id, revision, until),

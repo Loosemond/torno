@@ -1,5 +1,6 @@
 import { number } from '../../shared/format'
 import type { Part, Scene } from '../../shared/scene'
+import type { PromptContext } from '../context'
 import { unknownKeys } from './keys'
 import type { EndArg } from './markTools'
 import { type MeasureToolArgs, measureTool } from './readTools'
@@ -323,4 +324,14 @@ export function expectTool(deps: ToolDeps, objectId: string, args: ExpectArgs): 
     return failure(messageOf(e))
   }
   return { content: [{ type: 'text', text: JSON.stringify({ held: args.checks.length, against: `r${last.revision}`, layout, note: 'Held for the next successful build only, and told once in the answer to your edit. It changes nothing and is no mark.' }) }] }
+}
+
+/**
+ * The context of an edit's build with the verdict of what the agent expected of it as its last line, told once: the
+ * expectation is settled by the first successful build newer than the one it was made on. Nothing is added to an
+ * answer with no text, and a verdict that cannot be worked out is left unsaid.
+ */
+export async function withExpectation(store: Expectations, deps: ToolDeps, objectId: string, told: PromptContext): Promise<PromptContext> {
+  const line = told.text ? await store.settle(deps, objectId).catch(() => undefined) : undefined
+  return line ? { ...told, text: `${told.text}\n${line}` } : told
 }
