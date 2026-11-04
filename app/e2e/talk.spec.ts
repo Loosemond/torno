@@ -210,7 +210,9 @@ test('a mark the agent resolved is told in a summary to review, saying what the 
 test('Reopen makes a mark the agent resolved a draft again; one the person resolves goes straight under Resolved', async () => {
   await tool('Pin').click()
   await clickOver(ON_BASE)
-  await page.keyboard.type('and this one')
+  // Typed before the note's field has the focus, the first keys are the tools' keys and are lost.
+  await expect(page.locator('.note-card textarea')).toBeFocused()
+  await page.keyboard.type('this one')
   await page.keyboard.press('Enter')
   await page.keyboard.press('Escape')
   await expect.poll(async () => (await state()).marks.map((m) => m.id)).toEqual(['M1', 'M2'])
