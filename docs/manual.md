@@ -921,6 +921,12 @@ a chip turns the camera, as anywhere else.
   resolved 2 marks." **Review** opens each, saying "Resolved by the agent"
   with the agent's line, with **OK** (it goes under "Resolved") and
   **Reopen** (it is a draft again); **OK all** says you have seen them all.
+- The tick on a row resolves the mark (**Resolve: done with it**); on a check
+  with an expected value it first asks "Stop checking M3? It is no longer
+  measured." (**Resolve** or **Keep checking**). **Delete** takes the mark at
+  once, and for ten seconds, or until the next delete, the list says "Deleted
+  M3 · **Undo**": Undo puts it back whole, with its number, note and, for a
+  region, its triangles. Only the last mark deleted can be put back.
 - A mark on a part that is switched off in the layers is not drawn, in the
   window or in the agent's pictures; its row stays and says "its part is
   hidden".

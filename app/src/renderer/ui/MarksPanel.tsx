@@ -1,9 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { type Mark, type MarkPatch, markAnchors } from '../../shared/marks'
 import { actions, layerOf, useStore } from '../state/store'
 import { MarkRow } from './MarkRow'
 import { groupMarks } from './markGroups'
 import { ResolvedSummary } from './ResolvedSummary'
+
+/** How long "Undo" is offered after a delete. */
+const UNDO_MS = 10_000
 
 /**
  * The marks of the open object, below the layers, grouped by what is to be
@@ -27,9 +30,20 @@ export function MarksPanel() {
   // What main said when it refused a change, until the next one goes through.
   const [refused, setRefused] = useState<string | null>(null)
 
+  // The mark just deleted, which can be put back for ten seconds, or until the next delete.
+  const [undo, setUndo] = useState<string | null>(null)
+  const undoTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const offerUndo = (id: string | null): void => {
+    clearTimeout(undoTimer.current)
+    setUndo(id)
+    if (id !== null) undoTimer.current = setTimeout(() => setUndo(null), UNDO_MS)
+  }
+  useEffect(() => () => clearTimeout(undoTimer.current), [])
+
   useEffect(() => {
     setRefused(null)
     setShowResolved(false)
+    offerUndo(null)
   }, [objectId])
 
   if (!objectId) return null
@@ -64,7 +78,11 @@ export function MarksPanel() {
         done(call)
         return call
       }}
-      remove={() => done(window.torno.marks.remove(objectId, mark.id))}
+      remove={() => {
+        const call = window.torno.marks.remove(objectId, mark.id)
+        done(call)
+        void call.then(() => offerUndo(mark.id), () => {})
+      }}
     />
   )
   const { toSend, fromAgent, withAgent, toReview, resolved } = groupMarks(marks)
@@ -106,6 +124,22 @@ export function MarksPanel() {
         </p>
       )}
       <div className="marks-body">
+        {undo !== null && (
+          <p className="marks-undo" role="status">
+            Deleted <span className="num">{undo}</span> ·{' '}
+            <button
+              type="button"
+              className="link-button"
+              onClick={() => {
+                const id = undo
+                offerUndo(null)
+                done(window.torno.marks.restore(objectId, id))
+              }}
+            >
+              Undo
+            </button>
+          </p>
+        )}
         {marks.length === 0 && (
           <div className="marks-empty">
             <p>Point at the part to leave a note for the agent.</p>

@@ -122,6 +122,8 @@ export interface TornoBridge {
     /** The person has seen what the agent did with these marks: all are acknowledged in one write, or none, and the rejection says which was not the agent's to acknowledge. */
     acknowledge(objectId: string, ids: string[]): Promise<Mark[]>
     remove(objectId: string, id: string): Promise<void>
+    /** Puts back the mark deleted last, whole and with its number, in one change. Only that one, and once. */
+    restore(objectId: string, id: string): Promise<Mark>
     /** Puts a pin, a pick or an arrow somewhere else on a part: the same mark and note, tied where it was clicked. An arrow keeps its length and direction. */
     replace(objectId: string, id: string, placed: Replacement): Promise<Mark>
     onChanged(cb: (m: { objectId: string; marks: Mark[] }) => void): () => void

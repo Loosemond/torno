@@ -11,6 +11,7 @@ import { rowLabel } from '../viewport/marks/labels'
 import { spanningMarks } from '../viewport/marks/apart'
 import { DimensionFields, VerdictIcon, Words } from './DimensionFields'
 import { hoverMark, unhoverMark } from './markHover'
+import { Confirm } from './Confirm'
 import { ShapeFields } from './ShapeFields'
 import { insertIntoSession } from './insertIntoSession'
 import { ICONS, SHAPE_ICONS } from './ToolPalette'
@@ -122,6 +123,11 @@ export function MarkRow({
   const fromAgent = mark.author === 'agent' && mark.status === 'sent'
   const sessionLive = useStore((s) => runningSession(s) !== undefined)
 
+  // Resolving a check that has an expected value stops it being measured: asked in the row before it is done.
+  const [stopping, setStopping] = useState(false)
+  const checks = mark.kind === 'dimension' && mark.expected !== undefined && !resolved
+  useEffect(() => setStopping(false), [mark.id, mark.status])
+
   const writing = draft !== null
   useEffect(() => {
     if (writing) field.current?.select()
@@ -171,7 +177,7 @@ export function MarkRow({
       data-elsewhere={elsewhere ? '' : undefined}
       data-hidden={partHidden ? '' : undefined}
       data-awaiting={awaiting ? '' : undefined}
-      data-expanded={fields || expects || awaiting ? '' : undefined}
+      data-expanded={fields || expects || awaiting || (stopping && checks) ? '' : undefined}
       data-replacing={replacing ? '' : undefined}
       data-hovered={pointed ? '' : undefined}
       aria-current={active ? 'true' : undefined}
@@ -325,14 +331,36 @@ export function MarkRow({
             <ReopenIcon />
           </button>
         ) : (
-          <button type="button" className="icon-button" aria-label={`Resolve ${mark.id}`} title={fromAgent ? 'Seen: resolve it' : 'Resolve'} onClick={() => void change({ status: 'resolved' }).catch(() => {})}>
-            <CheckIcon />
+          <button
+            type="button"
+            className="icon-button"
+            aria-label={`Resolve ${mark.id}`}
+            title={checks ? 'Resolve: it is no longer measured' : fromAgent ? 'Seen: resolve it' : 'Resolve: done with it'}
+            onClick={() => (checks ? setStopping(true) : void change({ status: 'resolved' }).catch(() => {}))}
+          >
+            <ResolveIcon />
           </button>
         )}
         <button type="button" className="icon-button" aria-label={`Delete ${mark.id}`} title="Delete" onClick={remove}>
           <BinIcon />
         </button>
       </span>
+      {stopping && checks && (
+        <div className="mark-stop" onClick={(e) => e.stopPropagation()}>
+          <Confirm
+            label={`Stop checking ${mark.id}`}
+            accept="Resolve"
+            cancel="Keep checking"
+            onAccept={() => {
+              setStopping(false)
+              void change({ status: 'resolved' }).catch(() => {})
+            }}
+            onCancel={() => setStopping(false)}
+          >
+            Stop checking {mark.id}? It is no longer measured.
+          </Confirm>
+        </div>
+      )}
       {fields && <ShapeFields mark={mark} change={change} />}
       {expects && <DimensionFields mark={mark} revision={revision} change={change} />}
       {awaiting && (
@@ -419,10 +447,12 @@ function AnswerIcon() {
   )
 }
 
-function CheckIcon() {
+/** A tick in a box: done with it. Not the bare tick of a passing check. */
+function ResolveIcon() {
   return (
     <Glyph>
-      <path d="m3 8.5 3.25 3.25L13 4.75" />
+      <rect x="2.5" y="2.5" width="11" height="11" rx="2" />
+      <path d="m5.5 8.25 1.9 1.9 3.1-3.9" />
     </Glyph>
   )
 }

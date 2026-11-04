@@ -129,6 +129,9 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   the status, so a row has no status word but a pinned dimension's `pinned`, which is never cut. "To review" is
   one summary (`ui/ResolvedSummary.tsx`): "The agent resolved N marks.", "Review" opening each row with its
   resolution, OK and Reopen, and "OK all" (`marks.acknowledge`, no key).
+- A row's resolve is a tick in a box (`ResolveIcon`), never the bare tick of a passing check; on a dimension with an
+  expected value it asks in the row first (`Confirm`). Delete is immediate and the panel offers `Deleted M3 · Undo` for
+  10 s (`marks.restore`), no key.
 - A mark's row is one line, its note cut to the room there is, and the active row (`aria-current`) shows its
   note whole, wrapped on a line of its own (`late.css`). Its chip is the id alone (`rowLabel`): `~` and `?` are
   the view's chips' and the pictures' (`labelText`). What the last build did to its mark (`moved:

@@ -80,6 +80,8 @@ export class MarkStore {
    * whichever workspace was open when it was found.
    */
   private problems = new Map<string, string>()
+  /** By object id: the mark removed last, kept for `restore`. */
+  private deleted = new Map<string, { mark: Mark; mask?: Uint8Array }>()
   /** Counts `forget`: what was read before one is not kept after it. */
   private epoch = 0
   private listeners: { [E in keyof MarkEvents]: Array<(m: MarkEvents[E]) => void> } = { changed: [], problem: [], unchecked: [] }
@@ -100,6 +102,7 @@ export class MarkStore {
   /** Forget what was read, as when the workspace is left. Files are read again when next asked for. */
   forget(): void {
     this.epoch += 1
+    this.deleted.clear()
     this.files.clear()
     this.unread.clear()
   }
@@ -387,9 +390,39 @@ export class MarkStore {
     )
   }
 
-  remove(objectId: string, id: string): Promise<void> {
-    return this.change(objectId, (file) => {
-      file.marks.splice(indexOf(file, id), 1)
+  /**
+   * Takes a mark away. The last mark taken from each object is kept in memory, whole, with the triangles of a
+   * region when the caller read them (`mask`), so that `restore` can put it back.
+   */
+  remove(objectId: string, id: string, mask?: Uint8Array): Promise<void> {
+    return this.change(objectId, (file) => file.marks.splice(indexOf(file, id), 1)[0]).then((mark) => {
+      this.deleted.set(objectId, { mark, mask })
+    })
+  }
+
+  /**
+   * Puts back the mark last removed from the object, whole and with its number (numbers are never reused, so it is
+   * free), in the place its number gives it. One change, one write. Only the last one removed, and once: a second
+   * restore, or one of another mark, is refused. `before` runs first, for what must be on the disk before the
+   * mark that names it (a region's triangles); when it fails nothing is restored.
+   */
+  restore(objectId: string, id: string, before?: (mark: Mark, mask: Uint8Array | undefined) => Promise<void>): Promise<Mark> {
+    const kept = this.deleted.get(objectId)
+    if (!kept || kept.mark.id !== id) return Promise.reject(new Refusal(`${id} cannot be put back: only the mark deleted last can be, and only once`))
+    return this.change(
+      objectId,
+      (file) => {
+        if (file.marks.some((m) => m.id === id)) throw new Refusal(`${id} is there already`)
+        const number = (m: Mark): number => Number(m.id.slice(1))
+        const at = file.marks.findIndex((m) => number(m) > number(kept.mark))
+        file.marks.splice(at < 0 ? file.marks.length : at, 0, structuredClone(kept.mark))
+        return kept.mark
+      },
+      [id],
+      before ? (mark) => before(mark, kept.mask) : undefined
+    ).then((mark) => {
+      if (this.deleted.get(objectId)?.mark.id === id) this.deleted.delete(objectId)
+      return structuredClone(mark)
     })
   }
 

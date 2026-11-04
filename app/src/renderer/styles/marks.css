@@ -244,6 +244,20 @@
 
 /* ---- A shape's numbers: its row, opened out while it is the active mark ---- */
 
+.mark-stop {
+  flex: none;
+  width: 100%;
+  padding-bottom: 6px;
+}
+
+/* The line that follows a delete: what was deleted, and the way back. */
+.marks-undo {
+  margin: var(--space-1) 0 0;
+  padding: 4px var(--space-4);
+  font-size: var(--text-small);
+  color: var(--muted);
+}
+
 .mark-row[data-expanded] {
   flex-wrap: wrap;
   align-content: flex-start;
