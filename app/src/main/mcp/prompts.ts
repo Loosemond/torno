@@ -43,6 +43,7 @@ export const PROMPTS = {
             : `4. Bed: no bed size was given. Give the size of the print layout from ${toolName('scene')}, and ask the person for their bed (such as 256x256x256) before saying it fits.`
       return [
         `Check whether this project is ready to 3D print, on its print layout (layout "print"; if there is none, say so and use the layout it has).`,
+        `If you have the skill torno:printing, read it first.`,
         ``,
         `1. Call ${toolName('scene')} for the parts of the layout and their sizes.`,
         `2. Walls: for each part call ${toolName('check')} with {"kind": "thin", "a": <part>, "min": 0.8} (or the least wall the person's nozzle can print); where that kind is not offered, ${toolName('measure')} the thickness of the thinnest-looking walls at a point of a face.`,

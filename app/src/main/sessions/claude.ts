@@ -57,7 +57,7 @@ export function reviewerAgents(toolName: (tool: string) => string) {
  * The plugin of skills torno passes (`resources/agent-plugin`): its name and its skills, which the CLI's `init` is read
  * for (`transcript.ts`): the chat says when they are not there. `claude.test.ts` holds them to the folder.
  */
-export const TORNO_PLUGIN = { name: 'torno', skills: ['torno-model', 'build123d', 'scans', 'dimensions'] } as const
+export const TORNO_PLUGIN = { name: 'torno', skills: ['torno-model', 'build123d', 'scans', 'dimensions', 'printing'] } as const
 
 /**
  * The versions of Claude Code torno was checked against, inclusive: those of the recordings in `test/fixtures/`

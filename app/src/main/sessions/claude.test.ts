@@ -191,10 +191,10 @@ describe('the Claude Code adapter', () => {
     }
   })
 
-  it('is given the plugin that is in the app: a manifest and the four skills, each named in its frontmatter', () => {
+  it('is given the plugin that is in the app: a manifest and the five skills, each named in its frontmatter', () => {
     const dir = join(__dirname, '../../../resources/agent-plugin')
     expect(JSON.parse(readFileSync(join(dir, '.claude-plugin/plugin.json'), 'utf8')).name).toBe('torno')
-    for (const name of ['torno-model', 'build123d', 'scans', 'dimensions']) {
+    for (const name of ['torno-model', 'build123d', 'scans', 'dimensions', 'printing']) {
       const text = readFileSync(join(dir, 'skills', name, 'SKILL.md'), 'utf8')
       const front = text.match(/^---\n([\s\S]*?)\n---\n/)![1]
       expect(front).toMatch(new RegExp(`^name: ${name}$`, 'm'))
