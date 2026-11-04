@@ -315,7 +315,7 @@
   left: 0;
   width: 288px;
   padding: 6px 6px 7px 9px;
-  border: var(--divider);
+  border: var(--field-border);
   /* The pencil that made the mark, down the edge of its note. */
   border-left: 2px solid var(--user-mark);
   border-radius: 3px var(--radius-palette) var(--radius-palette) 3px;

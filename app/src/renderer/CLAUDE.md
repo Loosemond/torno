@@ -381,7 +381,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `--accent`, `--ok`, `--warn`, `--fail` on `--surface` and `--panel`; the
   accent on its wash; the sixteen terminal colours on the panel, but the dark
   theme's black); what is only drawn is 3:1 (the two mark colours on the
-  surface); a hairline is between 1.15 and 2. A token is changed there first.
+  surface); a hairline is between 1.15 and 2; the edge of an input or a text area is `--field-edge`, 3:1 on both (WCAG 1.4.11). A token is changed there first.
 - A verdict (`--ok`, `--fail`) is no mark's colour to the eye, in both
   themes: 1.5:1 at least from the mark colour of its hue (`--agent-mark`,
   `--user-mark`), darker in light and lighter in dark. A verdict is read, a

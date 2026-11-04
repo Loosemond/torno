@@ -459,7 +459,7 @@ starts one, in place of the session running there, if any; torno asks first if
 that one is in the middle of its work. "End" ends the session and starts
 none, asking first in the same way. "Resume" continues the last
 conversation Claude Code had there. ``Ctrl+` `` moves between the session and
-the viewport. In a terminal `Shift+Enter` is a new line, `Ctrl+Shift+C` and
+the viewport; `F6` and `Shift+F6` go round the parts of the window, and `Ctrl+Shift+D` shows or hides the session pane. In a terminal `Shift+Enter` is a new line, `Ctrl+Shift+C` and
 `Ctrl+Shift+V` copy and paste.
 
 ### The chat
@@ -1361,6 +1361,9 @@ until the camera is first moved; the window remembers that in its own storage, n
 |---|---|---|
 | Everywhere | `?` | This sheet of keys, outside a field and the terminal |
 | Everywhere | `` Ctrl+` `` | To the session, and from it back to the view |
+| Everywhere | `F6` | To the next part of the window: projects, view, session, status line |
+| Everywhere | `Shift+F6` | To the part before |
+| Everywhere | `Ctrl+Shift+D` | Show or hide the session pane |
 | Everywhere | `Ctrl+Shift+E` | Export to one HTML file, or to STEP, STL or 3MF: the open project, or from the page of projects any of them |
 | Everywhere | `Ctrl+Shift+B` | Rebuild: build the open project again, as the button in the status line does |
 | Viewport | `V` | Select: click a face, an edge or a part |

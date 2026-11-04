@@ -91,7 +91,7 @@
   width: 220px;
   height: 30px;
   padding: 0 var(--space-2) 0 var(--space-3);
-  border: var(--divider);
+  border: var(--field-border);
   border-radius: var(--radius-control);
   background: var(--panel);
   cursor: text;

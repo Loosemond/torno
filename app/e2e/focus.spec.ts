@@ -184,3 +184,22 @@ test('a choice made with the keys keeps them: the next arrow is the list\'s', as
   await unit.selectOption('mm')
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
 })
+
+test('the first Tab is the left column, and F6 goes round the parts of the window', async () => {
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+  await page.keyboard.press('Tab')
+  const region = (): Promise<string | null | undefined> => page.evaluate(() => document.activeElement?.closest('[data-region]')?.getAttribute('data-region'))
+  expect(await region()).toBe('left')
+  await page.keyboard.press('F6')
+  expect(await region()).toBe('viewport')
+  await page.keyboard.press('Shift+F6')
+  expect(await region()).toBe('left')
+  await page.keyboard.press('Shift+F6')
+  expect(await region()).toBe('status')
+  const open = (await state()).dockOpen
+  await page.keyboard.press('Control+Shift+D')
+  expect((await state()).dockOpen).toBe(!open)
+  await page.keyboard.press('Control+Shift+D')
+  expect((await state()).dockOpen).toBe(open)
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+})

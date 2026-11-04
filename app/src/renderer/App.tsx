@@ -223,10 +223,57 @@ function useRebuildKey(): void {
   }, [])
 }
 
+/** The parts of the window F6 goes round, in reading order (the order of the DOM). */
+const REGIONS = ['left', 'viewport', 'session', 'status'] as const
+const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [href], [tabindex="0"], [data-chat-composer]:not([disabled])'
+
+/** F6 and Shift+F6 go round the parts of the window, as a person with no pointer needs; the dock when it is hidden is passed over. */
+function useRegionKeys(): void {
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent): void => {
+      const step = pressed(e, 'region.next') ? 1 : pressed(e, 'region.previous') ? -1 : 0
+      if (step === 0) return
+      e.preventDefault()
+      e.stopPropagation()
+      if (e.repeat) return
+      const regions = REGIONS.map((name) => document.querySelector<HTMLElement>(`[data-region="${name}"]`)).filter((el): el is HTMLElement => el !== null && !el.hidden)
+      if (regions.length === 0) return
+      const at = regions.findIndex((el) => el.contains(document.activeElement))
+      for (let i = 1; i <= regions.length; i++) {
+        const target = regions[(((at < 0 ? (step > 0 ? -1 : 0) : at) + step * i) % regions.length + regions.length) % regions.length]
+        const first = target.querySelector<HTMLElement>(FOCUSABLE)
+        if (first) {
+          first.focus()
+          return
+        }
+      }
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [])
+}
+
+/** The key that shows or hides the session pane, as the button at the edge does: heard everywhere. */
+function useDockKey(): void {
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent): void => {
+      if (!pressed(e, 'dock.toggle')) return
+      e.preventDefault()
+      e.stopPropagation()
+      if (e.repeat) return
+      actions.setDockOpen(!store.getState().dockOpen)
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [])
+}
+
 export function App() {
   useMain()
   useReadyFeed()
   useRebuildKey()
+  useRegionKeys()
+  useDockKey()
   usePageKey()
   useKeysKey()
   useExportKey()
@@ -354,16 +401,6 @@ export function App() {
       data-dock={dockOpen ? 'open' : 'collapsed'}
       style={{ '--dock-w': `${dockWidth}px` } as CSSProperties}
     >
-      <main className="viewport" data-region="viewport">
-        <ViewportPane />
-        {page === 'objects' && <ShowPage onOpen={(id) => void openObject(id)} onExample={() => leave(EXAMPLE)} />}
-        {page === 'new' && <NewObject onOpen={openObject} />}
-        {/* Over either: what goes into an export, asked before anything is written. */}
-        <ExportSheet />
-        {/* Over the view: a drawing on it for the chat, while its board is open. */}
-        <ViewBoard />
-      </main>
-
       <aside className="left" data-region="left" aria-label="Projects, layers, parameters, scans and marks">
         <header className="panel-head">
           <h1 className="workspace-name" title={workspace.root}>
@@ -392,6 +429,16 @@ export function App() {
         {page === 'object' && <ColumnSplit />}
         {page !== 'new' && <MarksPanel />}
       </aside>
+
+      <main className="viewport" data-region="viewport">
+        <ViewportPane />
+        {page === 'objects' && <ShowPage onOpen={(id) => void openObject(id)} onExample={() => leave(EXAMPLE)} />}
+        {page === 'new' && <NewObject onOpen={openObject} />}
+        {/* Over either: what goes into an export, asked before anything is written. */}
+        <ExportSheet />
+        {/* Over the view: a drawing on it for the chat, while its board is open. */}
+        <ViewBoard />
+      </main>
 
       <aside className="dock" data-region="session" aria-label="Session" hidden={!dockOpen}>
         <div
