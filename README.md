@@ -10,6 +10,11 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/luisg0nc/torno/actions/workflows/ci.yml"><img src="https://github.com/luisg0nc/torno/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0 licence"></a>
+</p>
+
+<p align="center">
   <a href="#getting-started">Getting started</a> ·
   <a href="docs/manual.md">Manual</a> ·
   <a href="#how-it-works">How it works</a> ·
