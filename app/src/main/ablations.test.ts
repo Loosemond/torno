@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { ABLATIONS, ablations } from './ablations'
+import { ABLATIONS, ablations, evalTuning } from './ablations'
+import { clampSize } from './mcp/tools'
 import { claudeAdapter } from './sessions/claude'
 import { agentEnv } from './sessions/agentEnv'
 
@@ -37,5 +38,33 @@ describe('the ablations of an eval run', () => {
     expect(index).toMatch(/const off = ablations\(\)/)
     expect(index).not.toMatch(/TORNO_EVAL_ABLATE/)
     for (const name of ABLATIONS) expect(index).toContain(`off.has('${name}')`)
+  })
+
+  it('give a look size and a count of holds only under both, in range or refused', () => {
+    const tuned = { TORNO_EVAL_LOOK_SIZE: '768', TORNO_EVAL_HOLDS: '1' }
+    for (const env of [tuned, { ...tuned, TORNO_TEST: '1' }, { ...tuned, TORNO_EVAL: '1' }]) expect(evalTuning(env)).toEqual({})
+    const both = { TORNO_TEST: '1', TORNO_EVAL: '1' }
+    expect(evalTuning(both)).toEqual({})
+    expect(evalTuning({ ...both, ...tuned })).toEqual({ lookSize: 768, holds: 1 })
+    expect(evalTuning({ ...both, TORNO_EVAL_HOLDS: '2' })).toEqual({ holds: 2 })
+    for (const size of ['2001', '255', '800.5', 'big']) expect(() => evalTuning({ ...both, TORNO_EVAL_LOOK_SIZE: size })).toThrow(/TORNO_EVAL_LOOK_SIZE/)
+    for (const holds of ['0', '3', 'x']) expect(() => evalTuning({ ...both, TORNO_EVAL_HOLDS: holds })).toThrow(/TORNO_EVAL_HOLDS/)
+  })
+
+  it('set what a look is drawn at when it names no size, and nothing else', () => {
+    expect(clampSize(undefined)).toBe(1280)
+    expect(clampSize(undefined, 768)).toBe(768)
+    expect(clampSize(1000, 768)).toBe(1000)
+    expect(clampSize(5000, 768)).toBe(2000)
+  })
+
+  it('are wired in main from evalTuning() alone', () => {
+    const index = readFileSync(join(__dirname, 'index.ts'), 'utf8')
+    expect(index).toMatch(/const tuning = evalTuning\(\)/)
+    expect(index).toMatch(/lookSize: tuning\.lookSize/)
+    expect(index).toMatch(/mostHolds: tuning\.holds/)
+    expect(index).not.toMatch(/TORNO_EVAL_(LOOK_SIZE|HOLDS)/)
+    const manager = readFileSync(join(__dirname, 'sessions/manager.ts'), 'utf8')
+    expect(manager).toMatch(/turn\.holds >= \(this\.deps\.mostHolds \?\? MOST_HOLDS\)/)
   })
 })

@@ -1027,6 +1027,12 @@ describe('the digest of the build of an edit', () => {
     expect(told.digest?.parts.map((p) => p.name)).toEqual(['base'])
   })
 
+  it('is left out when an eval run takes it away (digest: false), the rest as ever', () => {
+    const told = buildContextFor({ ...withBuilds(), digest: false }, 'bracket')
+    expect(told.text).toBe([STATUS, 'Model printed (last 1 line):', 'volume: 6000'].join('\n'))
+    expect(told.digest).toBeUndefined()
+  })
+
   it('comes before the dimensions, and says a dimension that passed on the build before and fails now', () => {
     const dim = (n: number, over: object): Mark =>
       ({ id: `M${n}`, kind: 'dimension', author: 'user', note: '', status: 'sent', sentBefore: true, anchorState: 'ok', layout: 'assembly', revision: 4, camera: CAMERA, createdAt: '', checkedRevision: 4, measure: 'diameter', a: { point: [n, 0, 5], part: 'base', ref: 'base/F9' }, value: 8, how: 'cylinder', measuredRevision: 4, expected: 8, tolerance: 0.05, ...over }) as unknown as Mark
