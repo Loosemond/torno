@@ -263,9 +263,9 @@ const diffInput = {
   to: z.number().int().optional().describe('The revision to compare to. Default: the last successful build.')
 }
 const checkInput = {
-  kind: z.enum(['overlap', 'clearance', 'mesh', 'overhang', 'thin', 'bed']).describe('overlap and clearance are of the two parts a and b; mesh, overhang and thin are of the part a; bed is of the whole layout.'),
-  a: z.string().optional().describe('The name of a part, as listed by scene. Not for bed.'),
-  b: z.string().optional().describe('The name of the other part, for overlap and clearance.'),
+  kind: z.enum(['overlap', 'clearance', 'interference', 'mesh', 'overhang', 'thin', 'bed']).describe('overlap and clearance are of the two parts a and b; mesh, overhang and thin are of the part a; interference and bed are of the whole layout.'),
+  a: z.string().optional().describe('The name of a part, as listed by scene. Not for interference or bed.'),
+  b: z.string().optional().describe('The name of the other part, for overlap and clearance only.'),
   layout: z.string().optional().describe('The layout the parts are in, as listed by scene. Default: print for overhang, thin and bed when the model has it, else the one on screen.'),
   angle: loose(z.number()).optional().describe('For overhang: how far from vertical a face may lean before it overhangs, in degrees, above 0 and below 90. Default 45.'),
   min: loose(z.number()).optional().describe('For thin: the least wall, in mm.'),
@@ -438,7 +438,7 @@ export const TOOLS = {
     title: 'Run a check',
     annotations: READ_ONLY,
     description:
-      'Returns JSON and a reading in a line of one check of the last build: overlap is the volume two parts share, in mm³; clearance the least distance between two parts, in mm, with the points it is between; mesh whether the mesh a part is drawn and exported with is closed, with where its open edges are; and, of the print layout, overhang the faces of a part that face down steeper than angle from vertical (refs such as tray/F7, with their areas; faces on the bed left out; curved faces judged by sampled normals, approximate), thin where its walls are under min mm, sampled over its faces (always approximate), and bed whether the layout fits a bed of size [x, y, z] mm, and by how much it does not on each axis ({"kind": "bed", "size": [256, 256, 256]}). A clearance is exact, from the B-rep, unless the reply says approximate; what two parts share is exact of parts all planes and round faces and approximate (≈, volumeExact false, how saying how many digits are good) of freeform ones; overlap, mesh and thin can take seconds on large parts; a bed fit is exact only where every box is. Use it after changing parts that must fit together, and before saying a part is ready to print.',
+      'Returns JSON and a reading in a line of one check of the last build: overlap is the volume two parts share, in mm³; clearance the least distance between two parts, in mm, with the points it is between; interference every pair of the layout at once ({"kind": "interference"}): the pairs of solid parts that share volume, each with the volume and the box it lies in, the pairs that only touch, and how many are clear; mesh whether the mesh a part is drawn and exported with is closed, with where its open edges are; and, of the print layout, overhang the faces of a part that face down steeper than angle from vertical (refs such as tray/F7, with their areas; faces on the bed left out; curved faces judged by sampled normals, approximate), thin where its walls are under min mm, sampled over its faces (always approximate), and bed whether the layout fits a bed of size [x, y, z] mm, and by how much it does not on each axis ({"kind": "bed", "size": [256, 256, 256]}). A clearance is exact, from the B-rep, unless the reply says approximate; what two parts share is exact of parts all planes and round faces and approximate (≈, volumeExact false, how saying how many digits are good) of freeform ones; overlap, mesh and thin can take seconds on large parts, and interference up to 20 s (it says how many pairs it measured when the time runs out); a bed fit is exact only where every box is. Use it after changing parts that must fit together, and before saying a part is ready to print.',
     inputSchema: checkInput
   },
   diff: {
@@ -493,7 +493,7 @@ export const SERVER_INSTRUCTIONS = `torno's server reads and measures the CAD pa
 - describe: the exact geometry of a part, a face, an edge, a group of parts or a mark: area, centre, normal, radius, volume, box.
 - measure: one exact number: distance or angle between two ends, radius, diameter, wall thickness, area, volume, mass, bounding box.
 - section: the outlines a plane cuts of the parts, with their areas, and a 2D drawing of the cut.
-- check: overlap and clearance between parts, a closed mesh, and for printing overhangs, thin walls and the fit on a bed.
+- check: overlap and clearance between parts, interference of a whole layout, a closed mesh, and for printing overhangs, thin walls and the fit on a bed.
 - diff: what changed between the last two successful builds: parts added or removed, volume, size and face counts.
 - try_fillet: try a fillet or chamfer of some edges on the last build and throw it away: whether it works, the largest radius that does, which edges or pairs fail.
 - scans: the scans the person imported, and how each is aligned to the model.

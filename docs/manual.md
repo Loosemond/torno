@@ -1024,13 +1024,14 @@ answer in one line.
 | `mass` | a part that is a solid | grams, with the `density` used (g/cm³; 1.24, PLA, when none is given, and the reply says so) |
 
 **`check`** takes `kind`, `a`, for two parts `b`, and `layout`; `a` and `b`
-are names of whole parts. `overhang`, `thin` and `bed` ask whether it prints:
+are names of whole parts. `interference` and `bed` take neither. `overhang`, `thin` and `bed` ask whether it prints:
 they are of the `print` layout when the model has one and no other is named.
 
 | `kind` | Reply |
 |---|---|
 | `overlap` | the `volume` two solid parts share, in mm³, and the box it lies in |
 | `clearance` | the least `distance` between two parts and the `points` it is between; 0 when they touch, and when they overlap, which `overlapping: true` then says |
+| `interference` | no part: every pair of the layout's solid parts at once. The pairs that share volume (`interfering`, each with its `volume` and the box it lies in, largest first), the pairs that only touch (`touching`) and how many are `clear`. Pairs whose boxes are apart are clear without a cut; the others are cut in order of how much their boxes overlap, for 20 s at most, and `sampling` says how many were measured when the time runs out. Not answered in a layout torno spread for display |
 | `mesh` | whether the mesh the part is drawn and exported with is closed (`watertight`), its `triangles`, the number of `openEdges` and where up to 20 of them are |
 | `overhang` | with `angle` (degrees from vertical, 45 when none is given): the `faces` of `a` that face down steeper than that, each a `ref` (`tray/F7`) with its `area` and `steepest` lean, and their whole `area`; faces on the bed are left out. Planes are exact; a curved face is judged by its normals at sampled points and is not |
 | `thin` | with `min` (mm): the `faces` of `a` where the wall, measured along the inward normal at sampled points of each face, is under `min`, with the `thinnest` of each and of the part; always approximate, and `sampling` says what was measured |

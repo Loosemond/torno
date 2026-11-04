@@ -216,7 +216,7 @@ def test_a_triangle_that_welding_leaves_without_area_opens_nothing():
 def test_unknown_kind_names_the_kinds():
     assert refused(boxes([0, 0, 0]), {"kind": "collide", "layout": "assembly", "a": "a"}) == (
         "bad_request",
-        "check needs args.kind, one of overlap, clearance, mesh, overhang, thin and bed",
+        "check needs args.kind, one of overlap, clearance, interference, mesh, overhang, thin and bed",
     )
 
 
@@ -370,3 +370,70 @@ def test_the_volume_shared_with_a_freeform_solid_is_approximate_and_right_to_a_m
     assert check(apart, "overlap", "prism", "block") == NOTHING_SHARED
     # Nor is the box of what they share, which ends in a spline.
     assert shared["bboxExact"] is False
+
+
+# Interference
+
+
+def four_parts() -> dict:
+    """a and b overlap by 5 mm, c only touches b, d is far off."""
+    from build123d import Box, Pos
+
+    return {
+        "assembly:a": Box(20, 20, 10),
+        "assembly:b": Pos(15, 0, 0) * Box(20, 20, 10),
+        "assembly:c": Pos(30, 0, 0) * Box(10, 20, 10),
+        "assembly:d": Pos(200, 0, 0) * Box(10, 10, 10),
+    }
+
+
+def interference(shapes, kept=None) -> dict:
+    return queries.run(shapes, "check", {"kind": "interference", "layout": "assembly"}, {} if kept is None else kept)
+
+
+def test_interference_lists_sharing_pairs_largest_first_and_counts_the_clear():
+    told = interference(four_parts())
+    assert told["pairs"] == 6
+    shared = {(p["a"], p["b"]): p["volume"] for p in told["interfering"]}
+    assert shared[("a", "b")] == pytest.approx(5 * 20 * 10)
+    assert list(shared) == [("a", "b")]
+    assert told["touching"] == [{"a": "b", "b": "c"}]
+    assert told["sampling"] == {"measured": 2, "of": 2, "complete": True}
+    assert told["clear"] == 4
+
+
+def test_interference_tells_a_pair_that_only_touches():
+    from build123d import Box, Pos
+
+    shapes = {
+        "assembly:a": Box(10, 10, 10),
+        "assembly:b": Pos(10, 0, 0) * Box(10, 10, 10),
+        "assembly:c": Pos(100, 0, 0) * Box(10, 10, 10),
+    }
+    told = interference(shapes)
+    assert told["interfering"] == []
+    assert told["touching"] == [{"a": "a", "b": "b"}]
+    assert told["clear"] == 2
+
+
+def test_interference_stops_at_its_budget_and_says_so(monkeypatch):
+    monkeypatch.setattr(checks, "INTERFERENCE_BUDGET", -1.0)
+    told = interference(four_parts())
+    assert told["sampling"] == {"measured": 0, "of": 2, "complete": False}
+    assert told["interfering"] == [] and told["clear"] == 4
+
+
+def test_interference_works_out_each_pair_once():
+    kept: dict = {}
+    interference(four_parts(), kept)
+    assert ("shared", "assembly", "a", "b") in kept
+
+
+def test_interference_names_parts_that_are_no_solid_and_needs_a_layout():
+    from build123d import Box, Shell
+
+    shapes = four_parts()
+    shapes["assembly:e"] = Shell(Box(5, 5, 5).faces())
+    assert interference(shapes)["notSolid"] == ["e"]
+    assert refused(shapes, {"kind": "interference"})[0] == "bad_request"
+    assert refused(shapes, {"kind": "interference", "layout": "nope"})[0] == "bad_ref"
