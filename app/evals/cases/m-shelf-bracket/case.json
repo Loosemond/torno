@@ -1,0 +1,45 @@
+{
+  "object": "shelf",
+  "track": "missing dimensions",
+  "prompts": [
+    "Make the shelf bracket. Ask me about anything the brief leaves open before you build."
+  ],
+  "answers": {
+    "leg": "Both legs 120 mm long.",
+    "hole": "The holes are 4.5 mm.",
+    "screw": "The holes are 4.5 mm.",
+    "size": "Both legs 120 mm long, holes 4.5 mm.",
+    "default": "I don't know: choose, and say what you chose."
+  },
+  "turns": 4,
+  "checks": [
+    {
+      "id": "valid",
+      "kind": "valid"
+    },
+    {
+      "id": "parts",
+      "kind": "parts",
+      "names": [
+        "shelf"
+      ]
+    },
+    {
+      "id": "shelf-y",
+      "kind": "size",
+      "part": "shelf",
+      "axis": "y",
+      "expect": 5,
+      "tol": 0.05
+    },
+    {
+      "id": "holes",
+      "kind": "hole",
+      "part": "shelf",
+      "diameter": 4.5,
+      "through": true,
+      "count": 4,
+      "tol": 0.05
+    }
+  ]
+}

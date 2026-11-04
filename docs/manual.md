@@ -1928,6 +1928,33 @@ folder, removed once it has quit, and nothing in `~/.config/torno` (on macOS `~/
 by the test code; none is in the repository. A test holds this file to the
 code: its table of keys, and the tools it names.
 
+**The evals: prompts to parts with the real Claude Code.** `app/evals/` measures whether a change to torno makes
+the agent build better parts. It is not a test: it runs the real `claude` under your login and spends your
+subscription, so no suite and no CI runs it, and it starts only when you ask three times: `TORNO_EVAL=1`, no `CI`,
+and `spend my subscription` typed once it has said the model, the cases and the budget.
+
+```sh
+pnpm build
+TORNO_EVAL=1 pnpm -C app eval                        # every case, 5 times each, sonnet, $2 a run at most
+TORNO_EVAL=1 pnpm -C app eval --case t1-box --repeats 1 --label try
+pnpm -C app eval --compare app/evals/out/<a>.jsonl app/evals/out/<b>.jsonl   # two reports side by side
+```
+
+A case (`app/evals/cases/<id>/case.json`) is a brief, often a start model and marks, the prompts, the answers of the
+person it plays (by topic, with a default: "I don't know: choose, and say what you chose"), a turn limit and the
+checks. Each run copies the case to a new temporary folder (never a workspace of yours), starts the built app on it in
+a hidden window, sends the prompts through the chat with `claude --model <model> --max-budget-usd <budget>
+--permission-mode acceptEdits`, allows edits and torno's tools and denies every other request, and answers questions
+from the case. Then it scores the model as the agent left it: `app/evals/score.py`, with torno's kernel loader, checks
+validity, part names, solids, sizes and ratios, volume, clearance, overlap and holes on the B-rep (each pass or fail
+with its number, exact only where the kernel says so), and an `mcp` check calls a torno tool through the project's
+MCP address. The cases: three of primitives and plates (T1), four printable parts with fillets, bosses and a lid
+that fits (T2), two of mating parts (T3), two that leave a dimension out (asking is right), two pairs of the same
+edit by a mark and by text alone, and two edits that must change nothing else. The report is one JSON line per run
+in `app/evals/out/<date>-<commit>-<label>.jsonl` (ignored by git), with checks passed, the build apart, whether it
+asked before it first wrote the model, whether it said done while a check failed, turns, tools by name, pictures,
+tokens, cost and time from the CLI's own result, and a Markdown table beside it.
+
 ## Environment variables
 
 | Variable | Effect |
@@ -1939,6 +1966,8 @@ code: its table of keys, and the tools it names.
 | `TORNO_CONFIG=<path>` | the config file to use instead of `~/.config/torno/config.json` (on macOS `~/Library/Application Support/torno/config.json`) |
 | `TORNO_DEBUG=1` | print to stderr the workspace opened at start, the address of the MCP server, and the command line and hooks of every session |
 | `TORNO_OUTSIDE_AGENTS=1` | a spike (#54): open a socket only you can open, in your runtime folder, through which an agent torno did not start reaches one project's tools by `node scripts/torno-mcp.mjs <project folder>` (as a stdio MCP server in its config), after you allow it in the window. Off by default. |
+| `TORNO_EVAL=1` | lets `pnpm -C app eval` start, which spends your subscription; it still asks before it starts, and never runs under `CI` |
+| `TORNO_EVAL_AGENT=<cmd>` | the agent of the evals in place of `claude --model … --max-budget-usd … --permission-mode acceptEdits`; the stand-in (`node app/test/fake-agent.mjs`) checks the runner and spends nothing |
 | `TORNO_TEST=1` | create the window hidden and never show it; keep Electron's own files in a temporary folder of the run; expose the test hooks; look for `claude` on the `PATH` without running it. For tests only. |
 
 The agent inherits torno's environment without these, and without the variables
@@ -2095,5 +2124,9 @@ With a real agent:
   plays it as the documentation says. Whether the hooks of a `torno-reviewer`'s `look` arrive on the session's
   address (so that its look counts) has not been seen.
 - **Claude Code and the newer tools.** Ask it to cut the part, to look at it drawn apart and to check a part against a scan: `section`, `look` with `explode`, `scan_clash` and `scan_deviation` are called without a permission prompt and their replies are used.
+- **The evals with the real Claude Code.** `pnpm -C app eval` was run end to end only with the stand-in, on the
+  `_smoke` case. Its first real run, the spike of one T1 case and then the baseline of every case five times, is yours:
+  whether a chat of minutes holds up in the hidden window, what a run costs, and whether the cases' checks and answers
+  are fair to a real agent.
 - **What torno says it needs, with the real CLI, a machine without `claude` and one without `uv`.** Tests look for `claude` on the `PATH` and never run it; the stand-in plays `--version` and `auth status`. With the real CLI: the first screen says `claude` is found, its version (`claude --version` prints it first, as `2.1.307 (Claude Code)`) and "signed in" (look at the real output of `claude auth status`: torno reads `loggedIn` and `authMethod` of its JSON, and says nothing of the account where it finds neither); signed out (`claude auth logout`) the line says so and the page of a new project warns above "Create"; a `claude` that hangs or is too old to know `auth status` is said to have not answered, within 3 seconds. On a machine without `claude` on the `PATH` the line says "Not found on PATH", and without `uv` the uv line does and the kernel's is left out. With no `kernel/.venv` (or no `kernel-env` under torno's data folder, packaged), "Not made yet" and "Make it now" run `uv sync` on the network and show its lines, then the line says torno's environment is made; offline the reason is uv's. Started from the Finder or a desktop launcher the `PATH` shown is the one torno has.
 - **An agent torno did not start (#54, a spike).** Start torno with `TORNO_OUTSIDE_AGENTS=1 scripts/torno ~/objects`, open a project, and in its folder add the bridge to your own agent (`claude mcp add torno -- node <torno>/scripts/torno-mcp.mjs .`, or the stdio server of Codex, Gemini CLI or opencode). Torno asks in the window before any tool answers; check that `scene` and `look` work, that the server's instructions reach the model, how long a call takes, which tools are worth it outside, and how the agent fares without torno's hooks. Deny, and the agent is told so; quit torno, and it is told how to start it. Whether to keep it, and steps 3 to 5 of #54 (`scripts/torno mcp`, a `news` tool that sends marks, the plugin's `.mcp.json`, a README section), wait for that trial.

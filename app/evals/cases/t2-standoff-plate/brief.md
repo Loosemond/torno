@@ -1,0 +1,1 @@
+A base 80 x 50 x 3 mm with four round bosses for M3 screws, one 6 mm in from each corner: each boss 7 mm across and 8 mm tall above the base, with a blind hole of 2.5 mm diameter 6 mm deep from its top. One part named "base".
