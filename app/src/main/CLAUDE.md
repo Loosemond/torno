@@ -321,16 +321,19 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   when the person removes it. A test run reads and writes no config file but
   one it names with `TORNO_CONFIG`, and Electron keeps its own profile in a folder of the run in the temporary
   folder (`testProfile.ts`).
-- The example is a copy of four objects of `kernel/tests/fixtures/ws`
-  (`EXAMPLE_OBJECTS` in `src/main/example.ts`) made in the system's temporary
-  folder when it is asked for, once in a run, with a marker file at its top
+- The example is a copy of the project in `app/resources/example` (`EXAMPLE_OBJECTS` in
+  `src/main/example.ts`: one, `enclosure`, a model written after the `torno-model` skill's template, with its
+  `brief.md` and, in its `.torno/`, `marks.json` and `scene.json` and nothing else of it:
+  `copiedOfExample`; `kernel/tests/test_example.py` builds it and holds its marks to the build) made in the
+  system's temporary folder when it is asked for, once in a run, with a marker file at its top
   (`EXAMPLE_MARKER`). It is removed at the end of `will-quit`, after the
   writes that were under way and the sessions have ended (`removeExample`),
   and one a crash left is removed at the next start (`sweepExamples`): only
   ever a real folder that marker names, of a torno that no longer runs.
   `WorkspaceInfo.example` says the open folder is it, and the window says
   `EXAMPLE_NOTE` under the workspace's name.
-  The fixtures are never opened in place and never written to. The copy is
+  The example's own folder is never opened in place and never written to (the kernel's test workspace has nothing
+  to do with it). The copy is
   not remembered: not as the workspace to open next, not as a recent folder.
 
 - **What torno needs** (`main/ready.ts`, `main/readiness.ts` `ReadyKeeper`, `shared/ready.ts` `Ready`; the channels `ready:check`,

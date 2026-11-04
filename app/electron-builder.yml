@@ -33,14 +33,12 @@ extraResources:
     to: agent-plugin
   - from: resources/icon.png
     to: icon.png
-  # The example of the first screen: `EXAMPLE_OBJECTS` of src/main/example.ts and what they read (`gauge`'s variant.txt).
-  - from: ../kernel/tests/fixtures/ws
+  # The example of the first screen: `EXAMPLE_OBJECTS` of src/main/example.ts, with the marks and views in each
+  # one's `.torno/`. Not the kernel's test workspace, which stays where it is for the tests.
+  - from: resources/example
     to: example
     filter:
-      - bracket/**
-      - gauge/**
-      - hollow/**
-      - measures/**
+      - '**/*'
       - '!**/__pycache__'
       - '!**/__pycache__/**'
       - '!**/*.pyc'

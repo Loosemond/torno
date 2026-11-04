@@ -39,7 +39,7 @@ introduces it and says how to run it; `docs/manual.md` says everything it does; 
 - The packaged app (`app/electron-builder.yml`; `pnpm dist:mac` makes `torno.app`, `pnpm pack:check` the same files
   as a Linux folder, a stand-in for checking and no release): the asar holds `out/**` and the dependencies of main
   and preload (renderer-only ones are `devDependencies`, bundled by Vite), node-pty unpacked; `Resources/` holds
-  `kernel` (`pyproject.toml`, `uv.lock`, `src/`), `agent-plugin`, `icon.png` and `example` (the four objects). It
+  `kernel` (`pyproject.toml`, `uv.lock`, `src/`), `agent-plugin`, `icon.png` and `example` (the project it opens). It
   never writes inside its bundle: the kernel and the import process run with `--frozen` and
   `UV_PROJECT_ENVIRONMENT=<userData>/kernel-env` (`kernelRun` in `main/paths.ts`, `kernelEnv` in
   `main/kernel/client.ts`; not for a workspace with a `pyproject.toml`, whose `.venv` is its own). Signed ad hoc, not

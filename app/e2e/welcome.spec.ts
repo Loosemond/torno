@@ -11,6 +11,7 @@ import { openListed } from './objects'
 // The first screen, and the sheet of keys: what someone who has never seen torno meets, and where they look a key up.
 const appDir = resolve(__dirname, '..')
 const fixtures = resolve(appDir, '../kernel/tests/fixtures/ws')
+const exampleSource = resolve(appDir, 'resources/example')
 const fakeAgent = resolve(appDir, 'test/fake-agent.mjs')
 
 test.describe.configure({ mode: 'serial' })
@@ -154,7 +155,7 @@ test('the folders opened lately are listed from torno\'s own file: one that is g
 test('the example is a copy in a temporary folder: the repository\'s own is neither opened nor written, and the copy is not remembered', async () => {
   const home = temp('example')
   const config = join(home, 'config.json')
-  const before = readdirSync(fixtures, { recursive: true }).filter((path) => !String(path).includes('__pycache__')).sort()
+  const before = readdirSync(exampleSource, { recursive: true }).filter((path) => !String(path).includes('__pycache__')).sort()
   const bare = await launch({ TORNO_CONFIG: config })
   let copy = ''
   try {
@@ -163,19 +164,18 @@ test('the example is a copy in a temporary folder: the repository\'s own is neit
     await first.waitForSelector('[data-region="left"]')
     copy = (await first.evaluate(() => window.__tornoTest!.state())).workspace!.root
     expect(copy.startsWith(join(tmpdir(), 'torno-example-')) || copy.startsWith(join(realpathSync(tmpdir()), 'torno-example-'))).toBe(true)
-    expect(copy.startsWith(fixtures)).toBe(false)
+    expect(copy.startsWith(exampleSource)).toBe(false)
     await expect(first.locator('.object-row')).toHaveText([...EXAMPLE_OBJECTS].sort())
-    // One of them builds, in the copy.
-    await first.locator('.object-row', { hasText: 'hollow' }).click()
+    // It builds, in the copy, and its marks and views are there.
+    await first.locator('.object-row', { hasText: 'enclosure' }).click()
     await expect.poll(async () => (await first.evaluate(() => window.__tornoTest!.state())).build?.status, { timeout: 60_000 }).toBe('ok')
-    expect(existsSync(join(copy, 'hollow', '.torno'))).toBe(true)
+    expect(existsSync(join(copy, 'enclosure', '.torno', 'marks.json'))).toBe(true)
     expect(existsSync(config)).toBe(false)
   } finally {
     await bare.close()
     rmSync(home, { recursive: true, force: true })
   }
-  expect(readdirSync(fixtures, { recursive: true }).filter((path) => !String(path).includes('__pycache__')).sort()).toEqual(before)
-  expect(existsSync(join(fixtures, 'hollow', '.torno'))).toBe(false)
+  expect(readdirSync(exampleSource, { recursive: true }).filter((path) => !String(path).includes('__pycache__')).sort()).toEqual(before)
   // The copy went with the run.
   expect(existsSync(copy)).toBe(false)
 })

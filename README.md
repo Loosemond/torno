@@ -153,7 +153,7 @@ scripts/torno               # the workspace you opened last, or the first screen
 ```
 
 The launcher rebuilds the app when the sources change, so `git pull` and run it again. On the first screen,
-**Open the example** opens a few small projects in a temporary copy, so you can try everything without touching
+**Open the example** opens a small project, an enclosure with its brief and a few marks, in a temporary copy, so you can try everything without touching
 your own files.
 
 On Linux, `scripts/torno --install-desktop` adds torno to your application launcher. On macOS,

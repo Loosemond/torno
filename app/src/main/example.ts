@@ -1,23 +1,24 @@
 import { existsSync } from 'node:fs'
 import { cp, lstat, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
-import { basename, join } from 'node:path'
+import { join, relative, sep } from 'node:path'
 
-// The example the first screen offers: objects of the repository's own test workspace, which torno has
-// beside it when it is run from the repository. It is never opened in place and never written to: what is
-// opened is a copy in a temporary folder, which is removed when torno quits, once nothing is being written
-// there any more. A copy that a crash left is removed at the next start. Whatever is removed is a folder that
-// torno's own marker file names as such a copy: never a folder because of its name or its place.
+// The example the first screen offers: a project made to be shown (`app/resources/example`, which a packaged app
+// carries in its resources too): a model with its brief, two marks, a dimension that fails and two saved views.
+// It is never opened in place and never written to: what is opened is a copy in a temporary folder, which is
+// removed when torno quits, once nothing is being written there any more. A copy that a crash left is removed at
+// the next start. Whatever is removed is a folder that torno's own marker file names as such a copy: never a
+// folder because of its name or its place.
 
-/** The objects of the test workspace that build and show something. The others are there to fail. */
-export const EXAMPLE_OBJECTS = ['bracket', 'gauge', 'hollow', 'measures'] as const
+/** The projects of the example, as folders of it. */
+export const EXAMPLE_OBJECTS = ['enclosure'] as const
 
 /**
- * Where the example is copied from, or null where there is none. Run from the repository it is the test workspace
- * beside `app/`; a packaged app carries the four objects in its resources (`example`, `extraResources` of
- * electron-builder.yml). Null when one of them is missing. `resources` is `process.resourcesPath`.
+ * Where the example is copied from, or null where there is none: `resources/example` beside `app/` when torno is run
+ * from the repository, the `example` of its resources when packaged (`extraResources` of electron-builder.yml).
+ * Null when one of its projects is missing. `resources` is `process.resourcesPath`.
  */
 export function exampleSource(appPath: string, packaged: boolean, resources: string = process.resourcesPath): string | null {
-  const source = packaged ? join(resources, 'example') : join(appPath, '..', 'kernel', 'tests', 'fixtures', 'ws')
+  const source = packaged ? join(resources, 'example') : join(appPath, 'resources', 'example')
   return EXAMPLE_OBJECTS.every((name) => existsSync(join(source, name))) ? source : null
 }
 
@@ -70,15 +71,32 @@ export async function sweepExamples(tmp: string): Promise<string[]> {
   return swept
 }
 
+/** What of a project's `.torno` the example is shown with. */
+const SHOWN = ['marks.json', 'scene.json']
+
+/**
+ * Whether a file or folder of a project of the example is copied: what the example is made of (the model, the brief, and
+ * the marks and views it is shown with), without what Python or torno left in the source. A dotted name is left out.
+ */
+export function copiedOfExample(project: string, from: string): boolean {
+  const parts = relative(project, from).split(sep).filter((part) => part !== '')
+  if (parts.length === 0) return true
+  if (parts[0] === '.torno') return parts.length === 1 || (parts.length === 2 && SHOWN.includes(parts[1]))
+  return parts.every((part) => part !== '__pycache__' && !part.startsWith('.'))
+}
+
+/** Copies the projects of the example into the folder `into`, which is there already. */
+async function copyProjects(source: string, into: string): Promise<void> {
+  for (const name of EXAMPLE_OBJECTS) {
+    const project = join(source, name)
+    await cp(project, join(into, name), { recursive: true, filter: (from) => copiedOfExample(project, from) })
+  }
+}
+
 /** A copy of the example in a new folder under `tmp`, without what Python or torno left in the source. Answers with the copy's path. */
 export async function copyExample(source: string, tmp: string): Promise<string> {
   const into = await mkdtemp(join(tmp, PREFIX))
   await writeFile(join(into, EXAMPLE_MARKER), `${JSON.stringify({ torno: 'example', pid: process.pid, at: new Date().toISOString() })}\n`)
-  for (const name of EXAMPLE_OBJECTS) {
-    await cp(join(source, name), join(into, name), {
-      recursive: true,
-      filter: (from) => from === join(source, name) || (basename(from) !== '__pycache__' && !basename(from).startsWith('.'))
-    })
-  }
+  await copyProjects(source, into)
   return into
 }

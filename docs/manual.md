@@ -99,8 +99,10 @@ With no folder to open, the first screen says what torno is, says what is ready
 and what is missing (see Requirements), draws how a folder
 of projects is laid out and offers "Open folder" (an empty one is fine) and
 "Open the example"; coming back, it lists the folders opened lately first. The
-example is four small projects
-of the repository's test workspace, copied to a temporary folder. That copy is
+example is one small project, an enclosure for a sensor board, made to be
+shown: a model with three parts (a body, a lid and a clip), a brief written as a
+person would, two marks, a dimension that fails and two saved views. It is
+copied to a temporary folder. That copy is
 removed when torno quits, with whatever was made in it, and the window says so
 under the workspace's name for as long as it is open; one that a crash left is
 removed at the next start. A folder given to `scripts/torno` is added to the
