@@ -44,10 +44,10 @@ class FakeKernel implements KernelClient {
       opts?.onStarted?.({ retired: this.retiring })
     })
   }
-  succeed(index: number, seconds = 0.5): void {
+  succeed(index: number, seconds = 0.5, uses?: string[]): void {
     const call = this.calls[index]
     this.retired.delete(call.dir)
-    call.settle({ ok: true, scene: sceneOf(call.model, seconds), blob: Buffer.from([index]) })
+    call.settle({ ok: true, scene: uses ? { ...sceneOf(call.model, seconds), uses } : sceneOf(call.model, seconds), blob: Buffer.from([index]) })
   }
   fail(index: number, error: BuildError): void {
     this.calls[index].settle({ ok: false, error })
@@ -640,6 +640,35 @@ describe('Builds', () => {
     watched.get('/ws/bracket')!()
     watched.get('/ws/common')!()
     expect(kernel.calls).toHaveLength(3)
+  })
+
+  it('watches what the model imported from another project, and builds again when that file is saved', async () => {
+    const { kernel, builds, watched } = setup()
+    builds.open(bracket)
+    kernel.succeed(0, 0.5, ['gear/gear.py', 'common/screws.py'])
+    await flush()
+    // The folder of the used file is watched; the project's own and common/ already were.
+    expect([...watched.keys()]).toEqual(['/ws/bracket', '/ws/common', '/ws/gear'])
+    watched.get('/ws/gear')!(['/ws/gear/notes.txt']) // not a file it imported
+    expect(kernel.calls).toHaveLength(1)
+    watched.get('/ws/gear')!(['/ws/gear/gear.py'])
+    expect(kernel.calls).toHaveLength(2)
+    kernel.succeed(1, 0.5, ['gear/gear.py'])
+    await flush()
+    // Used no longer: not watched for it any more once a build says so; closing stops the watch.
+    builds.rebuild('bracket')
+    kernel.succeed(2, 0.5, [])
+    await flush()
+    expect([...watched.keys()]).toEqual(['/ws/bracket', '/ws/common'])
+  })
+
+  it('does not watch what a closed project used', async () => {
+    const { kernel, builds, watched } = setup()
+    builds.open(bracket)
+    kernel.succeed(0, 0.5, ['gear/gear.py'])
+    await flush()
+    builds.close('bracket')
+    expect([...watched.keys()]).toEqual([])
   })
 
   it('shows only the second build when a change arrives mid-build', async () => {

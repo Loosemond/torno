@@ -91,6 +91,13 @@ describe('stateText', () => {
     expect(stateText(obj, OK, undefined, [], undefined, [view('Old', { layout: 'bed' })])).toContain('Saved views: "Old".')
   })
 
+  it('names the files the model imported from beside its project', () => {
+    expect(stateText(obj, OK, { revision: 3, scene: SCENE }, [])).not.toContain('Uses:')
+    expect(stateText(obj, OK, { revision: 3, scene: { ...SCENE, uses: ['box/box.py', 'common/fit.py'] } }, [])).toContain(
+      'Model: bracket.py, r3.\n\nUses: box/box.py, common/fit.py (a save in one builds this project again).\n\n- assembly'
+    )
+  })
+
   it('says how the build stands, what each layout holds and every mark that is not resolved', () => {
     const marks = [pin(1), pin(2, { status: 'resolved' }), pin(3, { author: 'agent', status: 'sent', layout: 'print' }), pin(4, { status: 'sent', anchorState: 'orphaned' })]
     expect(stateText(obj, OK, { revision: 3, scene: SCENE }, marks)).toBe(

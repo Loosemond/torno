@@ -271,7 +271,12 @@ the parts where torno put them, and `scene` says how far each was moved
 **Builds.** Saving a file in the project's folder (dotfiles, `out/`, `cache/`,
 `.torno/` and `__pycache__/` are ignored, as are `build/`, `dist/`,
 `node_modules/`, `.venv/` and `.git/`) or in the workspace's `common/` starts
-a build 300 ms later. Saving a `.py` file during a build cancels that build
+a build 300 ms later. So does saving a file that the model imported from another
+project (`uses` in `scene` and `state.md`: `box/box.py` for a lid that imports the
+box's maker), as far as the last good build found it; torno reads this from what
+the model imported and never asks you to declare it. A project that imports one
+that imports it back shows the other in `uses` on both cards; Python decides
+whether that works. Saving a `.py` file during a build cancels that build
 and starts another. Any other file changing during a build may be the model's
 own doing, so the build is left to finish and one more follows it. A build
 that runs longer than 600 s is stopped; `TORNO_BUILD_TIMEOUT` sets another
@@ -1253,7 +1258,8 @@ filters by name, the arrows move, `Enter` opens, `Esc` goes back. A card has:
   `.torno/thumb.png`. No build is ever started for a picture: a project that
   was never built in torno says `No picture yet`. The card says when the
   picture was made, what it leaves out (`cut by its section`), and `A source
-  has changed since` when a `.py` file of the object or of `common/` is newer.
+  has changed since` when a `.py` file of the object, of `common/` or one it imported from another
+  project (`Uses box/box.py` on the card, for a project opened in this run) is newer.
 - **How the build stands**, for a project opened in this run: `Built, r6`,
   building, or failed, with the picture of the last build that worked dimmed.
   Otherwise `Not opened in this run`.

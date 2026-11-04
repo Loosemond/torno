@@ -51,6 +51,8 @@ export function stateText(obj: ObjectInfo, build: BuildState | undefined, last: 
   if (!last) lines.push('Nothing has been built yet.')
   else {
     if (last.scene.model) lines.push(`Model: ${last.scene.model}, r${last.revision}.`, '')
+    // What the model imports from beside its project: a save there builds this project again.
+    if (last.scene.uses && last.scene.uses.length > 0) lines.push(`Uses: ${last.scene.uses.join(', ')} (a save in one builds this project again).`, '')
     for (const layout of last.scene.layouts) {
       const parts = last.scene.parts.filter((p) => p.layout === layout)
       const groups = groupsIn(last.scene, layout)

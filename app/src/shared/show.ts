@@ -14,6 +14,8 @@ export interface ObjectCard {
   problemAt?: string
   /** Opened in this run: it has a build state, and its marks are checked against it. */
   opened: boolean
+  /** Of an object opened in this run: the files its last good build imported from outside its folder (another project's, `common/`), paths from the workspace. Absent for none. */
+  uses?: string[]
   build?: { status: 'idle' | 'building' | 'ok' | 'failed'; revision: number; stale: boolean; letGo?: 'memory'; error?: string }
   /**
    * The picture on file: when it was made, of which layout, and whether the model file is newer than it (or

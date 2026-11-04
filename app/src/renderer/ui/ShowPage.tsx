@@ -289,6 +289,11 @@ function Card({ card, open, onOpen }: { card: ObjectCard; open: boolean; onOpen:
             {numbered(picture.text)}
           </span>
         )}
+        {card.uses && card.uses.length > 0 && (
+          <span className="card-line" data-part="uses" title={card.uses.join(', ')}>
+            Uses {card.uses.join(', ')}
+          </span>
+        )}
         {picture?.behind && (
           <span className="card-line" data-part="behind" data-tone="warn">
             {BEHIND}

@@ -123,6 +123,7 @@ def _build(
         # Read here, by the worker that loaded the model: the supervisor never does.
         scene["params"] = params
         scene["groups"] = groups
+        scene["uses"] = loader.used_files(Path(dir), model)
         # Each part names its group, so that whoever has the part has it (an explode moves a group as one).
         group_of = {name: group["name"] for group in groups for name in group["parts"]}
         for part in scene.get("parts", []):
