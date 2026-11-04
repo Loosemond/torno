@@ -725,3 +725,8 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   tolerance and an angle typed in, and Export is off while either is out of its range. A 3MF has "Open it once
   saved", off by default. The window sends names and numbers and never a path; once saved, the sheet says where,
   of which build, and what the read-back checked (`ExportSaved.checked`), every number in the monospace face.
+- **"Picture"** in the view bar (`ui/PictureMenu.tsx`, after the explode button) keeps the view as a PNG: a menu with the long
+  edge (`PICTURE_SIZES`, 1280 to 4000), "Marks" and "Axes and scale bar" (both on), and "Save picture…". The window draws
+  the picture itself (`pictureForPerson` in `state/agent.ts`, the code of `look` with `ImageRequest.person`) and hands main
+  its bytes with the object's id (`export.savePicture`); main asks where to save, so the window names no path. `person` is
+  set only there: a request of the agent's, which comes over `view:look`, is held to 2000 px (`connectLook`).

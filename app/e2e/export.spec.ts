@@ -363,6 +363,48 @@ test('a cancelled dialog writes nothing, and a folder that is not there is said,
   expect((await state()).page).toBe('object')
 })
 
+test('a picture of the view is saved where the dialog says, as large as 4000 px, while the agent\'s stays within 2000', async () => {
+  const pngSize = (file: string): { width: number; height: number } => {
+    const bytes = readFileSync(file)
+    expect([...bytes.subarray(0, 8)]).toEqual([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) }
+  }
+  await open('hollow')
+  const menu = page.getByRole('menu', { name: 'Save a picture of the view' })
+  const picture = page.getByRole('toolbar', { name: 'View' }).getByRole('button', { name: 'Picture', exact: true })
+  const before = (await hooks()).savePicks
+  await picture.click()
+  await menu.getByRole('menuitemradio', { name: '4000' }).click()
+  // Without the marks, the axes and the scale bar.
+  await menu.getByRole('menuitemcheckbox', { name: 'Marks' }).click()
+  await menu.getByRole('menuitemcheckbox', { name: 'Axes and scale bar' }).click()
+  const out = join(outDir, 'view.png')
+  await setSave(out)
+  await menu.getByRole('menuitem', { name: 'Save picture…' }).click()
+  await expect(menu.getByRole('status')).toHaveText('Saved view.png')
+  expect((await hooks()).savePicks).toBe(before + 1)
+  const { width, height } = pngSize(out)
+  expect(Math.max(width, height)).toBe(4000)
+  expect((await hooks()).saveOffered).toBe(join(root, 'hollow', '.torno', 'exports', 'hollow-r1.png'))
+  // A name without its ending takes it; a cancelled dialog writes nothing; no file beside it is left.
+  await setSave(join(outDir, 'second'))
+  await menu.getByRole('menuitem', { name: 'Save picture…' }).click()
+  await expect(menu.getByRole('status')).toHaveText('Saved second.png')
+  await setSave(null)
+  await menu.getByRole('menuitem', { name: 'Save picture…' }).click()
+  await expect(menu.getByRole('menuitem', { name: 'Save picture…' })).toBeEnabled()
+  expect(readdirSync(outDir).filter((name) => name.endsWith('.png')).sort()).toEqual(['second.png', 'view.png'])
+  expect(readdirSync(outDir).filter((name) => name.endsWith('.tmp'))).toEqual([])
+  // The agent's pictures keep their cap: a size asked beyond 2000 is 2000.
+  const agents = await page.evaluate(async () => {
+    const result = await window.__tornoTest!.look({ size: 4000 })
+    return { width: result.width, height: result.height }
+  })
+  expect(Math.max(agents.width, agents.height)).toBe(2000)
+  await page.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
+})
+
 test('several objects go into one file from the page of objects, each unpacked when it is first shown', async () => {
   await open('bracket')
   await page.getByRole('button', { name: 'All projects' }).click()

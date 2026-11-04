@@ -655,6 +655,14 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `__tornoMain.openedFiles` and nothing is opened). The plan of such a file weighs nothing (`exportPlan`: each
   object's `layoutParts`, and `ONE_OBJECT` when several are ticked).
 
+- **A picture of the view** (`export:savePicture`; `FileFormat` `png` in `shared/exportdata.ts`): the window draws it
+  (`pictureForPerson`, the renderer of `look` with `ImageRequest.person`: up to 4000 px, `MAX_PICTURE_EDGE`, and
+  without the axes and scale bar when asked) and sends the PNG's bytes and the object's id; main reads the header
+  (`checkedPicture`: a PNG, at most 4000 px and 64 MB, else refused), asks where to save (`askWhere`, the same dialog and
+  hook as any export, opening in `.torno/exports/`, default name `<name>-r<revision>.png`) and writes through
+  `writeExport`. The path is the dialog's alone and no agent has a tool for it; the agent's pictures stay within
+  2000 px (`checkedImage`, `pictureSize` without `forPerson`).
+
 ## Agents
 
 - Claude Code is the one agent torno runs. It is started by an adapter (`src/main/sessions/adapter.ts`: `AgentAdapter`; `claude.ts`

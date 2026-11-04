@@ -215,6 +215,8 @@ export interface TornoBridge {
     plan(req: ExportRequest): Promise<ExportPlan>
     /** Asks where to save (under test: `__tornoMain.pickSave`), writes the file there, and says where; of a file of the model, what its check found. Null when the dialog was cancelled. The path is the dialog's alone: the window never names one. */
     save(req: ExportRequest): Promise<ExportSaved | null>
+    /** Keeps a picture of the view the window drew (a PNG, up to 4000 px on its long edge): asks where to save (under test: `__tornoMain.pickSave`) and writes it there. Null when the dialog was cancelled. The path is the dialog's alone. */
+    savePicture(objectId: string, png: Uint8Array): Promise<ExportSaved | null>
     /** The export sheet was put away: what main kept ready for it (scans reduced) is let go. */
     done(): void
   }

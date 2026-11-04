@@ -1335,6 +1335,16 @@ triangles, closed, volume within 0.04 % of the model`. Checked, not printed. A
 3MF can be opened once saved in the program your system opens 3MF files with,
 your slicer, when "Open it once saved" is ticked.
 
+### A picture of the view
+
+"Picture" in the bar over the view keeps the view as it is (the camera, the layout, the parts that are on, the
+section or the explode, the scans) as one PNG, for a forum, a chat or a document. It is drawn by the same code as the
+pictures the agent is given. You choose its long edge, 1280, 2000, 3000 or 4000 pixels, whether the marks are in it,
+and whether the axes and the scale bar are. A picture you keep is not for the agent, so the 2000 pixels the agent's
+pictures stop at do not hold for it; `look` is still held to them. "Save picture…" opens the system's save dialog in
+`.torno/exports/` with a name offered (`<name>-r<revision>.png`), and the file is written whole or not at all, like an
+export; a name without `.png` gets it. No agent has a tool for it, and it is not kept under `.torno/views/`.
+
 ## Keys
 
 `?` shows this table in the window, and searches it. Above the keys the sheet lists
@@ -1779,6 +1789,7 @@ On the screen:
 - **A scan file dropped on the view.** Drag a GLB or STL from the file manager onto the parts: it is imported as "Import scan…" would.
 - **The folder dialog.** "Open folder" on the first screen, and "Open folder…" in the menu of the folder button at the top left: the system's folder dialog opens, and the folder chosen is opened.
 - **The save dialog of an export.** "Export…", then "Export": the system's save dialog opens in `.torno/exports/` with a name offered, and the file is written where you say.
+- **The save dialog of a picture.** "Picture" in the bar over the view, 4000 px, "Save picture…": the system's save dialog opens in `.torno/exports/` with `<name>-r<revision>.png` offered, and the PNG opens in an image viewer at 4000 px on its long edge, with the view as it was on screen.
 - **The replace question.** Save an export as `x` where `x.html` exists: torno asks before it replaces that file, and "Cancel" writes nothing.
 - **A 3MF opened in a slicer.** Export a 3MF of a plate of two parts or more and open it in PrusaSlicer, Bambu Studio, OrcaSlicer and Cura: each part is an object of its name, in millimetres, where torno set it; it slices with no repair asked for. "Open it once saved" opens it in the slicer the system gives `.3mf` files to. Tests read the file back with lib3mf only.
 - **An STL in a slicer, a STEP in a CAD program.** Open an STL of a round part in a slicer: no facets you can see on its holes at 0.01 mm. Open a STEP in FreeCAD and in Fusion or Onshape: the parts are named bodies in their colours, in millimetres, and a volume measured there is the one torno told; a part named with an accent (`tampa ção`) keeps it there, as torno writes names in UTF-8. Tests read it back with OCC only.

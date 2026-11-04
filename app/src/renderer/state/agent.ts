@@ -329,10 +329,13 @@ export function connectAgent(viewport: Pick<Viewport, 'setView' | 'getCamera' | 
   }
 }
 
-let draw: ((req: LookRequest) => Promise<LookResult>) | null = null
+/** What a picture the person keeps asks beyond a request of the agent's: it may be larger than the agent's cap, and may leave out the axis triad and the scale bar. */
+export interface PersonPicture { cues: boolean }
+
+let draw: ((req: LookRequest, person?: PersonPicture) => Promise<LookResult>) | null = null
 
 /** The viewport says how a picture of it is made, while there is one; null when it is gone. */
-export function setPictures(of: ((req: LookRequest) => Promise<LookResult>) | null): void {
+export function setPictures(of: ((req: LookRequest, person?: PersonPicture) => Promise<LookResult>) | null): void {
   draw = of
 }
 
@@ -345,6 +348,17 @@ export function picture(req: LookRequest): Promise<LookResult> {
   if (store.getState().objectId === null) return Promise.reject(new Error('no project open in the torno window'))
   if (!draw) return Promise.reject(new Error('the torno window has no 3D view to draw it with'))
   return draw(req)
+}
+
+/**
+ * A picture of the view as it is, for the person to keep (`Save picture`): up to `MAX_PERSON_IMAGE` pixels on its
+ * long edge, which the agent's pictures may not be. It is made by the same renderer as `picture`, and is asked for
+ * only here, by the window itself: a request of the agent's, which comes over `view:look`, never reaches it.
+ */
+export function pictureForPerson(size: number, marks: boolean, cues: boolean): Promise<LookResult> {
+  if (store.getState().objectId === null) return Promise.reject(new Error('no project open in the torno window'))
+  if (!draw) return Promise.reject(new Error('the torno window has no 3D view to draw it with'))
+  return draw({ size, marks }, { cues })
 }
 
 /**
