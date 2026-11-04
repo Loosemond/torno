@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as R
 import { hint, pressed } from '../../../shared/keys'
 import type { Stroke } from '../../state/onboard'
 import { Confirm } from '../Confirm'
-import { ERASER_WIDTH, PEN_WIDTHS, addPoint, paintStroke, paintStrokes, type InkLook } from './strokes'
+import { ERASER_WIDTH, GRID_STEP, PEN_WIDTHS, addPoint, paintStroke, paintStrokes, straighten, type InkLook } from './strokes'
 
 type Tool = 'thin' | 'thick' | 'eraser'
 
@@ -24,6 +24,10 @@ export interface BoardProps {
   size: { width: number; height: number }
   /** A picture of the board's size under the ink (an object URL): the eraser takes away ink, never it. */
   ground?: string
+  /** A light grid under the ink, one square every 40 board pixels (a doodle's; not a drawing on a picture). */
+  grid?: boolean
+  /** The line beside Done. */
+  foot?: string
   /** How the strokes are drawn on the board: asked whenever they are painted, so that an ink of the theme follows it. */
   look: () => InkLook
   /** What the board is opened with. */
@@ -41,7 +45,7 @@ export interface BoardProps {
  * back, clear all of them. The strokes are kept as vectors (`initial` is what it is opened with again), and "Done"
  * hands them over. A stroke is drawn as the pointer moves, in the canvas and never through React.
  */
-export function Board({ title, label, hint: words, size, ground, look, initial, discard, onDone, onCancel }: BoardProps) {
+export function Board({ title, label, hint: words, size, ground, grid, foot, look, initial, discard, onDone, onCancel }: BoardProps) {
   const canvas = useRef<HTMLCanvasElement>(null)
   const sheet = useRef<HTMLElement>(null)
   const strokes = useRef<Stroke[]>(initial.map((s) => ({ ...s, points: [...s.points] })))
@@ -157,6 +161,14 @@ export function Board({ title, label, hint: words, size, ground, look, initial, 
     const ctx = e.currentTarget.getContext('2d')!
     const box = e.currentTarget.getBoundingClientRect()
     // The moves the browser folded into this one are in the coalesced events: a quick line stays smooth.
+    if (e.shiftKey) {
+      // Shift: a straight line from where the stroke began to the pointer; the whole stroke is drawn anew.
+      straighten(d.stroke, ...at(e.nativeEvent, box))
+      repaint()
+      paintStroke(ctx, d.stroke, lookNow.current())
+      d.painted = d.stroke.points.length
+      return
+    }
     for (const one of e.nativeEvent.getCoalescedEvents?.() ?? [e.nativeEvent]) addPoint(d.stroke, ...at(one, box))
     if (d.stroke.points.length > d.painted) {
       paintStroke(ctx, d.stroke, lookNow.current(), d.painted)
@@ -167,6 +179,7 @@ export function Board({ title, label, hint: words, size, ground, look, initial, 
     const d = drawing.current
     if (!d || d.pointer !== e.pointerId) return
     drawing.current = null
+    if (e.shiftKey) straighten(d.stroke, ...at(e.nativeEvent, e.currentTarget.getBoundingClientRect()))
     strokes.current.push(d.stroke)
     dirty.current = true
     setCount(strokes.current.length)
@@ -229,8 +242,9 @@ export function Board({ title, label, hint: words, size, ground, look, initial, 
             className="board-canvas"
             width={size.width}
             height={size.height}
-            style={{ '--board-aspect': String(size.width / size.height), ...(ground ? { backgroundImage: `url("${ground}")` } : {}) } as CSSProperties}
+            style={{ '--board-aspect': String(size.width / size.height), '--grid-x': String(size.width / GRID_STEP), '--grid-y': String(size.height / GRID_STEP), ...(ground ? { backgroundImage: `url("${ground}")` } : {}) } as CSSProperties}
             data-ground={ground ? '' : undefined}
+            data-grid={grid && !ground ? '' : undefined}
             aria-label="Drawing area"
             data-strokes={count}
             onPointerDown={onDown}
@@ -250,9 +264,7 @@ export function Board({ title, label, hint: words, size, ground, look, initial, 
               {problem}
             </p>
           ) : (
-            <p className="board-size num">
-              {size.width} × {size.height}
-            </p>
+            <p className="board-size">{foot ?? ''}</p>
           )}
           <button type="button" className="button" disabled={saving} title={`Put the board away without keeping this (${hint('sheet.close')})`} onClick={leave}>
             Cancel

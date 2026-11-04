@@ -16,6 +16,8 @@ export interface MarkColours {
   reference: string
   /** What is drawn under every line of a mark, 2 px wider: the panel's colour, against which a mark's colour reads on any part. None draws no casing. */
   casing?: string
+  /** What a readout kept in the view is drawn in (the last measurement): `--ink`, never a mark's colour. */
+  ink?: string
 }
 
 // Sizes on screen, in pixels: these hold whatever the zoom.

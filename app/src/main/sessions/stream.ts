@@ -1,3 +1,4 @@
+import { killGroup, signalGroup } from './signals'
 import { type ChildProcess, spawn } from 'node:child_process'
 import { StringDecoder } from 'node:string_decoder'
 import type { AgentAsk, AgentEvents, AgentMessage, AgentTransport, AskAnswer, PromptBlock } from './transport'
@@ -111,6 +112,16 @@ export class ClaudeStream implements AgentTransport {
   /** Closes the CLI's stdin: it finishes what it is doing and exits by itself. */
   end(): void {
     if (this.child.stdin!.writable) this.child.stdin!.end()
+  }
+
+  /** SIGTERM to the group the CLI leads, for one that did not leave once `end` was called. */
+  terminate(): void {
+    signalGroup(this.pid, 'SIGTERM')
+  }
+
+  /** SIGKILL to that group: the CLI and whatever it started. */
+  kill(): void {
+    killGroup(this.pid)
   }
 
   private send(message: object): void {

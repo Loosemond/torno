@@ -19,7 +19,7 @@ export type Draft =
   | { kind: 'arrow'; from: Vec3; to: Vec3 }
   | { kind: 'stroke'; points: Vec3[] }
   /** A measurement under way: its first end, and the line to where the second would be; `to` null while there is only the first. */
-  | { kind: 'dimension'; from: Vec3; to: Vec3 | null }
+  | { kind: 'dimension'; from: Vec3; to: Vec3 | null; /** The last measurement, held after the answer: drawn in ink, not a mark's colour, with this value at its middle (see Viewport.setDraft). */ held?: string }
 
 /** How much of a mark's colour a draft has. */
 const DRAFT_OPACITY = 0.7
@@ -137,7 +137,7 @@ export class MarkLayer {
 
   /** The colours changed, as with the colour scheme: everything is made again. */
   setColours(colours: MarkColours): void {
-    if (colours.user === this.colours.user && colours.agent === this.colours.agent && colours.reference === this.colours.reference && colours.casing === this.colours.casing) return
+    if (colours.user === this.colours.user && colours.agent === this.colours.agent && colours.reference === this.colours.reference && colours.casing === this.colours.casing && colours.ink === this.colours.ink) return
     this.colours = colours
     const marks = [...this.entries.values()].map((e) => e.mark)
     const draft = this.draft?.is ?? null
@@ -154,14 +154,22 @@ export class MarkLayer {
       this.draft = null
     }
     if (!draft) return
-    const object = build(asMark(draft), this.colours, 1)
+    // The last measurement, held: a readout, so in ink and not faint. A pending one is a mark's colour, fainter.
+    const held = draft.kind === 'dimension' && draft.held !== undefined
+    const object = build(asMark(draft), held && this.colours.ink ? { ...this.colours, user: this.colours.ink } : this.colours, 1)
     object.name = 'draft'
-    object.traverse((child) => {
-      const material = (child as THREE.Mesh).material as THREE.Material | undefined
-      if (material) material.opacity *= DRAFT_OPACITY
-    })
+    if (!held)
+      object.traverse((child) => {
+        const material = (child as THREE.Mesh).material as THREE.Material | undefined
+        if (material) material.opacity *= DRAFT_OPACITY
+      })
     this.draft = { is: draft, object }
     this.group.add(object)
+  }
+
+  /** The draft as it is drawn now, or null for none. */
+  currentDraft(): Draft | null {
+    return this.draft?.is ?? null
   }
 
   /** Whether the draft is drawn: it is not in a picture for the agent. */

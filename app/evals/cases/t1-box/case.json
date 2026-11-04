@@ -1,0 +1,60 @@
+{
+  "object": "box",
+  "tier": "T1",
+  "prompts": [
+    "Make the box the brief describes. Build it in the model file, check it with torno's tools, and say when it is done."
+  ],
+  "answers": {
+    "default": "I don't know: choose, and say what you chose."
+  },
+  "checks": [
+    {
+      "id": "valid",
+      "kind": "valid"
+    },
+    {
+      "id": "parts",
+      "kind": "parts",
+      "names": [
+        "box"
+      ]
+    },
+    {
+      "id": "solids",
+      "kind": "solids",
+      "part": "box",
+      "count": 1
+    },
+    {
+      "id": "box-x",
+      "kind": "size",
+      "part": "box",
+      "axis": "x",
+      "expect": 60,
+      "tol": 0.05
+    },
+    {
+      "id": "box-y",
+      "kind": "size",
+      "part": "box",
+      "axis": "y",
+      "expect": 40,
+      "tol": 0.05
+    },
+    {
+      "id": "box-z",
+      "kind": "size",
+      "part": "box",
+      "axis": "z",
+      "expect": 25,
+      "tol": 0.05
+    },
+    {
+      "id": "box-volume",
+      "kind": "volume",
+      "part": "box",
+      "min": 59940.0,
+      "max": 60060.0
+    }
+  ]
+}

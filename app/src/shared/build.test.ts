@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ERROR_LINE, errorLine, failedAfter, kindWords, fixPrompt, rebuildHelps } from './build'
+import { ERROR_LINE, FADE_AFTER_MS, errorLine, fadeIn, failedAfter, kindWords, fixPrompt, rebuildHelps } from './build'
 
 describe('the line of a failed build the chat shows', () => {
   it('is the last line of the traceback, which names the kind of error', () => {
@@ -57,5 +57,29 @@ describe('a failed build said in words', () => {
 
   it('writes the prompt the sheet hands over, which asks for the fix and holds no error: Claude Code has it already', () => {
     expect(fixPrompt('bracket')).toBe('Fix the build of bracket: see the error.')
+  })
+})
+
+describe('when the parts on screen fade for a build', () => {
+  const at = 10_000
+  it('does not fade a build under way until it has run 600 ms, and then does', () => {
+    const building = { status: 'building' as const, stale: true, startedAt: at }
+    expect(FADE_AFTER_MS).toBe(600)
+    expect(fadeIn(building, at)).toBe(600)
+    expect(fadeIn(building, at + 250)).toBe(350)
+    expect(fadeIn(building, at + 600)).toBe(0)
+    expect(fadeIn(building, at + 5000)).toBe(0)
+  })
+  it('fades a failed build at once', () => {
+    expect(fadeIn({ status: 'failed', stale: true }, at)).toBe(0)
+  })
+  it('keeps the parts faded when a build starts after a failure, and does not fade fresh parts', () => {
+    expect(fadeIn({ status: 'building', stale: true, startedAt: at }, at, true)).toBe(0)
+    expect(fadeIn({ status: 'ok', stale: false }, at)).toBeNull()
+    expect(fadeIn({ status: 'building', stale: false, startedAt: at }, at)).toBeNull()
+    expect(fadeIn(null, at)).toBeNull()
+  })
+  it('waits the full time for a build that says no start', () => {
+    expect(fadeIn({ status: 'building', stale: true }, at)).toBe(600)
   })
 })

@@ -55,6 +55,8 @@ export interface TornoState {
   column: ColumnPrefs
   /** The last good scene of the open object, and the revision it is. */
   scene: Scene | null
+  /** The scene that was on show before `scene` landed, of the same object; null for the first build of an object. What the status line says a build changed is held against it. */
+  before: Scene | null
   revision: number
   layout: string
   /** By part name, so a setting holds in every layout. */
@@ -87,6 +89,8 @@ export interface TornoState {
   marks: Mark[]
   /** What main said was wrong with the marks file of the open object, as a sentence; null when nothing was. */
   marksProblem: string | null
+  /** Only the marks on this part are listed in the Marks panel (a click on the count of a layer row); null for all. A view of the list: the agent is told every mark. */
+  marksOnPart: string | null
   /** The mark being worked on: the row lit in the panel and the label ringed in the viewport. Null for none. */
   activeMark: string | null
   /**
@@ -121,6 +125,8 @@ export interface TornoState {
   markReveal: number
   /** The scan to bring into view with the parts, and a count of the times that was asked: "Frame" on its row. Null until it is. */
   scanFramed: { id: string; n: number } | null
+  /** A part to bring into view (a double click on its layer row): `n` makes the same part asked twice two requests. */
+  partFramed: { name: string; n: number } | null
   /**
    * What the person has picked: refs in the layout shown (`lid/F12`, `lid/E3`),
    * in the order picked. They name geometry of the revision on screen, so the
@@ -172,7 +178,7 @@ const NO_SCANS: ScanInfo[] = []
 const NOT_CLIPPED: readonly string[] = []
 const NO_VIEWS: SavedView[] = []
 const NO_SELECTION = { selection: NOTHING_SELECTED, picked: NOTHING_PICKED }
-const NO_OBJECT = { objectId: null, build: null, errorOpen: false, fixRequest: null, scene: null, revision: 0, layout: '', layers: {}, section: null, explode: {}, views: NO_VIEWS, folded: [], activeView: null, marks: [], marksProblem: null, scans: NO_SCANS, scansKnown: true, scanViews: {}, scansClipped: NOT_CLIPPED, importing: null, scansRefused: null, scanAsking: null, scansProblem: null, activeMark: null, hoveredMark: null, noting: null, shownByAgent: null, ...NO_SELECTION }
+const NO_OBJECT = { objectId: null, build: null, errorOpen: false, fixRequest: null, scene: null, before: null, revision: 0, layout: '', layers: {}, section: null, explode: {}, views: NO_VIEWS, folded: [], activeView: null, marks: [], marksProblem: null, marksOnPart: null, scans: NO_SCANS, scansKnown: true, scanViews: {}, scansClipped: NOT_CLIPPED, importing: null, scansRefused: null, scanAsking: null, scansProblem: null, activeMark: null, hoveredMark: null, noting: null, shownByAgent: null, ...NO_SELECTION }
 
 export const store = createStore<TornoState>(() => ({
   workspace: null,
@@ -183,6 +189,7 @@ export const store = createStore<TornoState>(() => ({
   markFocus: 0,
   markReveal: 0,
   scanFramed: null,
+  partFramed: null,
   ortho: false,
   lockedView: null,
   edits: 0,
@@ -269,7 +276,7 @@ export const actions = {
     // The layout shown is gone with this build: what was being done there (a note, a mark worked on) is of
     // a layout that is no longer shown, as when the layout is changed by hand.
     const elsewhere = s.scene !== null && layout !== s.layout ? layoutChange(s, layout) : {}
-    store.setState({ ...elsewhere, scene: m.scene, revision: m.revision, layout, layers, folded, ...(same ? {} : NO_SELECTION) })
+    store.setState({ ...elsewhere, before: s.scene, scene: m.scene, revision: m.revision, layout, layers, folded, ...(same ? {} : NO_SELECTION) })
     return true
   },
 
@@ -620,6 +627,16 @@ export const actions = {
     store.setState({ scanFramed: { id, n: (store.getState().scanFramed?.n ?? 0) + 1 } })
   },
 
+  /** List only the marks on this part in the Marks panel, or all of them (null). Not kept: it is of this window and this object. */
+  listMarksOnPart(part: string | null): void {
+    if (part !== store.getState().marksOnPart) store.setState({ marksOnPart: part })
+  },
+
+  /** Brings one part into view, without turning the camera: a double click on its row in the layers. */
+  framePart(name: string): void {
+    store.setState({ partFramed: { name, n: (store.getState().partFramed?.n ?? 0) + 1 } })
+  },
+
   /** Which scans the view cuts, as the viewport found them now: set only when they are others than before. */
   setScansClipped(ids: readonly string[]): void {
     const had = store.getState().scansClipped
@@ -677,6 +694,12 @@ export const actions = {
     const { column } = store.getState()
     if (column.folded[section] === folded) return
     setColumn({ ...column, folded: { ...column.folded, [section]: folded } })
+  },
+
+  /** The width the person gave the left column (null: the default); the window keeps it. */
+  setLeftWidth(width: number | null): void {
+    const { column } = store.getState()
+    if (column.width !== width) setColumn({ ...column, width })
   },
 
   /** The height the splitter gave the marks, once it is let go; null puts back their share. */

@@ -1,0 +1,53 @@
+{
+  "object": "bracket",
+  "tier": "T1",
+  "prompts": [
+    "Make the bracket in the brief. Build it in the model file, check it with torno's tools, and say when it is done."
+  ],
+  "answers": {
+    "default": "I don't know: choose, and say what you chose."
+  },
+  "checks": [
+    {
+      "id": "valid",
+      "kind": "valid"
+    },
+    {
+      "id": "parts",
+      "kind": "parts",
+      "names": [
+        "bracket"
+      ]
+    },
+    {
+      "id": "solids",
+      "kind": "solids",
+      "part": "bracket",
+      "count": 1
+    },
+    {
+      "id": "width",
+      "kind": "size",
+      "part": "bracket",
+      "axis": "y",
+      "expect": 30,
+      "tol": 0.05
+    },
+    {
+      "id": "holes",
+      "kind": "hole",
+      "part": "bracket",
+      "diameter": 6,
+      "through": true,
+      "count": 3,
+      "tol": 0.05
+    },
+    {
+      "id": "bracket-volume",
+      "kind": "volume",
+      "part": "bracket",
+      "min": 9681.287,
+      "max": 10280.129
+    }
+  ]
+}

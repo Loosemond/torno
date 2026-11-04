@@ -1,0 +1,63 @@
+{
+  "object": "plate",
+  "tier": "T1",
+  "prompts": [
+    "Make the plate in the brief. Build it in the model file, check it with torno's tools, and say when it is done."
+  ],
+  "answers": {
+    "default": "I don't know: choose, and say what you chose."
+  },
+  "checks": [
+    {
+      "id": "valid",
+      "kind": "valid"
+    },
+    {
+      "id": "parts",
+      "kind": "parts",
+      "names": [
+        "plate"
+      ]
+    },
+    {
+      "id": "plate-x",
+      "kind": "size",
+      "part": "plate",
+      "axis": "x",
+      "expect": 100,
+      "tol": 0.05
+    },
+    {
+      "id": "plate-y",
+      "kind": "size",
+      "part": "plate",
+      "axis": "y",
+      "expect": 60,
+      "tol": 0.05
+    },
+    {
+      "id": "plate-z",
+      "kind": "size",
+      "part": "plate",
+      "axis": "z",
+      "expect": 5,
+      "tol": 0.05
+    },
+    {
+      "id": "holes",
+      "kind": "hole",
+      "part": "plate",
+      "diameter": 5,
+      "through": true,
+      "count": 4,
+      "tol": 0.05
+    },
+    {
+      "id": "plate-volume",
+      "kind": "volume",
+      "part": "plate",
+      "min": 29459.264,
+      "max": 29755.337
+    }
+  ]
+}

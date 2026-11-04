@@ -400,3 +400,6 @@ export function own<T>(record: Readonly<Record<string, T>> | null | undefined, k
 export function record<T>(): Record<string, T> {
   return Object.create(null) as Record<string, T>
 }
+
+/** Why a project with no build of this run cannot be exported: the sheet makes its names links that open it. */
+export const NOT_BUILT = 'Open it first: torno exports the last build of this run'

@@ -1,0 +1,56 @@
+{
+  "object": "standoffs",
+  "tier": "T2",
+  "prompts": [
+    "Make the part in the brief. Build it in the model file, check it with torno's tools, and say when it is done."
+  ],
+  "answers": {
+    "default": "I don't know: choose, and say what you chose."
+  },
+  "checks": [
+    {
+      "id": "valid",
+      "kind": "valid"
+    },
+    {
+      "id": "parts",
+      "kind": "parts",
+      "names": [
+        "base"
+      ]
+    },
+    {
+      "id": "base-x",
+      "kind": "size",
+      "part": "base",
+      "axis": "x",
+      "expect": 80,
+      "tol": 0.05
+    },
+    {
+      "id": "base-y",
+      "kind": "size",
+      "part": "base",
+      "axis": "y",
+      "expect": 50,
+      "tol": 0.05
+    },
+    {
+      "id": "base-z",
+      "kind": "size",
+      "part": "base",
+      "axis": "z",
+      "expect": 11,
+      "tol": 0.05
+    },
+    {
+      "id": "holes",
+      "kind": "hole",
+      "part": "base",
+      "diameter": 2.5,
+      "through": false,
+      "count": 4,
+      "tol": 0.05
+    }
+  ]
+}

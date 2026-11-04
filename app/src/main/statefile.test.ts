@@ -47,6 +47,15 @@ afterEach(() => {
 })
 
 describe('stateText', () => {
+  it('lists the sizes of Params with where the model says each comes from', () => {
+    const param = (name: string, value: number, doc: string | null) => ({ name, type: 'float', default: value, literal: true, doc })
+    const scene = { ...SCENE, params: [param('wall', 2, 'assumed: perimeters'), param('w', 60, 'brief: asked'), param('c', 1, null)] }
+    const text = stateText(obj, OK, { revision: 3, scene }, [])
+    expect(text).toContain('## Params')
+    expect(text).toContain('- wall = 2: assumed\n- w = 60: brief\n- c = 1: no source')
+    expect(stateText(obj, OK, { revision: 3, scene: SCENE }, [])).not.toContain('## Params')
+  })
+
   it('writes the digest of a build that worked under it, naming the tools as tools', () => {
     const sound = (name: string, more: Partial<Part> = {}): Part => ({ ...part('assembly', name, [0, 0, 0], [10, 10, 10]), volume: 1000, faceCount: 6, edgeCount: 12, valid: true, solids: 1, openShells: 0, ...more }) as Part
     const before = { revision: 2, scene: { ...SCENE, layouts: ['assembly'], parts: [sound('base'), sound('post')] } }
@@ -89,6 +98,13 @@ describe('stateText', () => {
     expect(text).toContain('- print: base 40 × 30 × 5 mm\n\nSaved views: "Hinge side", "Wall at the latch" (proposed by the agent), "Kept", "Old" (of layout bed, which the model no longer has), "Less" (hides clip, which layout assembly no longer has).\n\n## Marks')
     // Before anything is built, nothing can be said to be gone.
     expect(stateText(obj, OK, undefined, [], undefined, [view('Old', { layout: 'bed' })])).toContain('Saved views: "Old".')
+  })
+
+  it('names the files the model imported from beside its project', () => {
+    expect(stateText(obj, OK, { revision: 3, scene: SCENE }, [])).not.toContain('Uses:')
+    expect(stateText(obj, OK, { revision: 3, scene: { ...SCENE, uses: ['box/box.py', 'common/fit.py'] } }, [])).toContain(
+      'Model: bracket.py, r3.\n\nUses: box/box.py, common/fit.py (a save in one builds this project again).\n\n- assembly'
+    )
   })
 
   it('says how the build stands, what each layout holds and every mark that is not resolved', () => {

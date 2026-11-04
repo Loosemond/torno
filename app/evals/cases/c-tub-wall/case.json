@@ -1,0 +1,46 @@
+{
+  "object": "tub",
+  "track": "collateral",
+  "prompts": [
+    "Make the tub's walls and floor 3 mm thick, keeping its outside size. Do not change the lid."
+  ],
+  "answers": {
+    "default": "I don't know: choose, and say what you chose."
+  },
+  "checks": [
+    {
+      "id": "valid",
+      "kind": "valid"
+    },
+    {
+      "id": "tub-volume",
+      "kind": "volume",
+      "part": "tub",
+      "min": 28939.032,
+      "max": 28996.968
+    },
+    {
+      "id": "tub-x",
+      "kind": "size",
+      "part": "tub",
+      "axis": "x",
+      "expect": 70,
+      "tol": 0.001
+    },
+    {
+      "id": "lid-volume",
+      "kind": "volume",
+      "part": "lid",
+      "min": 6999.3,
+      "max": 7000.7
+    },
+    {
+      "id": "lid-x",
+      "kind": "size",
+      "part": "lid",
+      "axis": "x",
+      "expect": 70,
+      "tol": 0.001
+    }
+  ]
+}

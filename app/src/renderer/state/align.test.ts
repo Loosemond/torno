@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { apply, reckoned, rotate } from '../../shared/align'
 import type { Vec3 } from '../../shared/marks'
 import { type ScanAlignment, type ScanInfo, MAX_PAIRS } from '../../shared/scans'
-import { type AlignState, type FloorDraft, type PairDraft, alignStore, asKept, expects, fitOf, floorAlignment, floorWarning, movedAlignment, nextLine, pairsAlignment, previewOf, proposed, scanInHand, sizeNote, startedFrom, stepBack, withModelEnd, withScanEnd, withTypedEnd } from './align'
+import { type AlignState, type FloorDraft, type PairDraft, alignStore, asKept, expects, firstStep, stepsDone, fitOf, floorAlignment, floorWarning, movedAlignment, nextLine, pairsAlignment, previewOf, proposed, scanInHand, sizeNote, startedFrom, stepBack, withModelEnd, withScanEnd, withTypedEnd } from './align'
 
 describe('the pairs in hand', () => {
   it('take their ends in either order, each to the first pair that lacks one', () => {
@@ -221,5 +221,26 @@ describe('what the bar says, further', () => {
     // The last pair may still be finished.
     const open = [...full.slice(0, -1), { scan: [1, 2, 3] as Vec3 }]
     expect(withModelEnd(open, [9, 9, 9])).toHaveLength(MAX_PAIRS)
+  })
+})
+
+describe('firstStep', () => {
+  const steps = (...s: Array<'floor' | 'pairs' | 'nudge' | 'typed'>) => ({ steps: s })
+  it('is Floor for a scan much larger than the parts and Pairs for one about their size, with no alignment', () => {
+    expect(firstStep(null, true)).toBe('floor')
+    expect(firstStep(null, false)).toBe('pairs')
+  })
+  it('is Pairs after a floor only, whatever the size', () => {
+    expect(firstStep(steps('floor'), true)).toBe('pairs')
+    expect(firstStep(steps('floor'), false)).toBe('pairs')
+  })
+  it('is Nudge once there are pairs, also when they were moved by hand after', () => {
+    expect(firstStep(steps('pairs'), false)).toBe('nudge')
+    expect(firstStep(steps('floor', 'pairs'), true)).toBe('nudge')
+    expect(firstStep(steps('pairs', 'nudge'), false)).toBe('nudge')
+  })
+  it('does not count a hand as pairs or a floor', () => {
+    expect(firstStep(steps('nudge'), false)).toBe('pairs')
+    expect(stepsDone(steps('floor', 'typed'))).toEqual({ floor: true, pairs: false, nudge: true })
   })
 })

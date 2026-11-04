@@ -162,6 +162,16 @@ test('an object is exported to the path that was chosen, and the file opens by i
   expect((await hooks()).savePicks).toBe(0)
   await sheet().getByRole('button', { name: 'Export', exact: true }).click()
   await expect(page.getByText(`Saved to ${out}`)).toBeVisible()
+  // Two quiet things to do with it, on the path main wrote: the window names none, and under test nothing is shown or opened.
+  const calls = (): Promise<{ revealed: string[]; opened: string[] }> =>
+    app.evaluate(() => {
+      const m = (globalThis as unknown as { __tornoMain: { revealedFiles: string[]; openedFiles: string[] } }).__tornoMain
+      return { revealed: [...m.revealedFiles], opened: [...m.openedFiles] }
+    })
+  await sheet().getByRole('button', { name: 'Show in folder' }).click()
+  await expect.poll(async () => (await calls()).revealed).toEqual([out])
+  await sheet().getByRole('button', { name: 'Open in browser' }).click()
+  await expect.poll(async () => (await calls()).opened).toEqual([out])
   // The dialog would have opened in a folder of torno's own, which git passes over; the file went only where it was asked to.
   expect(await hooks()).toMatchObject({ savePicks: 1, saveOffered: join(root, 'hollow', '.torno', 'exports', 'hollow-r1.html') })
   expect(readFileSync(join(root, 'hollow', '.torno', '.gitignore'), 'utf8').split('\n')).toContain('exports/')
@@ -698,6 +708,18 @@ test('a browser that gives the page no WebGL is told so in words, and nothing br
 
 // A file of the model: made by the kernel's worker of the last build, written beside the path chosen, read back by
 // that worker and checked, and only then given the name. Never a slicer opened: `openedFiles` stands in for it.
+test('a project left out for want of a build is a link: it is opened, built, and the sheet comes back with it ticked', async () => {
+  await open('hollow')
+  await page.getByRole('button', { name: 'Export…' }).click()
+  await expect(sheet().locator('.export-cannot')).toContainText(/\d+ not built in this run\./)
+  await expect(sheet().getByRole('checkbox', { name: /^plain/ })).toHaveCount(0)
+  await sheet().locator('.export-cannot').getByRole('button', { name: 'plain', exact: true }).click()
+  // The sheet is put away while it builds, and is back with the new one beside the one that was ticked.
+  await expect(sheet().getByRole('checkbox', { name: /^plain/ })).toBeChecked()
+  await expect(sheet().getByRole('checkbox', { name: /^hollow/ })).toBeChecked()
+  await sheet().getByRole('button', { name: 'Cancel' }).click()
+})
+
 test('a 3MF of the bed, a STEP of the whole and an STL of one part are each read back and checked before they take their names', async () => {
   test.setTimeout(180_000)
   await open('bracket')
@@ -723,7 +745,7 @@ test('a 3MF of the bed, a STEP of the whole and an STL of one part are each read
   await expect(sheet().getByText(`Saved to ${plate}`)).toBeVisible({ timeout: 60_000 })
   await expect(sheet()).toContainText(/Checked: 3MF, 2 objects, [\d,]+ triangles, closed, volume within [\d.]+ % of the model\. Checked, not printed\./)
   expect(await hooks()).toMatchObject({ saveOffered: join(root, 'bracket', '.torno', 'exports', 'bracket-r1.3mf') })
-  expect(await opened()).toEqual([plate])
+  expect((await opened()).slice(-1)).toEqual([plate])
   // The file and nothing beside it: no .tmp, no folder.
   expect(mine()).toEqual(['bracket-plate.3mf'])
   expect(readFileSync(plate).subarray(0, 2).toString()).toBe('PK')
@@ -761,7 +783,7 @@ test('a 3MF of the bed, a STEP of the whole and an STL of one part are each read
   expect(bytes.length).toBe(84 + 50 * bytes.readUInt32LE(80))
   expect(mine()).toEqual(['bracket-plate.3mf', 'bracket-post.stl', 'bracket.step'])
   // Only the 3MF that was asked to be opened was.
-  expect(await opened()).toEqual([plate])
+  expect((await opened()).slice(-1)).toEqual([plate])
   expect(readdirSync(join(root, 'bracket', '.torno', 'exports'))).toEqual([])
   await page.keyboard.press('Escape')
   await expect(sheet()).toHaveCount(0)

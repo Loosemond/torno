@@ -11,6 +11,8 @@ export const MAX_OBJECT_NAME = 64
 export const MAX_PHOTO_BYTES = 25 * 1024 * 1024
 
 /** The most of each kind of reference a new object is made with: the window holds the draft to it, main holds the request to it. */
+/** The most pictures the first prompt of a new object carries (`main/onboard.ts`). */
+export const MOST_IMAGES = 6
 export const MOST_REFERENCES = { photos: 12, doodles: 6, scans: 4, objects: 8 }
 
 /** Folders a workspace keeps for itself (the first three are never objects; the rest torno gives a meaning). */

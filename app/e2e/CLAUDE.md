@@ -80,7 +80,7 @@ window on it.
 ## The packaged app
 
 `e2e/packaged.spec.ts` is skipped unless `TORNO_PACKAGED` names the executable of a packaged app: `…/torno.app/Contents/MacOS/torno`
-(`pnpm dist:mac`) or, where macOS is not at hand, the Linux stand-in of `pnpm pack:check`, `app/dist/linux-unpacked/torno-app`.
+(`pnpm dist:mac`) or the Linux folder of `pnpm pack:check` or `pnpm dist:linux`, `app/dist/linux-unpacked/torno-app` (CI runs it under `xvfb-run`).
 Only that path differs. It launches it with `executablePath` (the same `TORNO_TEST=1`, its own `TORNO_CONFIG`, the stand-in
 agent), builds `hollow` of a temporary copy of the fixtures, and holds that the kernel's environment is under `userData`
 and that nothing under the package changed. Never started from `out/`, so it needs no `pnpm build`.

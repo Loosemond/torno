@@ -2,7 +2,8 @@ import { existsSync, realpathSync, rmSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { app, BrowserWindow, ipcMain, Menu, nativeTheme } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme } from 'electron'
+import { type Door, openDoor, within } from './door'
 import type { Described } from '../shared/geometry'
 import type { SavedView } from '../shared/views'
 import { writeFileAtomic } from './atomic'
@@ -26,6 +27,7 @@ import { mountMcp } from './mcp/server'
 import { DEFAULT_SIZE } from './mcp/schemas'
 import { onNotOwn } from './own'
 import { agentPluginDir, kernelDir, kernelRun, ownEnvironment, windowIcon } from './paths'
+import { Expectations, withExpectation } from './mcp/expectTools'
 import type { ToolDeps } from './mcp/tools'
 import { saveView } from './mcp/views'
 import { systemPrompt } from './prompt'
@@ -330,7 +332,9 @@ const referencesOf = (id: string): string[] => {
 let redactAddresses = (text: string): string => text
 
 /** What the MCP tools are made from: the open workspace and the window. */
+const expectations = new Expectations()
 const toolDeps: ToolDeps = {
+  expectations,
   redact: (text) => redactAddresses(text),
   object: findObject,
   build: buildState,
@@ -354,7 +358,7 @@ const toolDeps: ToolDeps = {
   addDimension: (objectId, mark) => addDimensionTold({ marks, query: queryObject, scene: lastScene }, objectId, placedMark({ ...mark, author: 'agent' }, objectId), 'sent'),
   // Whoever changes a mark through the tools is the agent.
   updateMark: (objectId, id, patch) => marks.update(objectId, id, patch, 'agent'),
-  describe: (objectId, layout, ref) => queryObject<Described>(objectId, 'describe', { ref: `${layout}:${ref}` }),
+  describe: (objectId, layout, ref, options) => queryObject<Described>(objectId, 'describe', { ref: `${layout}:${ref}`, ...(options?.selector ? { selector: true } : {}) }),
   async nearest(objectId, layout, anchors) {
     const reply = await queryObject<{ anchors?: NearestAnchor[] }>(objectId, 'nearest', { layout, anchors })
     if (!Array.isArray(reply?.anchors) || reply.anchors.length !== anchors.length) throw new Error('the kernel did not answer for each point')
@@ -447,7 +451,7 @@ app.on('second-instance', (_event, _argv, _cwd, data) => {
 
 void app.whenReady().then(async () => {
   if (!isFirst) return
-  // A start from the Finder or the Dock has launchd's PATH, without `uv` or `claude`: ask the login shell (macOS only).
+  // A start from the Finder or the Dock has launchd's PATH, without `uv` or `claude`: ask the login shell (macOS and Linux; a desktop entry's PATH is the session's).
   await applyLoginPath()
   // In development the Dock shows Electron's icon; a packaged app takes its own from its bundle.
   if (process.platform === 'darwin' && !app.isPackaged) app.dock?.setIcon(windowIcon())
@@ -487,7 +491,8 @@ void app.whenReady().then(async () => {
     },
     // An edit of the model is answered with the build it started, and a Stop held back once over a build the turn left failed or unseen.
     build: buildState,
-    buildContextFor: async (id, toolName) => buildContextFor(editDeps, id, await marks.list(id).catch(() => []), { toolName }),
+    // What the agent said the edit should change (`expect`) is told once, with the build it was held against.
+    buildContextFor: async (id, toolName) => withExpectation(expectations, toolDeps, id, buildContextFor(editDeps, id, await marks.list(id).catch(() => []), { toolName })),
     // A hard defect the turn's builds brought is held against its Stop, once; and an edit's dimensions are of its build.
     scene: lastScene,
     settled: (id, revision, until) => verdicts.settled(id, revision, until),
@@ -610,6 +615,44 @@ void app.whenReady().then(async () => {
   // Under test only: an object's MCP address and a token that opens it, as a session of that object has one.
   if (isTest) testHooks.mcpFor = (id) => ({ url: mcpUrlFor(id), token: http.grant([new URL(mcpUrlFor(id)).pathname]) })
   if (isTest) Object.assign(globalThis, { __tornoMain: testHooks })
+  // The second door (#54, a spike): off unless asked for. An agent torno did not start reaches one project's tools
+  // through a socket only this user may open, once the person allows it in the window.
+  if (process.env.TORNO_OUTSIDE_AGENTS === '1') {
+    void openDoor({
+      http,
+      objectFor: (folder) => {
+        const objects = openWorkspaceInfo()?.objects ?? []
+        const real = (dir: string): string => {
+          try {
+            return realpathSync(dir)
+          } catch {
+            return dir
+          }
+        }
+        // The deepest project the folder is, or is inside.
+        const found = objects.filter((o) => within(folder, real(o.dir))).sort((a, b) => b.dir.length - a.dir.length)[0]
+        return found ? { id: found.id, name: found.name } : undefined
+      },
+      approve: async ({ name, client, pid }) => {
+        const win = BrowserWindow.getAllWindows()[0]
+        if (!win || win.isDestroyed()) return false
+        const { response } = await dialog.showMessageBox(win, {
+          type: 'question',
+          buttons: ['Allow for this run', 'Deny'],
+          defaultId: 1,
+          cancelId: 1,
+          message: `An agent outside torno wants to use the tools of ${name}`,
+          detail: `It says it was started by ${client}${pid === null ? '' : ` (process ${pid})`}. Allow it only if you started it yourself. It may use the tools until it disconnects or torno quits.`
+        })
+        return response === 0
+      }
+    })
+      .then((door: Door) => {
+        app.on('will-quit', () => void door.close())
+        if (isDebug) console.error(`[torno] door for outside agents: ${door.path}`)
+      })
+      .catch((e: Error) => console.error(`torno: the door for outside agents is not open: ${e.message}`))
+  }
   // An address holds no secret: a request needs the token of a session as well.
   if (isDebug) console.error(`[torno] MCP server of a project: ${mcpUrlFor('<project id>')}`)
   // What a torno that crashed left in the temporary folder: only copies of the example its own marker names.

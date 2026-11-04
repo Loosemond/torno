@@ -62,6 +62,12 @@ export interface Scene {
   params?: Param[]
   /** The model's groups of parts (`groups(p)`), in its order; absent from a kernel that does not read them. */
   groups?: PartGroup[]
+  /**
+   * The Python files the model imported from the workspace outside its own folder (another project's, `common/`),
+   * as the worker found them after the load: paths from the workspace, with `/`, in order. Never declared by torno.
+   * Absent from a kernel that does not say.
+   */
+  uses?: string[]
 }
 
 /**

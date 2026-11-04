@@ -168,6 +168,14 @@ assert abs(top.center().Z - 2.5) < 1e-9 and len(plate.faces().filter_by(Axis.Z))
 Select by position and kind, never by a face's number: torno's refs (`lid/F12`) are for talking about a model, and
 must never be written into it.
 
+To pick the face or edge a ref names, describe the ref, paste its `selector` (an expression on `part`, such as
+`part.faces().filter_by(Axis.Z).sort_by(Axis.Z)[-1]`), and look at the result. The kernel evaluated it on the last
+build and it gave exactly that shape, so it is right for this build only: `robust: "by geometry"` is made of a
+direction, an extreme, a radius or a place, `"by order"` of an index into a sort that the next edit may break (read
+it again after an edit, and prefer a form by geometry). Where there is `selector: null` write one by hand from the
+descriptor. `selectorFrame` says whose frame it is in: a layout that moves or turns the part gives directions in its
+own frame, not the one its own function builds in.
+
 ## Fillets and chamfers
 
 - `fillet(edges, radius)`, `chamfer(edges, length)`. A radius must be under the wall and under half the shortest
@@ -202,7 +210,10 @@ assert plate.is_valid and len(plate.solids()) == 1
 
 - `StdFail_NotDone`, `BRep_API: command not done` or an empty result: the two shapes touch only along a face or an
   edge, or are coincident. Make a cutting tool overshoot what it cuts (a hole 0.01 mm or more longer each way) and
-  a join overlap by a little rather than meet exactly.
+  a join overlap by a little rather than meet exactly. A build that fails in a boolean says why under its message
+  (`Why: cut failed: …`): an operand that is a face or a wire and not a solid, one that is empty or not valid, a tool
+  face flush with the face it cuts, or shapes that only touch. Its faces are numbered in the operand (`tool F5`),
+  not as in the scene; read it before editing, and do not wrap the boolean in `try`.
 - A union of shapes that do not touch is several solids: torno takes each part as it is, and the build result of an
   edit says so under `Check:` (`plate is 2 solids (was 1)`), with every part that is not valid, inside out or open.
 - Many small cuts are faster as one: build the tools as a list and subtract their sum, or use `Hole` in builder mode.
