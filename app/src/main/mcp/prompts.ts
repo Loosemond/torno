@@ -40,7 +40,7 @@ export const PROMPTS = {
           ? `4. Bed: call ${toolName('check')} with {"kind": "bed", "size": [${size.join(', ')}]} and say whether every part fits, and by how much it does not.`
           : bed !== undefined && bed.trim() !== ''
             ? `4. Bed: "${bed}" is not a bed size in mm such as 256x256x256. Ask the person for it, then call ${toolName('check')} with {"kind": "bed", "size": [x, y, z]}.`
-            : `4. Bed: no bed size was given. Call ${toolName('check')} with {"kind": "bed"}: it takes the bed of the project's print profile when it has one. Without one it says so; then give the size of the print layout from ${toolName('scene')}, and ask the person for their bed (such as 256x256x256) before saying it fits.`
+            : `4. Bed: no bed size was given. If the context names a print profile, call ${toolName('check')} with kind bed and no size: it takes the profile's bed. Otherwise give the size of the print layout from ${toolName('scene')}, and ask the person for their bed (such as 256x256x256) before saying it fits.`
       return [
         `Check whether this project is ready to 3D print, on its print layout (layout "print"; if there is none, say so and use the layout it has).`,
         `If you have the skill torno:printing, read it first.`,
