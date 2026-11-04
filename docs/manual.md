@@ -2192,6 +2192,22 @@ On the screen:
 - **Torno left on another workspace with a session working.** Give the agent something that takes minutes, or start a long build, and switch to another workspace for ten minutes, watching `ps -o rss -p <pid of the window>`: its memory stays flat and torno idles near zero. Idle with a large project it did; with a session working nobody has watched it.
 - **An exported file elsewhere.** Open one from `file://` in Firefox, in Safari and on a phone, with the network off, and look: parts, layouts, the explode slider, the section, a saved view and the marks work. Headless Firefox drew the parts; nobody has looked at it by eye there, or anywhere but in Electron's Chromium.
 - **The desktop entry.** `scripts/torno --install-desktop`, then start torno from your launcher: it is listed with its icon, the window comes up and is grouped under the entry (`StartupWMClass=torno`) with torno's icon. Given a folder (`gtk-launch torno ~/objects`) it opens that folder; given two, it refuses. With `claude` only on the `PATH` of a login shell, "New session" says it was not found there: start torno from a terminal, or put the command on the launcher's `PATH`.
+- **Build ghosts.** After an edit, the part as it was is drawn faint beside the new one: legible in light and dark, and gone when the next build lands.
+- **The section's hatch and plane label.** Cut a part: the cut face is hatched and the plane is named at its edge; both legible in light and dark, and the label clear of the bars.
+- **The Marks panel's resolve glyph, review walk and undo line.** The glyph on a row, "To review" stepped through one mark at a time, and the line that undoes a delete: each in its place, legible in both themes.
+- **The Checks group and its summary.** In the Marks panel the group of dimensions and its one-line count read at a glance; the model's Checks panel lists each check with its words.
+- **The empty chat pane and its chips.** With no conversation, the pane's words and the chips under them fit the column and are legible in both themes.
+- **The turn summary, "See changes" and "Undo".** After a turn, the summary line, the sheet of the diff and the Undo button sit well in the chat and in a narrow dock.
+- **The page of projects.** Its head and the order buttons are legible, and the cards keep their order when the window is narrow.
+- **The doodle board's grid.** The grid is faint on the board in light and dark, and is not in the PNG Claude gets.
+- **The prompt preview of a new project.** The preview of the first prompt reads clearly and matches what is sent.
+- **The scans walk-through.** Import, align and check a scan by the steps the panel offers: each step is where the eye goes next, in both themes.
+- **The export sheet by reader.** Each reader (a person, a printer, a drawing), and the picture, SVG and PDF formats: the sheet is one screen and legible in both themes.
+- **The sources line of Parameters.** A field's source word is shown after its comment, in the monospace face, and "no source" is quiet.
+- **The splitter of the left column.** The line between the left column and the view drags without lag and keeps its place at start.
+- **The edges of a field and F6.** A focused field shows its edge in both themes, and F6 moves the focus between the regions in a sensible order.
+- **The ask card.** A question from the agent shows its options and the faces they light in the view; legible in both themes.
+- **The edits menu.** The menu beside the model shows the three modes and the one in force, in both themes.
 
 With a real agent:
 
