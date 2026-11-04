@@ -1,0 +1,53 @@
+name: macOS
+
+# Apart from CI on purpose: GitHub's macOS arm64 queue can hold a job for ~15 minutes and then cancel it, and that
+# must not turn a pull request or main red. It is not a required check. If a run was never picked up, re-run it.
+# The suites that touch the platform, `pnpm dist:mac`, and the packaged app started in a hidden window. The zip is
+# uploaded for a look by hand; it is signed ad hoc (quarantined once downloaded).
+
+on:
+  push:
+    branches: [main]
+    paths: [app/**, kernel/**, scripts/**, package.json, pnpm-lock.yaml, pnpm-workspace.yaml, .github/workflows/macos.yml]
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  macos:
+    name: macOS
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: kernel/uv.lock
+      - run: pnpm install --frozen-lockfile
+      - run: uv sync --frozen
+        working-directory: kernel
+      - run: pnpm -C app typecheck
+      - run: pnpm test
+      - run: pnpm test:kernel
+      - run: pnpm dist:mac
+      - run: pnpm -C app exec playwright test e2e/packaged.spec.ts
+        env:
+          TORNO_PACKAGED: ${{ github.workspace }}/app/dist/mac-arm64/torno.app/Contents/MacOS/torno
+      - uses: actions/upload-artifact@v4
+        with:
+          name: torno-macos
+          path: app/dist/*.zip
+          retention-days: 7

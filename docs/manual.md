@@ -2095,7 +2095,7 @@ pnpm test:e2e      # the built app in a hidden window (Playwright)
 (cd kernel && uv run pytest -q)   # the kernel alone (pytest)
 ```
 
-GitHub Actions runs the suites on macOS (`.github/workflows/macos.yml`), with the e2e suite only when asked.
+GitHub Actions runs the suites on Linux (`.github/workflows/ci.yml`, skipped for a change of only the site or the docs) and apart on macOS (`.github/workflows/macos.yml`, on main and weekly, not a required check), with the e2e suite only when asked.
 
 No test opens a window, and none runs a real agent CLI: a stand-in
 (`app/test/fake-agent.mjs`) takes its place. Under test Electron keeps its own
