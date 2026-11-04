@@ -168,6 +168,14 @@ assert abs(top.center().Z - 2.5) < 1e-9 and len(plate.faces().filter_by(Axis.Z))
 Select by position and kind, never by a face's number: torno's refs (`lid/F12`) are for talking about a model, and
 must never be written into it.
 
+To pick the face or edge a ref names, describe the ref, paste its `selector` (an expression on `part`, such as
+`part.faces().filter_by(Axis.Z).sort_by(Axis.Z)[-1]`), and look at the result. The kernel evaluated it on the last
+build and it gave exactly that shape, so it is right for this build only: `robust: "by geometry"` is made of a
+direction, an extreme, a radius or a place, `"by order"` of an index into a sort that the next edit may break (read
+it again after an edit, and prefer a form by geometry). Where there is `selector: null` write one by hand from the
+descriptor. `selectorFrame` says whose frame it is in: a layout that moves or turns the part gives directions in its
+own frame, not the one its own function builds in.
+
 ## Fillets and chamfers
 
 - `fillet(edges, radius)`, `chamfer(edges, length)`. A radius must be under the wall and under half the shortest

@@ -41,7 +41,24 @@ export interface DescribedPart {
   descriptor: string       // "part, 40 × 30 × 5 mm, 6000 mm³, 6 faces"
 }
 
-export interface DescribedFace {
+/**
+ * A build123d expression on `part` that picks a face or an edge on this build, found by the kernel (`selectors.py`)
+ * and checked by evaluating it. `by order` is an index into a sort, which the next edit may break.
+ */
+export interface Selector {
+  expression: string
+  robust: 'by geometry' | 'by order'
+  checked: 'this build only'
+}
+
+/** What `describe` adds of a face or an edge when it is asked for a selector. */
+export interface SelectorReply {
+  selector?: Selector | null
+  /** Why there is none. */
+  selectorWhy?: string
+}
+
+export interface DescribedFace extends SelectorReply {
   kind: 'face'
   ref: string
   type: string             // "plane", "cylinder", ...
@@ -52,7 +69,7 @@ export interface DescribedFace {
   descriptor: string       // "plane, normal +Z, z = 20, 1180 mm²"
 }
 
-export interface DescribedEdge {
+export interface DescribedEdge extends SelectorReply {
   kind: 'edge'
   ref: string
   type: string             // "line", "circle", ...

@@ -68,7 +68,7 @@ export interface ToolDeps {
   /** Changes a mark. Rejects with a text that names the marks there are when there is none of that id. */
   updateMark(objectId: string, id: string, patch: MarkPatch): Promise<Mark>
   /** What the kernel says of a part, a face or an edge of the last successful build, in a layout. Rejects with a text. */
-  describe(objectId: string, layout: string, ref: string): Promise<Described>
+  describe(objectId: string, layout: string, ref: string, options?: { selector?: boolean }): Promise<Described>
   /**
    * For each anchor, the point of its part's surface nearest to it, and the face that is on; for one that
    * names an `edge` of its part, also how far its point is from that edge. Rejects with a text.
@@ -299,12 +299,29 @@ export async function describeTool(deps: ToolDeps, objectId: string, args: Descr
   const checked = checkRef(found.scene, layout, args.ref)
   if (typeof checked === 'string') return failure(checked)
   try {
-    const described = await deps.describe(objectId, layout, args.ref)
+    // A face or an edge also gets a selector that picks it now; a part has none.
+    const described = await deps.describe(objectId, layout, args.ref, checked.target === 'part' ? undefined : { selector: true })
     // As of the answer: a build may have ended while the kernel was asked. Its centre and its box are where the part is shown.
-    return json({ layout, ...ofBuild(deps, objectId), ...described, ...movedForDisplay(checked.part, layout, described) })
+    return json({ layout, ...ofBuild(deps, objectId), ...described, ...movedForDisplay(checked.part, layout, described), ...selectorFrame(found.scene, layout, checked.part, described) })
   } catch (e) {
     return failure(messageOf(e))
   }
+}
+
+/** Whether a part stands where its own function builds it: not moved, not turned. */
+const asBuilt = (part: Scene['parts'][number]): boolean => !part.loc || (part.loc.t.every((c) => Math.abs(c) < 1e-9) && Math.abs(Math.abs(part.loc.q[3]) - 1) < 1e-9)
+
+/**
+ * The frame a selector is in, said with it (`selectorFrame`): a selector is of the part as it stands in the layout
+ * asked, so a direction or an extreme in it is in that layout's frame. Where the layout moves or turns the part from
+ * where its own function builds it, the layouts that leave it as built are named, for the selector of the part as built.
+ */
+export function selectorFrame(scene: Scene, layout: string, part: Scene['parts'][number], described: Described): { selectorFrame?: string } {
+  if (described.kind === 'part' || !described.selector) return {}
+  if (asBuilt(part)) return { selectorFrame: `In the frame of layout ${layout}, where ${part.name} stands as its own function builds it.` }
+  const as = scene.parts.filter((p) => p.name === part.name && p.layout !== layout && asBuilt(p)).map((p) => p.layout)
+  const where = as.length > 0 ? ` Layouts that leave it as built: ${as.join(', ')}; describe the face or edge there for a selector in the frame its function builds in (its number may differ).` : ' No layout leaves it as built.'
+  return { selectorFrame: `In the frame of layout ${layout}, where ${part.name} is moved or turned from where its own function builds it: the directions and extremes of the selector (Axis.Z, sort_by(Axis.X)) hold there, not in the model's own frame.${where}` }
 }
 
 /**

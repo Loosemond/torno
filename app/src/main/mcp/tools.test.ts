@@ -12,7 +12,7 @@ import type { NearestAnchor } from '../marks/reanchor'
 import { flushCut, probe } from '../../test/diagnosisFixtures'
 import { addMarkTool, highlightTool, resolveMarkTool } from './markTools'
 import { TOOLS, refusedKeys } from './schemas'
-import { describeTool, marksTool, type ToolDeps } from './tools'
+import { describeTool, marksTool, selectorFrame, type ToolDeps } from './tools'
 import { MESH_NOTE, OPEN_NOTE, REVERSED_NOTE, explodeAsked, lookTool, saveViewTool, sceneTool, showTool } from './viewTools'
 
 const BRACKET: ObjectInfo = { id: 'bracket', name: 'bracket', dir: '/ws/bracket', model: 'bracket.py' }
@@ -954,6 +954,52 @@ describe('describe', () => {
     // An area with no digit count is told like any other: nothing here reads the kernel's words for it.
     expect(TOOLS.measure.description).toContain('with no digit count')
     expect(TOOLS.describe.description).toContain('areaExact false is approximate')
+  })
+
+  it('asks the kernel for a selector of a face or an edge, never of a part, and passes the selector on with the frame it is in', async () => {
+    const asked: Array<{ ref: string; selector: boolean | undefined }> = []
+    const selector = { expression: 'part.faces().filter_by(Axis.Z).sort_by(Axis.Z)[-1]', robust: 'by geometry', checked: 'this build only' } as const
+    const deps = fake({
+      describe: async (_id, layout, ref, options) => {
+        asked.push({ ref, selector: options?.selector })
+        return ref.includes('/F') ? ({ ...FACE, ref: `${layout}:${ref}`, selector } as Described) : ({ ...WHOLE, key: `${layout}:${ref}` } as Described)
+      }
+    })
+    const face = jsonOf(await describeTool(deps, 'bracket', { ref: 'base/F5' }))
+    expect(face.selector).toEqual(selector)
+    expect(face.selectorFrame).toBe('In the frame of layout assembly, where base stands as its own function builds it.')
+    const whole = jsonOf(await describeTool(deps, 'bracket', { ref: 'base' }))
+    expect(whole).not.toHaveProperty('selector')
+    expect(whole).not.toHaveProperty('selectorFrame')
+    expect(asked).toEqual([{ ref: 'base/F5', selector: true }, { ref: 'base', selector: undefined }])
+  })
+
+  it('says a face with no selector has none', async () => {
+    const deps = fake({ describe: async () => ({ ...FACE, selector: null, selectorWhy: 'no selector picks only this face: others are as far along every axis, or have the same size' }) as Described })
+    const told = jsonOf(await describeTool(deps, 'bracket', { ref: 'base/F5' }))
+    expect(told).toMatchObject({ selector: null, selectorWhy: expect.stringContaining('no selector picks only this face') })
+    expect(told).not.toHaveProperty('selectorFrame')
+  })
+
+  it('says which frame a selector is in when the layout moves the part, and which layouts leave it as built', () => {
+    type Loc = { t: [number, number, number]; q: [number, number, number, number] }
+    const at: Loc = { t: [0, 0, 0], q: [0, 0, 0, 1] }
+    const moved: Loc = { t: [10, 0, 0], q: [0, 0, 0, 1] }
+    const turned: Loc = { t: [0, 0, 0], q: [0, 0.7071068, 0, 0.7071068] }
+    const scene: Scene = {
+      ...SCENE,
+      layouts: ['main', 'assembly', 'print'],
+      parts: [part('main', 'lid', [0, 0, 0], [1, 1, 1], { loc: at }), part('assembly', 'lid', [0, 0, 0], [1, 1, 1], { loc: turned }), part('print', 'lid', [0, 0, 0], [1, 1, 1], { loc: moved })]
+    }
+    const described = { ...FACE, selector: { expression: 'part.faces()[0]', robust: 'by order', checked: 'this build only' } } as Described
+    const lid = (layout: string) => scene.parts.find((p) => p.name === 'lid' && p.layout === layout)!
+    expect(selectorFrame(scene, 'main', lid('main'), described).selectorFrame).toBe('In the frame of layout main, where lid stands as its own function builds it.')
+    const text = selectorFrame(scene, 'assembly', lid('assembly'), described).selectorFrame!
+    expect(text).toContain('In the frame of layout assembly, where lid is moved or turned from where its own function builds it')
+    expect(text).toContain('Layouts that leave it as built: main;')
+    expect(selectorFrame({ ...scene, parts: scene.parts.slice(1) }, 'assembly', lid('assembly'), described).selectorFrame).toContain('No layout leaves it as built.')
+    // Nothing is said of a reply with no selector, or of a part.
+    expect(selectorFrame(scene, 'assembly', lid('assembly'), { ...FACE } as Described)).toEqual({})
   })
 
   it('asks in the layout named, and of a whole part or an edge alike', async () => {

@@ -237,6 +237,16 @@ is the detail of this folder, under the headings it has there.
   everything is in the frame of the operand, `frame: "local"`. The error carries it as `diagnosis` beside a
   fillet's, told apart by `operation` (`cut`, `fuse`, `intersect`, `split`); main sets no `sameAs` on it. A boolean that
   succeeds but gives an empty or wrong result raises nothing and is not diagnosed.
+- **A selector for a face or an edge** (`selectors.py`; `describe` asked with `selector: true`, which only the `describe`
+  tool sends, never the window's hover). The kernel tries a short list of build123d expressions on the part as it stands in
+  the layout asked, most robust first (type or direction; the extreme along an axis, or along one and then another;
+  where it is, its radius, its area or length; last an index into a sort, `robust: "by order"`), evaluates each with
+  build123d on the worker's own shape and keeps the first that gives exactly that shape, with no other as far along
+  the axis (`TIE`, 1e-5 mm) for an extreme or a place in a sort. **The worker evaluates only expressions it made itself**:
+  the text is put together from fixed method names, build123d's own enumeration names (the target's
+  `geom_type.name`) and numbers written to 4 decimals, nothing of a tool's arguments (the ref says only which shape),
+  and `eval` has no builtins but `abs` (`_Search.globals`). It has `BUDGET` (10 s) of the query's 30, read between
+  candidates; past it, or with no form, `selector` is `null` with `selectorWhy`. The selector is checked on this build only.
 - **A worker is not trusted.** A frame from the building worker that is not a
   result (not JSON, or without its scene or error) is a `crash` of that build;
   the supervisor carries on. Frames are written with `allow_nan=False`: a scene
