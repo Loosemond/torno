@@ -54,6 +54,8 @@
   --part-6: #6E8388;
   --part-7: #B56F76;
   --part-8: #7FA7A6;
+  /* A reference, a bought part: neutral, in no theme's palette */
+  --part-reference: #9AA1A8;
 
   /* Terminal: the sixteen colours an agent's CLI may ask for by name, toned to
      sit on --panel, and what the terminal draws of its own. Each is text: 4.5:1

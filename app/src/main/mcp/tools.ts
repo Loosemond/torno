@@ -117,6 +117,10 @@ export const TRACEBACK_LINES = 30
 export const SPREAD_NOTE =
   'The parts of the print layout overlapped as the model placed them, so they were spread along X for display; arranged is how far each was moved.'
 
+/** Said by `scene` of a build that has references: what they are for, and what they are left out of. */
+export const REFERENCE_NOTE =
+  'Parts with role reference are bought parts (a bearing, a screw, a vendor STEP): drawn and measured, and a clearance, overlap or interference check may name them, but they are not printed, not counted by bed, have no mass and are not in a mesh export.'
+
 const PLANE_KEYS = ['axis', 'at', 'origin', 'normal']
 
 /**

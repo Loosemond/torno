@@ -489,6 +489,12 @@ button.param-button:focus-visible {
   color: var(--fail);
 }
 
+.layer-bought {
+  flex: none;
+  font-size: var(--text-small);
+  color: var(--muted);
+}
+
 .layer-row[data-hidden] .row-name {
   color: var(--muted);
 }

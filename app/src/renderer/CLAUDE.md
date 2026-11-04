@@ -173,6 +173,8 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 
 ## Layers
 
+- `ui/Layers.tsx`: a reference (`Part.role`, a bought part) has the neutral swatch (`colorsOfParts`) and the tag "bought"
+  (`.layer-bought`), and is otherwise a row like any (it can be picked, hidden, made translucent).
 - `ui/Layers.tsx`: the groups of the layout (`groupsIn`) come first, a header each (`li.layer-group`,
   `data-group`): a fold chevron (`aria-expanded`, `Fold flat` / `Unfold flat`), the name and the count in the
   monospace face, "Show only" (on hover, as the opacity slider; `actions.soloLayers`) and an eye whose

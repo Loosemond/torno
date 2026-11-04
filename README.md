@@ -147,7 +147,7 @@ server on `127.0.0.1`. See [Projects and builds](docs/manual.md#projects-and-bui
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`) on your `PATH`, logged in
 
 torno checks all of this on its first screen, under "Ready to work", and says what's missing. The first build
-sets up torno's own Python environment with build123d (about 900 MB, once). If your workspace has its own
+sets up torno's own Python environment with build123d and bd_warehouse (about 900 MB, once). If your workspace has its own
 `pyproject.toml`, torno uses that environment instead and never changes it. Run `uv sync` there once yourself.
 More in [Requirements](docs/manual.md#requirements).
 

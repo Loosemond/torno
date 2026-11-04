@@ -360,7 +360,7 @@ export interface ExportPlan {
     /** The scans that can be ticked: those with a mesh, aligned in a layout of the build. */
     scans: Array<{ id: string; name: string; triangles: number }>
     /** What a file of the model can hold, layout by layout: each part, whether it has a solid (an STL or a 3MF is of solids alone) and whether it is switched off in torno. */
-    layoutParts?: Array<{ layout: string; parts: Array<{ name: string; solid: boolean; off?: true; arranged?: true }> }>
+    layoutParts?: Array<{ layout: string; parts: Array<{ name: string; solid: boolean; off?: true; arranged?: true; reference?: true }> }>
   }>
   /** What the file would weigh, and what was cut or left out to keep it under the budget, a sentence each. */
   bytes: number

@@ -326,6 +326,14 @@ describe('scene', () => {
     expect(textOf(sceneTool(deps, 'bracket', undefined, undefined, undefined, { layout: 'nope' }))).toBe("no layout 'nope'; layouts: assembly, print")
   })
 
+  it('says which parts are references (bought), in the list and in a note', () => {
+    const scene: Scene = { ...SCENE, parts: [part('assembly', 'base', [0, 0, 0], [1, 1, 1]), { ...part('assembly', '608', [0, 0, 0], [22, 22, 7]), role: 'reference' as const }] }
+    const told = JSON.parse(textOf(sceneTool(fake({ scene: () => ({ revision: 3, scene }) }), 'bracket')))
+    expect(told.parts.find((p: { name: string }) => p.name === '608')).toMatchObject({ role: 'reference' })
+    expect(told.parts.find((p: { name: string }) => p.name === 'base')).not.toHaveProperty('role')
+    expect(told.note).toContain('role reference')
+  })
+
   it('counts the unresolved dimensions that pass, fail and have no value of the build, when it is given the marks', () => {
     const dim = (id: string, over: object): Mark => ({ ...MARK_BASE, id, status: 'sent', kind: 'dimension', measure: 'diameter', a: { point: [-6, 5, 0], part: 'base', ref: 'base/F9' }, value: 8, how: 'cylinder', measuredRevision: 3, ...over }) as Mark
     const marks = [
