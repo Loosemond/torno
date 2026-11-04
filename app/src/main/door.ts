@@ -88,6 +88,28 @@ function refusals(lines: string[], message: string): string[] {
 /** Whether `inner` is `outer` or inside it. */
 export const within = (inner: string, outer: string): boolean => inner === outer || inner.startsWith(outer.endsWith(sep) ? outer : outer + sep)
 
+/** A path by its real location (links resolved: a Mac's temporary folder is a link), or as given when it cannot be. */
+const real = (path: string): string => {
+  try {
+    return realpathSync(path)
+  } catch {
+    return path
+  }
+}
+
+/**
+ * The deepest project of `objects` that `folder` is, or is inside. Both sides are compared by realpath, so a folder
+ * named through a link (`/var/…` for `/private/var/…`) is the project it leads to, and one that merely sits beside
+ * a project, or leads out of the workspace, is none.
+ */
+export function projectFor<T extends { dir: string }>(objects: readonly T[], folder: string): T | undefined {
+  const there = real(folder)
+  return objects
+    .map((o) => ({ o, dir: real(o.dir) }))
+    .filter(({ dir }) => within(there, dir))
+    .sort((a, b) => b.dir.length - a.dir.length)[0]?.o
+}
+
 export function openDoor(deps: DoorDeps, dir: string = doorDir()): Promise<Door> {
   ownFolder(dir)
   const path = join(dir, 'door.sock')
@@ -156,12 +178,7 @@ export function openDoor(deps: DoorDeps, dir: string = doorDir()): Promise<Door>
       if (said.torno !== 'hello' || typeof said.folder !== 'string') return end()
       const client = typeof said.client === 'string' ? said.client.replace(/[^\w .@/+-]/g, '').slice(0, 64) || 'unknown' : 'unknown'
       const pid = typeof said.pid === 'number' && Number.isInteger(said.pid) ? said.pid : null
-      let folder: string
-      try {
-        folder = realpathSync(said.folder)
-      } catch {
-        folder = said.folder
-      }
+      const folder = real(said.folder)
       const object = deps.objectFor(folder)
       if (!object) return refuse(`${folder} is no project of the workspace open in torno: open it there, then start the agent in the project's folder`)
       objectId = object.id
