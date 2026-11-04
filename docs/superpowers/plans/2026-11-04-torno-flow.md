@@ -54,8 +54,8 @@ Before Task 1. Write the ruling under each, on #142, and copy it here.
 1. **Solver, and how it is found.** Recommendation: OpenFOAM first, ESI's (openfoam.com, v2512), steady
    `simpleFoam`, k-ω SST, on a `snappyHexMesh` mesh. Found on `PATH` (`simpleFoam`, `snappyHexMesh`), else run in
    ESI's container `opencfd/openfoam-run` when Docker or Podman is there. Run as a separate program, never linked.
-2. **foamlib.** Recommendation: no. Torno has no licence yet; importing a GPL-3 library into `torno_kernel` would
-   settle it. Torno writes a few fixed dictionaries itself and reads `postProcessing/`'s plain text.
+2. **foamlib.** Recommendation: no. Torno is Apache-2.0; importing a GPL-3 library into `torno_kernel` would put
+   the kernel under GPL-3. Torno writes a few fixed dictionaries itself and reads `postProcessing/`'s plain text.
 3. **XLB as a second, live solver.** Recommendation: decide after the spike. If yes, a kernel extra (as `scans`),
    told as a preview only, and a task after Task 9 (not planned here).
 4. **Where cases live.** Recommendation: `<object>/.torno/flow/<id>/`, `case/` ignored by git, the last few runs
