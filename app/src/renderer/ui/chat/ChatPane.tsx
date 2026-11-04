@@ -4,6 +4,7 @@ import { ChatItems } from './Items'
 import { QuestionCard } from '../QuestionCard'
 import { AskSession } from './AskCard'
 import { Composer } from './Composer'
+import { TasksBar } from './Tasks'
 import { ChatPlace } from './place'
 import { ChatOffer, type ChatOffers } from './offers'
 import { UndoableTurn } from './TurnEnd'
@@ -134,6 +135,7 @@ export function ChatPane({ sessionId, live, working, dir, onWholePrompt, onUseTe
           </button>
         )}
       </div>
+      {items && <TasksBar items={items} working={working} />}
       {live && chat?.meta.pluginLoaded === false && (
         <p className="chat-note chat-restart">
           <span>torno&apos;s skills did not load.</span>

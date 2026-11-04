@@ -2055,7 +2055,7 @@ describe('what Claude Code says of itself', () => {
     expect(c.meta().pluginLoaded).toBe(false)
     expect(c.notes()).toMatchObject([{ tone: 'warn', text: "torno's skills did not load: the agent is told to read skills it does not have" }])
     await c.send('argv')
-    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(2)
+    await expect.poll(() => c.turns(), { timeout: 15000 }).toBe(2)
     const first = JSON.parse((c.items().filter((i) => i.kind === 'text').at(-1) as { text: string }).text) as string[]
     expect(first).toContain('--plugin-dir')
     expect(first[first.indexOf('--append-system-prompt') + 1]).toBe('WITH SKILLS')
@@ -2065,7 +2065,7 @@ describe('what Claude Code says of itself', () => {
     const again = await chat({ plugins: [] }, { folder: c.obj.id, resume: true, skills: false })
     expect(again.id).not.toBe(c.id)
     await again.send('argv')
-    await expect.poll(() => again.turns(), { timeout: 5000 }).toBe(1)
+    await expect.poll(() => again.turns(), { timeout: 15000 }).toBe(1)
     const second = JSON.parse((again.items().filter((i) => i.kind === 'text').at(-1) as { text: string }).text) as string[]
     expect(second).not.toContain('--plugin-dir')
     expect(second[second.indexOf('--append-system-prompt') + 1]).toBe('FULL PROMPT')

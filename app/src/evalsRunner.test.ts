@@ -20,7 +20,7 @@ describe('the runner of the evals, without running anything', () => {
   })
 
   it('every case is whole: an object, prompts, and checks of known kinds; the smoke case only by name', () => {
-    const kinds = ['valid', 'parts', 'solids', 'size', 'ratio', 'volume', 'clearance', 'overlap', 'hole', 'mcp']
+    const kinds = ['valid', 'parts', 'solids', 'size', 'ratio', 'volume', 'clearance', 'overlap', 'hole', 'mcp', 'diff']
     const cases = run.loadCases([])
     expect(cases.length).toBeGreaterThanOrEqual(12)
     expect(cases.map((c: { id: string }) => c.id)).not.toContain('_smoke')
@@ -39,5 +39,26 @@ describe('the runner of the evals, without running anything', () => {
     ]
     expect(run.summarize(runs)).toEqual([{ case: 'a', runs: 2, checks: '88 %', allPassed: '50 %', build: '100 %', doneWhileFailing: 1, cost: '$1.00', minutes: '1.5', errors: 0 }])
     expect(run.markdown('t', runs)).toMatch(/\| a \| 2 \| 88 % \| 50 % \| 100 % \| 1 \| \$1\.00 \| 1\.5 \| 0 \|/)
+  })
+
+  it('counts a dimension of the person\'s only with its verdict on the build the answer is of', () => {
+    const answer = (mark: object) => ({ revision: 4, marks: [{ id: 'M2', expected: 3, ...mark }] })
+    expect(run.judgeDimension('M2', answer({ value: 3, verdict: 'pass', measuredRevision: 4 }))).toEqual({ pass: true, value: 3, expect: 3, exact: true })
+    expect(run.judgeDimension('M2', answer({ value: 2, verdict: 'fail', measuredRevision: 4 })).pass).toBe(false)
+    expect(run.judgeDimension('M2', answer({ wasValue: 3, wasRevision: 3 }))).toMatchObject({ pass: false, error: 'not measured on r4' })
+    expect(run.judgeDimension('M2', answer({ refused: 'the edge is gone' }))).toMatchObject({ pass: false, error: 'not measured on r4: the edge is gone' })
+    expect(run.judgeDimension('M2', answer({ resolvedValue: 3, resolvedVerdict: 'pass', resolvedOnRevision: 4 })).pass).toBe(true)
+    expect(run.judgeDimension('M9', answer({})).error).toMatch(/not among/)
+    const withDims = run.loadCases(['c-tub-wall'])[0]
+    expect(run.caseDimensions(withDims)).toEqual(['M1', 'M2'])
+    expect(run.caseDimensions(run.loadCases(['t1-box'])[0])).toEqual([])
+  })
+
+  it('holds the last edit to the parts a case lets it change, by diff: counts and place too, and nothing come or gone', () => {
+    const answer = (parts: object[], extra = {}) => ({ from: 1, to: 2, layouts: [{ layout: 'assembly', added: [], removed: [], parts, ...extra }] })
+    expect(run.judgeDiff({ only: ['tub'] }, answer([{ name: 'tub', changed: true }, { name: 'lid', changed: false }]))).toEqual({ pass: true, value: [], expect: ['tub'], exact: true })
+    expect(run.judgeDiff({ only: ['tub'] }, answer([{ name: 'lid', changed: true }])).value).toEqual(['assembly:lid'])
+    expect(run.judgeDiff({ only: ['tub'] }, answer([], { added: ['screw'] })).value).toEqual(['assembly:screw'])
+    expect(run.judgeDiff({ only: [] }, { layouts: [], notes: ['approximate'] }).exact).toBe(false)
   })
 })

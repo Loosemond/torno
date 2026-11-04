@@ -480,9 +480,17 @@ export const actions = {
    * for whoever moves the camera to where it has it; or why not, as a sentence, and nothing is changed.
    */
   applyView(name: string): SavedView | string {
-    const s = store.getState()
-    const view = findView(s.views, name)
+    const view = findView(store.getState().views, name)
     if (!view) return `There is no view named "${name}"`
+    return actions.applyLook(view, view.name)
+  },
+
+  /**
+   * `applyView` for a view that is no saved one: what the person goes to from the chat ("See in view"). The same
+   * one edit of theirs; `active` is the saved view the strip then marks as on, none for a view of no name.
+   */
+  applyLook(view: SavedView, active: string | null = null): SavedView | string {
+    const s = store.getState()
     if (!s.scene?.layouts.includes(view.layout)) return `Layout ${view.layout} is no longer in the model`
     const theirs = sceneFileOf(s)
     let layers = { ...theirs.layers }
@@ -498,7 +506,7 @@ export const actions = {
     for (const [id, shown] of Object.entries(view.scans ?? {})) {
       if (s.scans.some((scan) => scan.id === id)) scanViews[id] = { ...scanViews[id], visible: shown.visible !== false, opacity: shown.opacity ?? 1 }
     }
-    store.setState({ ...(view.layout !== s.layout ? layoutChange(s, view.layout) : {}), layers, section: view.section ?? null, explode, scanViews, shownByAgent: null, activeView: view.name, edits: s.edits + 1 })
+    store.setState({ ...(view.layout !== s.layout ? layoutChange(s, view.layout) : {}), layers, section: view.section ?? null, explode, scanViews, shownByAgent: null, activeView: active, edits: s.edits + 1 })
     return view
   },
 

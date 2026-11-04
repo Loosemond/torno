@@ -316,6 +316,10 @@ export class Sessions {
       sourcesSaved?: (objectDir: string) => Promise<number | null>
       /** Tests only: how long an edit's answer waits for its build, and for it to begin, and how long a `Stop` waits for a build. */
       editTiming?: { answerMs: number; graceMs: number; stopMs?: number }
+      /** False only in an eval run that takes the holds away (`main/ablations.ts`): a `Stop` is never held back. */
+      holdStops?: boolean
+      /** How many times a turn may be held back, from an eval run (`evalTuning`): MOST_HOLDS otherwise. */
+      mostHolds?: number
       /** Print the command line of every session started, and every hook it posts. */
       debug?: boolean
     }
@@ -623,7 +627,7 @@ export class Sessions {
     const turn = session.turn
     const objectId = session.object.id
     const { build } = this.deps
-    if (!turn || !build || turn.holds >= MOST_HOLDS) return null
+    if (!turn || !build || turn.holds >= (this.deps.mostHolds ?? MOST_HOLDS) || this.deps.holdStops === false) return null
     const deadline = Date.now() + (this.deps.editTiming?.stopMs ?? STOP_WAIT_MS)
     // The build there is is the turn's only if it began after the turn first changed a source: a first build, a save of the person's, a build of before the edit is not.
     const caused = (): boolean => turn.changedAt !== undefined && (this.buildStarts.get(objectId) ?? -Infinity) >= turn.changedAt

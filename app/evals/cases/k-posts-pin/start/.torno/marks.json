@@ -1,5 +1,5 @@
 {
-  "next": 2,
+  "next": 3,
   "marks": [
     {
       "id": "M1",
@@ -44,6 +44,65 @@
         ],
         "part": "right"
       }
+    },
+    {
+      "author": "user",
+      "status": "sent",
+      "anchorState": "ok",
+      "layout": "assembly",
+      "revision": 1,
+      "camera": {
+        "position": [
+          120,
+          -90,
+          60
+        ],
+        "target": [
+          0,
+          0,
+          10
+        ],
+        "up": [
+          0,
+          0,
+          1
+        ],
+        "ortho": false,
+        "fov": 35,
+        "zoom": 1
+      },
+      "createdAt": "2026-11-01T10:00:00.000Z",
+      "id": "M2",
+      "kind": "dimension",
+      "note": "left post stays 20 mm",
+      "measure": "distance",
+      "a": {
+        "point": [
+          -25,
+          0,
+          2.5
+        ],
+        "normal": [
+          0,
+          0,
+          -1
+        ],
+        "part": "base"
+      },
+      "b": {
+        "point": [
+          -25,
+          0,
+          22.5
+        ],
+        "normal": [
+          0,
+          0,
+          1
+        ],
+        "part": "left"
+      },
+      "expected": 20
     }
   ]
 }

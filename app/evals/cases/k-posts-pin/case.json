@@ -41,6 +41,13 @@
       "part": "base",
       "min": 11988.0,
       "max": 12012.0
+    },
+    {
+      "id": "diff",
+      "kind": "diff",
+      "only": [
+        "right"
+      ]
     }
   ]
 }

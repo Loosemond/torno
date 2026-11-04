@@ -597,7 +597,27 @@ is a new line, and a prompt sent while the agent is at work waits its turn
   of its own, with its input, its result and its pictures as thumbnails that
   open large; the turn ends with a line such as "Pulled from torno: scene, 2
   pictures, measure ×3". Other tools are one line each, opened for their input
-  and result.
+  and result; a tool that went well says nothing on its line, and one that is
+  running, failed, was denied, cancelled or stopped keeps its word. Once a turn has
+  ended, three or more of those lines in a row (the agent's own tools that finished,
+  with no picture and no build under them) are one line, `Read 3 files, Grep ×2,
+  Bash`, that opens into the lines; the lines of a turn still going on are all
+  there, and folding changes nothing in the conversation or its log. The refs in a card's line are chips. A finished `look`, `section` or
+  `show` has "See in view" (or "Show again" for `show`): it puts what the agent
+  looked at on your screen as your own edit, as a saved view is applied (the layout,
+  the parts shown, the cut or the parts apart, the scans, and the camera), so that
+  you can turn it, measure in it or save it. A look framed on a place (`focus`) is
+  not framed again. A finished `highlight` has "Point again", which lights its refs
+  once more, while the window shows the build they were read from and the card was
+  seen as it happened. When a card cannot be gone to (another layout, a part or scan
+  the build lacks, parts apart under a cut) the line says why, in the tools' words,
+  and nothing changes.
+- **The agent's task list.** What the agent plans with `TodoWrite`, or with the
+  task tools (`TaskCreate`, `TaskUpdate`) Claude Code has behind
+  `CLAUDE_CODE_ENABLE_TODO_TOOLS`, is a checklist above the box while the turn
+  runs and has a task left (`Tasks 1 of 4 done`, what is being done in the words
+  of "doing"), and a card in the transcript where the call was, as the list stood
+  then. torno reads it from the cards and keeps nothing of it.
 - **What the turn did.** The last line of a turn says, from the turn's own
   items, what it did to the project: the files the agent edited ("hollow.py
   edited ×2"), the builds those edits started ("r1 → r3 ok", or "build
@@ -1949,7 +1969,16 @@ a hidden window, sends the prompts through the chat with `claude --model <model>
 from the case. Then it scores the model as the agent left it: `app/evals/score.py`, with torno's kernel loader, checks
 validity, part names, solids, sizes and ratios, volume, clearance, overlap and holes on the B-rep (each pass or fail
 with its number, exact only where the kernel says so), and an `mcp` check calls a torno tool through the project's
-MCP address. The cases: three of primitives and plates (T1), four printable parts with fillets, bosses and a lid
+MCP address. The person's dimensions in a case's start (`start/.torno/marks.json`, with an expected value) are checks
+too, read through `marks`: one passes only with its verdict measured on the last build. A `diff` check holds the last
+edit (the two builds `diff` keeps) to the parts the case lets it change: a part with other face, edge or solid counts,
+or moved, fails it, and so does a part come or gone; the volume and size checks hold the rest against the start.
+`--ablate` takes parts of torno away from the agent, to measure what each is worth: `skills` (no plugin of skills:
+the whole system prompt), `reviewer` (no `torno-reviewer` subagent), `stop` (a `Stop` is never held back) and `look`
+(the tool answers that it is off) and `digest` (the answer to an edit leaves out what its build changed; `state.md`
+keeps it), in a comma list; `--look-size <px>` draws a `look` that names no size at that long edge (256 to 2000) in
+place of 1280, and `--holds 1` lets a turn's `Stop` be held back once in place of twice. torno reads them (`TORNO_EVAL_ABLATE`) only when both `TORNO_TEST=1`
+and `TORNO_EVAL=1` are set, which only the evals set together: in any other run nothing is taken away or changed. The cases: three of primitives and plates (T1), four printable parts with fillets, bosses and a lid
 that fits (T2), two of mating parts (T3), two that leave a dimension out (asking is right), two pairs of the same
 edit by a mark and by text alone, and two edits that must change nothing else. The report is one JSON line per run
 in `app/evals/out/<date>-<commit>-<label>.jsonl` (ignored by git), with checks passed, the build apart, whether it
@@ -1968,6 +1997,8 @@ tokens, cost and time from the CLI's own result, and a Markdown table beside it.
 | `TORNO_DEBUG=1` | print to stderr the workspace opened at start, the address of the MCP server, and the command line and hooks of every session |
 | `TORNO_OUTSIDE_AGENTS=1` | a spike (#54): open a socket only you can open, in your runtime folder, through which an agent torno did not start reaches one project's tools by `node scripts/torno-mcp.mjs <project folder>` (as a stdio MCP server in its config), after you allow it in the window. Off by default. |
 | `TORNO_EVAL=1` | lets `pnpm -C app eval` start, which spends your subscription; it still asks before it starts, and never runs under `CI` |
+| `TORNO_EVAL_ABLATE=<list>` | what an eval run takes away from the agent (`skills`, `reviewer`, `stop`, `look`); read only with both `TORNO_TEST=1` and `TORNO_EVAL=1`, and set by `pnpm -C app eval --ablate` |
+| `TORNO_EVAL_LOOK_SIZE=<px>`, `TORNO_EVAL_HOLDS=1` or `2` | the size of a `look` that names none, and how many times a `Stop` may be held back, in an eval run; read under the same rule, set by `--look-size` and `--holds` |
 | `TORNO_EVAL_AGENT=<cmd>` | the agent of the evals in place of `claude --model … --max-budget-usd … --permission-mode acceptEdits`; the stand-in (`node app/test/fake-agent.mjs`) checks the runner and spends nothing |
 | `TORNO_TEST=1` | create the window hidden and never show it; keep Electron's own files in a temporary folder of the run; expose the test hooks; look for `claude` on the `PATH` without running it. For tests only. |
 

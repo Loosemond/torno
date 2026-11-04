@@ -5,6 +5,8 @@
 // TORNO_EVAL=1, under CI, and until the phrase is typed (`guard.mjs`). The person runs it by hand, after `pnpm build`:
 //
 //   TORNO_EVAL=1 pnpm -C app eval [--case <id>]… [--repeats 5] [--label <name>] [--model sonnet] [--budget 2]
+//                                 [--ablate skills,reviewer,stop,look,digest] [--look-size 768] [--holds 1]
+//                                 (what main takes away or sets: `src/main/ablations.ts`)
 //   pnpm -C app eval --compare <a.jsonl> <b.jsonl>        (two reports side by side; runs nothing)
 //
 // A run, for each case and repeat: the case is copied to a new temporary folder (never a person's workspace), the
@@ -32,7 +34,7 @@ const casesDir = join(here, 'cases')
 const DEFAULT_ANSWER = "I don't know: choose, and say what you chose."
 
 function parseArgs(argv) {
-  const o = { cases: [], repeats: 5, label: 'baseline', model: 'sonnet', budget: 2, compare: null, keep: false }
+  const o = { cases: [], repeats: 5, label: 'baseline', model: 'sonnet', budget: 2, compare: null, keep: false, ablate: '', lookSize: '', holds: '' }
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i]
     const next = () => argv[(i += 1)]
@@ -42,11 +44,16 @@ function parseArgs(argv) {
     else if (a === '--model') o.model = next()
     else if (a === '--budget') o.budget = Number(next())
     else if (a === '--keep') o.keep = true
+    else if (a === '--ablate') o.ablate = next()
+    else if (a === '--look-size') o.lookSize = next()
+    else if (a === '--holds') o.holds = next()
     else if (a === '--compare') o.compare = [next(), next()]
     else throw new Error(`unknown argument: ${a}`)
   }
   if (!(o.repeats >= 1)) throw new Error('--repeats is a whole number, 1 or more')
   if (!(o.budget > 0)) throw new Error('--budget is in dollars, more than 0')
+  if (!/^[a-z,]*$/.test(o.ablate)) throw new Error('--ablate is a comma list: skills, reviewer, stop, look, digest')
+  if (!/^\d*$/.test(o.lookSize) || !/^[12]?$/.test(o.holds)) throw new Error('--look-size is pixels (256 to 2000), --holds 1 or 2')
   if (!/^[A-Za-z0-9_-]{1,40}$/.test(o.label)) throw new Error('--label is letters, digits, - and _')
   return o
 }
@@ -225,11 +232,52 @@ export function judge(check, answer) {
   return { pass, value, expect: check.expect ?? [check.min, check.max], ...(exact !== undefined ? { exact } : {}) }
 }
 
+/** The person's dimensions in the case's start (`start/.torno/marks.json`) that hold an expected value: each is a check. */
+export function caseDimensions(c) {
+  const file = join(c.dir, 'start', '.torno', 'marks.json')
+  if (!existsSync(file)) return []
+  return (JSON.parse(readFileSync(file, 'utf8')).marks ?? []).filter((m) => m.kind === 'dimension' && m.author === 'user' && typeof m.expected === 'number').map((m) => m.id)
+}
+
+/**
+ * A dimension of the person's, as the `marks` tool tells it: it passes only with the verdict `pass` measured on the
+ * build the answer is of (`measuredRevision`, or `resolvedOnRevision` of one resolved); a value of an older build, or
+ * none, fails, saying why.
+ */
+export function judgeDimension(id, answer) {
+  const mark = answer?.marks?.find((m) => m.id === id)
+  if (!mark) return { pass: false, error: `${id} is not among the marks` }
+  const revision = answer.revision
+  const on = mark.measuredRevision ?? mark.resolvedOnRevision
+  const verdict = mark.verdict ?? mark.resolvedVerdict
+  const value = mark.value ?? mark.resolvedValue ?? mark.wasValue
+  if (on !== revision || verdict === undefined) return { pass: false, value, expect: mark.expected, error: `not measured on r${revision}${mark.refused ? `: ${mark.refused}` : ''}` }
+  return { pass: verdict === 'pass', value, expect: mark.expected, exact: true }
+}
+
+/**
+ * A `diff` check: what the last edit (the build before the last against the last, all `diff` keeps) changed. It passes
+ * when no part came or went and every part that changed is one of `only`: the face, edge and solid counts and the
+ * place of each part count, not its volume and box alone.
+ */
+export function judgeDiff(check, answer) {
+  const only = new Set(check.only ?? [])
+  const changed = []
+  const cameOrWent = []
+  for (const layout of answer?.layouts ?? []) {
+    if (check.layout && layout.layout !== check.layout) continue
+    for (const p of layout.parts ?? []) if (p.changed && !only.has(p.name)) changed.push(`${layout.layout}:${p.name}`)
+    for (const n of [...(layout.added ?? []), ...(layout.removed ?? [])]) cameOrWent.push(`${layout.layout}:${n}`)
+  }
+  const outside = [...new Set([...changed, ...cameOrWent])]
+  return { pass: outside.length === 0, value: outside, expect: [...only], exact: !(answer?.notes ?? []).length }
+}
+
 async function scoreRun(c, obj, mcp) {
-  const brep = c.checks.filter((k) => k.kind !== 'mcp')
+  const brep = c.checks.filter((k) => k.kind !== 'mcp' && k.kind !== 'diff')
   const checksFile = join(dirname(obj), '..', 'checks.json')
   writeFileSync(checksFile, JSON.stringify(brep))
-  const py = spawnSync('uv', ['run', '--no-sync', '--project', join(repo, 'kernel'), 'python', join(here, 'score.py'), obj, checksFile], { encoding: 'utf8', timeout: 300_000 })
+  const py = spawnSync('uv', ['run', '--no-sync', '--project', join(repo, 'kernel'), 'python', join(here, 'score.py'), obj, checksFile], { encoding: 'utf8', timeout: 300_000, env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } })
   let scored
   try {
     scored = JSON.parse(py.stdout.trim().split('\n').at(-1))
@@ -244,6 +292,24 @@ async function scoreRun(c, obj, mcp) {
       scored.checks.push({ ...head, pass: false, error: String(e.message ?? e).slice(0, 300) })
     }
   }
+  for (const check of c.checks.filter((k) => k.kind === 'diff')) {
+    const head = { id: check.id ?? 'diff', kind: 'diff' }
+    try {
+      scored.checks.push({ ...head, ...judgeDiff(check, await callTool(mcp, 'diff', {})) })
+    } catch (e) {
+      scored.checks.push({ ...head, pass: false, error: String(e.message ?? e).slice(0, 300) })
+    }
+  }
+  const dims = caseDimensions(c)
+  if (dims.length > 0) {
+    let answer
+    try {
+      answer = await callTool(mcp, 'marks', { ids: dims })
+    } catch (e) {
+      answer = { error: String(e.message ?? e).slice(0, 300) }
+    }
+    for (const id of dims) scored.checks.push({ id, kind: 'dimension', ...(answer.error ? { pass: false, error: answer.error } : judgeDimension(id, answer)) })
+  }
   return scored
 }
 
@@ -252,22 +318,34 @@ async function oneRun(c, repeat, o, agent, electron, log) {
   const { ws, obj } = makeWorkspace(c, runDir)
   const resultsFile = join(runDir, 'results.jsonl')
   const started = Date.now()
-  const env = { ...process.env, TORNO_TEST: '1', TORNO_WORKSPACE: ws, TORNO_CONFIG: join(runDir, 'config.json'), TORNO_AGENT_CMD: `node ${join(here, 'tee.mjs')} ${resultsFile} ${agent}` }
+  const env = { ...process.env, TORNO_TEST: '1', TORNO_WORKSPACE: ws, TORNO_CONFIG: join(runDir, 'config.json'), TORNO_AGENT_CMD: `node ${join(here, 'tee.mjs')} ${resultsFile} ${agent}`, TORNO_EVAL: '1', TORNO_EVAL_ABLATE: o.ablate, TORNO_EVAL_LOOK_SIZE: o.lookSize, TORNO_EVAL_HOLDS: o.holds }
   delete env.TORNO_KEEP_BUILDS
   const app = await electron.launch({ args: ['.'], cwd: appDir, env })
-  let run = { case: c.id, repeat, label: o.label }
+  let run = { case: c.id, repeat, label: o.label, ablate: o.ablate.split(',').filter(Boolean), ...(o.lookSize ? { lookSize: Number(o.lookSize) } : {}), ...(o.holds ? { holds: Number(o.holds) } : {}) }
   try {
     const page = await app.firstWindow()
     await page.waitForSelector('[data-region="left"]')
     const { openListed } = await import('./window.mjs')
     await openListed(page, c.object)
+    // The case's first build ends before the first prompt: the agent starts from it, and diff has it to compare with.
+    const first = Date.now() + 120_000
+    while (Date.now() < first && !['ok', 'failed'].includes(await page.evaluate(() => window.__tornoTest.state().build?.status))) await sleep(250)
     const driven = await drive(page, c, log)
     // The build the checks are of: the model as the agent left it, once the window's build has settled.
+    // A save the turn ended on is seen by the watcher a moment later: give it that moment before asking.
+    await sleep(3000)
     const deadline = Date.now() + 120_000
     while (Date.now() < deadline && (await page.evaluate(() => window.__tornoTest.state().build?.status)) === 'building') await sleep(500)
     const build = await page.evaluate(() => { const b = window.__tornoTest.state().build; return b ? { status: b.status, revision: b.revision } : null })
     const objectId = await page.evaluate(() => window.__tornoTest.state().objectId)
     const mcp = await app.evaluate((_e, id) => globalThis.__tornoMain.mcpFor(id), objectId)
+    // The person's dimensions are measured once the marks are checked against that build: wait for every check begun.
+    const settled = Date.now() + 60_000
+    while (Date.now() < settled) {
+      const { started, finished } = await app.evaluate((_e, id) => globalThis.__tornoMain.marksChecks(id), objectId)
+      if (started === finished) break
+      await sleep(500)
+    }
     const scored = await scoreRun(c, obj, mcp)
     const passed = scored.checks.filter((k) => k.pass).length
     run = { ...run, passed, total: scored.checks.length, buildOk: scored.build.ok, windowBuild: build, checks: scored.checks, buildError: scored.build.error, ...driven, ...readChat(obj), ...readResults(resultsFile), wallMs: Date.now() - started }
@@ -356,7 +434,7 @@ async function main() {
       console.log(run.error ? `  error: ${run.error.split('\n')[0]}` : `  ${run.passed}/${run.total} checks, build ${run.buildOk ? 'ok' : 'failed'}, ${money(run.costUsd ?? 0)}`)
     }
   }
-  writeFileSync(`${base}.md`, markdown(`${o.label} at ${sha}, ${o.model}`, runs))
+  writeFileSync(`${base}.md`, markdown(`${o.label} at ${sha}, ${o.model}${o.ablate ? `, without ${o.ablate}` : ''}${o.lookSize ? `, look ${o.lookSize} px` : ''}${o.holds ? `, ${o.holds} holds` : ''}`, runs))
   console.log(`\n${readFileSync(`${base}.md`, 'utf8')}\nWrote ${base}.jsonl and ${base}.md`)
 }
 

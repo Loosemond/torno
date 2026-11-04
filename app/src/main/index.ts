@@ -1,4 +1,5 @@
 import { existsSync, realpathSync, rmSync } from 'node:fs'
+import { ablations, evalTuning } from './ablations'
 import { readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -342,7 +343,13 @@ let redactAddresses = (text: string): string => text
 
 /** What the MCP tools are made from: the open workspace and the window. */
 const expectations = new Expectations()
+// What an eval run takes away (`app/evals`): nothing unless TORNO_TEST=1 and TORNO_EVAL=1.
+const off = ablations()
+const tuning = evalTuning()
+
 const toolDeps: ToolDeps = {
+  ...(off.has('look') ? { off: new Set(['look']) } : {}),
+  ...(tuning.lookSize ? { lookSize: tuning.lookSize } : {}),
   expectations,
   redact: (text) => redactAddresses(text),
   object: findObject,
@@ -404,7 +411,7 @@ const instructionFiles = new InstructionList()
 /** Each build's verdicts on the dimensions, in memory: the digest of an edit's build, and the Stop, compare two. */
 const verdicts = new Verdicts()
 /** What the answer to an edit is made from: the tools' deps, and the verdicts of the builds it compares. */
-const editDeps = { ...toolDeps, verdicts: (id: string, revision: number | undefined) => verdicts.of(id, revision) }
+const editDeps = { ...toolDeps, ...(off.has('digest') ? { digest: false } : {}), verdicts: (id: string, revision: number | undefined) => verdicts.of(id, revision) }
 
 /** `<object>/.torno/state.md` of every open object: what an agent without the tools reads instead. */
 const stateFiles = new StateFiles({ object: findObject, build: buildState, scene: lastScene, scenes: keptScenes, marks: (objectId) => marks.list(objectId), scans: (objectId) => scans.list(objectId), views: savedViews })
@@ -474,7 +481,7 @@ void app.whenReady().then(async () => {
   // The files an agent is given by path (its MCP server's, which holds no secret): what a torno that crashed left is of no use.
   const configDir = join(app.getPath('userData'), 'agent')
   rmSync(configDir, { recursive: true, force: true })
-  const adapter = claudeAdapter(process.env.TORNO_AGENT_CMD, agentPluginDir())
+  const adapter = claudeAdapter(process.env.TORNO_AGENT_CMD, off.has('skills') ? undefined : agentPluginDir(), { reviewer: !off.has('reviewer') })
   sessions = new Sessions({
     http,
     configDir,
@@ -482,6 +489,8 @@ void app.whenReady().then(async () => {
     trust: new Trust(configPath ? join(dirname(configPath), 'trusted.json') : null),
     // Claude Code, given torno's skills. TORNO_AGENT_CMD is run in place of `claude`.
     adapter,
+    ...(off.has('stop') ? { holdStops: false } : {}),
+    ...(tuning.holds ? { mostHolds: tuning.holds } : {}),
     // How the session is shown: the object's choice, in its `.torno/agent.json` (a chat unless it says terminal).
     viewFor: async (obj) => (await readChoice(obj.dir)).view,
     // The viewport as the person has it, for a prompt that attaches the view: of the object the session is of.

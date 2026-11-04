@@ -49,6 +49,13 @@
       "part": "plate",
       "min": 21041.725,
       "max": 21083.85
+    },
+    {
+      "id": "diff",
+      "kind": "diff",
+      "only": [
+        "plate"
+      ]
     }
   ]
 }
