@@ -20,4 +20,17 @@ describe('groupMarks', () => {
     expect(ids(g.toReview)).toEqual(['M3'])
     expect(ids(g.resolved)).toEqual(['M4', 'M5'])
   })
+
+  it("puts the agent's open marks in their own group, and its resolved ones with the rest", () => {
+    const g = groupMarks([
+      mark('M1', 'sent'),
+      mark('M2', 'sent', { author: 'agent' }),
+      mark('M3', 'resolved', { author: 'agent', resolvedBy: 'user' }),
+      mark('M4', 'draft', { author: 'agent' })
+    ])
+    expect(ids(g.fromAgent)).toEqual(['M2'])
+    expect(ids(g.withAgent)).toEqual(['M1'])
+    expect(ids(g.resolved)).toEqual(['M3'])
+    expect(ids(g.toSend)).toEqual(['M4'])
+  })
 })

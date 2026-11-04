@@ -4,7 +4,7 @@ import { exactText, shownDimension } from '../../shared/dimension'
 import { EXPLODED_TOOLS } from '../../shared/explode'
 import { type Mark, type MarkKind, type MarkPatch, awaitsAcknowledgement, isUnchecked } from '../../shared/marks'
 import { count, number } from '../../shared/format'
-import { actions, explodeNow, partsInLayout, store, useStore } from '../state/store'
+import { actions, explodeNow, partsInLayout, runningSession, store, useStore } from '../state/store'
 import { endReplace, startReplace, useReplacing } from '../state/tools'
 import { editRegion } from '../tools/regionPainting'
 import { rowLabel } from '../viewport/marks/labels'
@@ -12,6 +12,7 @@ import { spanningMarks } from '../viewport/marks/apart'
 import { DimensionFields, VerdictIcon, Words } from './DimensionFields'
 import { hoverMark, unhoverMark } from './markHover'
 import { ShapeFields } from './ShapeFields'
+import { insertIntoSession } from './insertIntoSession'
 import { ICONS, SHAPE_ICONS } from './ToolPalette'
 
 /** The longest note a mark keeps (main cuts there); the field stops at it, so nothing is cut unseen. */
@@ -116,6 +117,10 @@ export function MarkRow({
   const awaiting = awaitsAcknowledgement(mark)
   // Nothing has checked it against the build on show: its ref is of an older one.
   const unchecked = useLasting(isUnchecked(mark, revision), UNCHECKED_AFTER_MS)
+
+  // The agent's own open mark: for the person to read or answer, and to put in the prompt while a session runs.
+  const fromAgent = mark.author === 'agent' && mark.status === 'sent'
+  const sessionLive = useStore((s) => runningSession(s) !== undefined)
 
   const writing = draft !== null
   useEffect(() => {
@@ -298,12 +303,29 @@ export function MarkRow({
         <button type="button" className="icon-button" aria-label={`Go to ${mark.id}`} title={gone ? LAYOUT_GONE : 'Go to its view'} disabled={gone} onClick={() => actions.focusMark(mark.id)}>
           <FocusIcon />
         </button>
+        {fromAgent && (
+          <button
+            type="button"
+            className="icon-button"
+            aria-label={`Answer ${mark.id} in chat`}
+            title={sessionLive ? "Answer in chat: put this mark's id in the prompt" : 'Start a session to answer in chat'}
+            disabled={!sessionLive}
+            onClick={() => {
+              // The dock may be away: the box takes no focus in a hidden one, so it is given the keys a frame after it is shown.
+              const hidden = !store.getState().dockOpen
+              actions.setDockOpen(true)
+              insertIntoSession(mark.id, { later: hidden })
+            }}
+          >
+            <AnswerIcon />
+          </button>
+        )}
         {resolved ? (
           <button type="button" className="icon-button" aria-label={`Reopen ${mark.id}`} title="Reopen as a draft" onClick={() => void change({ status: 'draft' }).catch(() => {})}>
             <ReopenIcon />
           </button>
         ) : (
-          <button type="button" className="icon-button" aria-label={`Resolve ${mark.id}`} title="Resolve" onClick={() => void change({ status: 'resolved' }).catch(() => {})}>
+          <button type="button" className="icon-button" aria-label={`Resolve ${mark.id}`} title={fromAgent ? 'Seen: resolve it' : 'Resolve'} onClick={() => void change({ status: 'resolved' }).catch(() => {})}>
             <CheckIcon />
           </button>
         )}
@@ -384,6 +406,15 @@ function FocusIcon() {
     <Glyph>
       <circle cx="8" cy="8" r="3.25" />
       <path d="M8 1.75v2.5M8 11.75v2.5M1.75 8h2.5M11.75 8h2.5" />
+    </Glyph>
+  )
+}
+
+/** A speech bubble: answer in the chat. */
+function AnswerIcon() {
+  return (
+    <Glyph>
+      <path d="M2.75 3.25h10.5v7h-6l-3 2.5v-2.5h-1.5Z" />
     </Glyph>
   )
 }

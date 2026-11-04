@@ -912,8 +912,11 @@ a chip turns the camera, as anywhere else.
 
 - A mark you change after it was sent (its note, or a shape's place, size,
   kind or intent) is a draft again, and is told once more as `(changed)`.
-- The Marks list is grouped: **To send**, **With the agent**, **To review**,
-  then **Resolved**, folded. The active row shows its note whole.
+- The Marks list is grouped by who acts next: **To send** (yours, "with your
+  next prompt"), **From the agent** (marks it left for you to read or answer;
+  **Answer in chat** puts the mark's id in the prompt, and the tick says
+  you have seen it), **To review**, **With the agent** (your sent marks), then
+  **Resolved**, folded. The active row shows its note whole.
 - A mark the agent resolves does not vanish: "To review" says "The agent
   resolved 2 marks." **Review** opens each, saying "Resolved by the agent"
   with the agent's line, with **OK** (it goes under "Resolved") and

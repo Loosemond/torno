@@ -439,6 +439,11 @@ test("add_mark places the agent's own marks, by ref and by point, which the user
 
   const row = page.locator('.mark-row[data-mark="M2"]')
   await expect(row).toHaveAttribute('data-author', 'agent')
+  // Its own group, for the person to read or answer; the person's sent M1 stays with the agent.
+  await expect(page.getByRole('list', { name: 'From the agent' }).locator('.mark-row[data-mark="M2"]')).toHaveCount(1)
+  await expect(page.getByRole('list', { name: 'With the agent' }).locator('.mark-row[data-mark="M1"]')).toHaveCount(1)
+  await expect(page.getByRole('list', { name: 'With the agent' }).locator('.mark-row[data-mark="M2"]')).toHaveCount(0)
+  await expect(row.getByRole('button', { name: 'Resolve M2' })).toHaveAttribute('title', 'Seen: resolve it')
   // --agent-mark, outlined: the user's own are filled with --user-mark.
   await expect(row.locator('.mark-chip')).toHaveCSS('border-top-color', 'rgb(40, 129, 86)')
   await expect(row.locator('.mark-chip')).toHaveCSS('color', 'rgb(40, 129, 86)')

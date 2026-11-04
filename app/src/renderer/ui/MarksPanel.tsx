@@ -7,7 +7,7 @@ import { ResolvedSummary } from './ResolvedSummary'
 
 /**
  * The marks of the open object, below the layers, grouped by what is to be
- * done with them (`groupMarks`): to send, with the agent, to review, then,
+ * done with them (`groupMarks`): to send, from the agent, to review, with the agent, then,
  * folded away, the resolved ones. A mark the agent resolved is to review
  * until the person has said they have seen it, or reopened it. Marks of every layout are listed; one of a layout that is not shown
  * says which, and going to it switches there.
@@ -67,13 +67,14 @@ export function MarksPanel() {
       remove={() => done(window.torno.marks.remove(objectId, mark.id))}
     />
   )
-  const { toSend, withAgent, toReview, resolved } = groupMarks(marks)
+  const { toSend, fromAgent, withAgent, toReview, resolved } = groupMarks(marks)
   /** A group of the list under its heading, when it has marks. */
-  const group = (name: string, of: Mark[]) =>
+  const group = (name: string, of: Mark[], hint?: string) =>
     of.length > 0 && (
       <>
         <h3 className="marks-group">
           {name} <span className="num">{of.length}</span>
+          {hint && ` · ${hint}`}
         </h3>
         <ul className="mark-rows" aria-label={name}>
           {of.map(row)}
@@ -111,9 +112,9 @@ export function MarksPanel() {
             <p>A mark goes with your next prompt, and stays here until the agent resolves it.</p>
           </div>
         )}
-        {marks.length > 0 && toSend.length + withAgent.length + toReview.length === 0 && <p className="section-note">Every mark is resolved.</p>}
-        {group('To send', toSend)}
-        {group('With the agent', withAgent)}
+        {marks.length > 0 && toSend.length + fromAgent.length + withAgent.length + toReview.length === 0 && <p className="section-note">Every mark is resolved.</p>}
+        {group('To send', toSend, 'with your next prompt')}
+        {group('From the agent', fromAgent)}
         {toReview.length > 0 && (
           <>
             <h3 className="marks-group">
@@ -122,6 +123,7 @@ export function MarksPanel() {
             <ResolvedSummary key={objectId} marks={toReview} row={row} acknowledgeAll={() => done(window.torno.marks.acknowledge(objectId, toReview.map((m) => m.id)))} />
           </>
         )}
+        {group('With the agent', withAgent)}
         {resolved.length > 0 && (
           <>
             <button type="button" className="marks-fold" aria-expanded={showResolved} onClick={() => setShowResolved((shown) => !shown)}>
