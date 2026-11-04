@@ -9,6 +9,7 @@ import type { Part, Scene } from '../shared/scene'
 import type { SavedView } from '../shared/views'
 import type { ObjectInfo } from '../shared/workspace'
 import { probe } from '../test/diagnosisFixtures'
+import { STARTER_MATERIALS } from '../shared/profile'
 import { StateFiles, stateText, writtenLine } from './statefile'
 
 const part = (layout: string, name: string, min: number[], max: number[]): Part => ({ key: `${layout}:${name}`, name, layout, bbox: { min, max }, bboxExact: true, volumeExact: true }) as Part
@@ -94,6 +95,12 @@ describe('stateText', () => {
     expect(text).toContain('A size with ≈ is approximate')
     // Where every size is exact nothing is said of it.
     expect(stateText(obj, OK, { revision: 3, scene: SCENE }, [])).not.toContain('≈')
+  })
+
+  it('marks a reference (a bought part) in the list of parts', () => {
+    const parts = [part('assembly', 'base', [0, 0, 0], [10, 10, 2]), { ...part('assembly', '608', [0, 0, 0], [22, 22, 7]), role: 'reference' as const }]
+    const text = stateText(obj, OK, { revision: 3, scene: { ...SCENE, layouts: ['assembly'], parts } }, [])
+    expect(text).toContain('- assembly: base 10 × 10 × 2 mm, 608 (reference) 22 × 22 × 7 mm')
   })
 
   it("names the model's groups of parts in each layout that has any of their parts, before the parts", () => {
@@ -405,5 +412,16 @@ describe('StateFiles', () => {
     fail = false
     failing.changed('bracket')
     await vi.waitFor(() => expect(writes).toBe(1))
+  })
+})
+
+describe('the print profile in the state file', () => {
+  const obj = { id: 'bracket', name: 'bracket', dir: '/ws/bracket', model: 'bracket.py' } as ObjectInfo
+  it('is a section when the project has one, and nothing otherwise', () => {
+    const OK: BuildState = { objectId: 'bracket', status: 'ok', revision: 3, seconds: 1, stale: false }
+    const text = stateText(obj, OK, undefined, [], undefined, undefined, undefined, { material: STARTER_MATERIALS[1] })
+    expect(text).toContain('## Print profile')
+    expect(text).toContain('material PETG')
+    expect(stateText(obj, OK, undefined, [])).not.toContain('Print profile')
   })
 })

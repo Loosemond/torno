@@ -46,6 +46,12 @@ export interface Part {
   arranged?: [number, number, number]
   /** The group of parts the model puts it in (`Scene.groups`), named by the worker; absent for a part in none. An explode moves a group as one body. */
   group?: string
+  /**
+   * `reference` for a bought part the model puts in the assembly beside what it makes (`references(p)`, or a vendor STEP it
+   * reads): drawn in a neutral tone, picked, measured, and an obstacle for `clearance`, `overlap` and `interference`, but
+   * never printed, counted by `bed`, weighed, or put in a mesh export. Absent of a part to make.
+   */
+  role?: 'reference'
 }
 /**
  * A field of the model's `Params` dataclass, as the worker that loaded the model read it (`loader.read_params`).

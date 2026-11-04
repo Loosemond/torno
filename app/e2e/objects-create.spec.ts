@@ -46,6 +46,7 @@ test('create makes the folder, lists the object when it answers, and the kernel 
     description: 'A clip for a 6 mm cable.',
     photos: [{ path: join(files, 'desk.png'), note: 'the desk edge' }],
     doodles: [{ png: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1]), note: 'the shape' }],
+    steps: [],
     scans: [],
     objects: [{ id: 'plain', note: 'same style' }]
   }
@@ -73,7 +74,7 @@ test('create makes the folder, lists the object when it answers, and the kernel 
 })
 
 test('create refuses a folder that is there, in any case, and an object that is not', async () => {
-  const base = { description: 'x', photos: [], doodles: [], scans: [], objects: [] }
+  const base = { description: 'x', photos: [], doodles: [], steps: [], scans: [], objects: [] }
   const refused = (r: object) => page.evaluate((req) => window.torno.objects.create(req as never).then(() => 'made', (e: Error) => e.message), r)
   expect(await refused({ ...base, name: 'Cable-Clip' })).toMatch(/there already/)
   expect(await refused({ ...base, name: 'bracket' })).toMatch(/there already/)

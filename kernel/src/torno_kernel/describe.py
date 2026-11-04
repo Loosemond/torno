@@ -100,7 +100,8 @@ def _part(facts: dict[str, Any]) -> str:
     about = "≈ " if facts.get("volumeExact") is False else ""
     inside_out = facts.get("reversed")
     return (
-        f"part, {boxed}{size} mm, {about}{number(facts['volume'])} mm³, "
+        ("reference part (bought), " if facts.get("role") == "reference" else "part, ")
+        + f"{boxed}{size} mm, {about}{number(facts['volume'])} mm³, "
         f"{faces} face{'' if faces == 1 else 's'}"
         # A solid turned inside out has a volume that is a size only: said where the number is.
         + (f", {reversed_text(inside_out)}" if inside_out else "")

@@ -4,6 +4,7 @@ import { z } from 'zod'
 import type { BuildState } from '../../shared/build'
 import { diagnosisText } from '../../shared/diagnosis'
 import type { Described } from '../../shared/geometry'
+import type { BuildIdentity } from '../../shared/git'
 import type { Mark, MarkPatch, NewMark } from '../../shared/marks'
 import type { ScanInfo } from '../../shared/scans'
 import type { Scene } from '../../shared/scene'
@@ -32,11 +33,15 @@ import { movedForDisplay } from '../marks/spread'
 import type { AskedAnchor, NearestAnchor } from '../marks/reanchor'
 import { type ExpectArgs, type Expectations, expectTool } from './expectTools'
 import { onlyKeysWrong, unknownKeys } from './keys'
+import { askTool } from './askTool'
+import type { AskAnswer, AskEnd, AskRequest } from '../../shared/ask'
 import { addMarkTool, checkRef, highlightTool, resolveMarkTool } from './markTools'
+import { type FeaturesToolArgs, featuresTool } from './featureTools'
 import { type DiffToolArgs, type MeasureToolArgs, type SectionToolArgs, type TryFilletToolArgs, type TryParamsToolArgs, checkTool, diffTool, measureTool, sectionTool, tryFilletTool, tryParamsTool } from './readTools'
 import { type ScanClashArgs, type ScanDeviationArgs, type ScansArgs, scanClashTool, scanDeviationTool, scansTool } from './scanTools'
-import { type AddMarkArgs, type DescribeArgs, type HighlightArgs, type LookArgs, type MarksArgs, type ResolveMarkArgs, type SaveViewArgs, type ShowArgs, DEFAULT_SIZE, MAX_SIZE, MIN_SIZE, NO_PLANE, TOOLS, refusedKeys } from './schemas'
+import { type AddMarkArgs, type AskArgs, type DescribeArgs, type HighlightArgs, type LookArgs, type MarksArgs, type ResolveMarkArgs, type SaveViewArgs, type ShowArgs, DEFAULT_SIZE, MAX_SIZE, MIN_SIZE, NO_PLANE, TOOLS, refusedKeys } from './schemas'
 import { type SceneArgs, lookTool, saveViewTool, sceneTool, showTool } from './viewTools'
+import type { Profile } from '../../shared/profile'
 
 /** What the tools need of torno. All of it is about objects of the open workspace, by id. */
 export interface ToolDeps {
@@ -47,11 +52,15 @@ export interface ToolDeps {
   /** Takes out of what the model printed what must not be told (the tokens of the sessions). */
   redact?(text: string): string
   object(objectId: string): ObjectInfo | undefined
+  /** The printer and material the project is made for (`.torno/profile.json`): the person's numbers, which `check` and `measure` take as defaults. None when it has none. */
+  profile?(objectId: string): Profile | undefined
   build(objectId: string): BuildState | undefined
   /** The last successful build. */
   scene(objectId: string): { revision: number; scene: Scene } | undefined
   /** The last two successful builds, the older first (`diff`). Without it, only the last is known. */
   scenes?(objectId: string): Array<{ revision: number; scene: Scene }>
+  /** What the build of this run with this revision was made from (`main/buildlog.ts`); undefined when it is not known. `diff` tells it. */
+  identity?(objectId: string, revision: number): BuildIdentity | undefined
   /** The camera, layout and visible parts of an object as the window last showed it. */
   view(objectId: string): ViewState | undefined
   /** The object the window shows now: the only one it can make a picture of. */
@@ -86,10 +95,20 @@ export interface ToolDeps {
   /** Tints refs of the layout on screen in the agent's colour, with a note beside them. Rejects with a text. */
   highlight(objectId: string, layout: string, refs: string[], note?: string): Promise<HighlightResult>
   /**
+   * Puts a question to the person in the window and waits for what ends it: their answer, or the signal (which the
+   * tool fires at its time limit and when the client gives the call up). Main shows the session as `needs_input`
+   * meanwhile.
+   */
+  ask?(objectId: string, req: AskRequest, signal: AbortSignal): Promise<AskAnswer | AskEnd>
+  /** Whether a question of an object waits for an answer now: there is one at a time. */
+  asking?(objectId: string): boolean
+  /** The time `ask` waits and how often it tells its client it is alive; the tests shorten them. */
+  askLimits?: { limitMs: number; progressMs: number }
+  /**
    * Asks the kernel about the last successful build of an object: an exact measurement, what a plane cuts, a check
    * of two parts or of a mesh. Refs go with the layout in front. Rejects with a `KernelError`, whose kind says why.
    */
-  query<T = unknown>(objectId: string, name: 'measure' | 'section' | 'check' | 'scan_clash' | 'scan_deviation' | 'scan_section' | 'try_fillet', args: object): Promise<T>
+  query<T = unknown>(objectId: string, name: 'measure' | 'section' | 'check' | 'scan_clash' | 'scan_deviation' | 'scan_section' | 'try_fillet' | 'features', args: object): Promise<T>
   /**
    * Builds the model of an object with other values of its `Params` (over the person's own) in a worker the kernel
    * throws away, and answers `queries` there (`name` and `args` as `query` takes them). Nothing is kept or changed.
@@ -113,6 +132,12 @@ export interface ToolDeps {
 }
 
 type Block = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }
+/** What a tool that waits needs of the call it is run for: its cancellation, and a way to tell the client it is alive. */
+export interface ToolExtra {
+  signal?: AbortSignal
+  progress?(progress: number, message: string): Promise<void>
+}
+
 export interface ToolResult {
   [key: string]: unknown
   content: Block[]
@@ -123,6 +148,10 @@ export const TRACEBACK_LINES = 30
 
 export const SPREAD_NOTE =
   'The parts of the print layout overlapped as the model placed them, so they were spread along X for display; arranged is how far each was moved.'
+
+/** Said by `scene` of a build that has references: what they are for, and what they are left out of. */
+export const REFERENCE_NOTE =
+  'Parts with role reference are bought parts (a bearing, a screw, a vendor STEP): drawn and measured, and a clearance, overlap or interference check may name them, but they are not printed, not counted by bed, have no mass and are not in a mesh export.'
 
 const PLANE_KEYS = ['axis', 'at', 'origin', 'normal']
 
@@ -142,12 +171,23 @@ export function planeArg(value: unknown): SectionPlane | ToolResult {
  * key would change what is done (`refusedKeys`).
  */
 export function registerTools(server: McpServer, deps: ToolDeps, objectId: string): void {
-  const tool = <A>(name: keyof typeof TOOLS, run: (args: A) => ToolResult | Promise<ToolResult>): void => {
+  const tool = <A>(name: keyof typeof TOOLS, run: (args: A, extra: ToolExtra) => ToolResult | Promise<ToolResult>): void => {
     const of = TOOLS[name]
     server.registerTool(
       name,
       { title: of.title, description: of.description, annotations: of.annotations, ...('meta' in of ? { _meta: of.meta } : {}), inputSchema: z.looseObject('inputSchema' in of ? of.inputSchema : {}) },
-      async (args: unknown) => (deps.off?.has(name) ? failure(name === 'look' ? LOOK_OFF : `${name} is turned off in this eval run.`) : (refusedKeys(name, args) ?? run(args as A)))
+      async (args: unknown, extra) =>
+        deps.off?.has(name)
+          ? failure(name === 'look' ? LOOK_OFF : `${name} is turned off in this eval run.`)
+          : (refusedKeys(name, args) ??
+            run(args as A, {
+              signal: extra.signal,
+              // Only a client that sent a progress token is told: without one there is nothing to tie the notice to.
+              progress: async (progress, message) => {
+                const token = extra._meta?.progressToken
+                if (token !== undefined) await extra.sendNotification({ method: 'notifications/progress', params: { progressToken: token, progress, message } })
+              }
+            }))
     )
   }
   tool<SceneArgs>('scene', async (args) => sceneTool(deps, objectId, await deps.marks(objectId).catch(() => undefined), await deps.scans(objectId).catch(() => undefined), await deps.views(objectId).catch(() => undefined), args))
@@ -155,6 +195,7 @@ export function registerTools(server: McpServer, deps: ToolDeps, objectId: strin
   tool<MarksArgs>('marks', (args) => marksTool(deps, objectId, args))
   tool<DescribeArgs>('describe', (args) => describeTool(deps, objectId, args))
   tool<HighlightArgs>('highlight', (args) => highlightTool(deps, objectId, args))
+  tool<AskArgs>('ask', (args, extra) => askTool(deps, objectId, args, extra))
   tool<ShowArgs>('show', (args) => showTool(deps, objectId, args))
   tool<SaveViewArgs>('save_view', (args) => saveViewTool(deps, objectId, args))
   tool<AddMarkArgs>('add_mark', (args) => addMarkTool(deps, objectId, args))
@@ -165,6 +206,7 @@ export function registerTools(server: McpServer, deps: ToolDeps, objectId: strin
   tool<DiffToolArgs>('diff', (args) => diffTool(deps, objectId, args))
   tool<ExpectArgs>('expect', (args) => expectTool(deps, objectId, args))
   tool<TryFilletToolArgs>('try_fillet', (args) => tryFilletTool(deps, objectId, args))
+  tool<FeaturesToolArgs>('features', (args) => featuresTool(deps, objectId, args))
   tool<TryParamsToolArgs>('try_params', (args) => tryParamsTool(deps, objectId, args))
   tool<ScansArgs>('scans', (args) => scansTool(deps, objectId, args))
   tool<ScanClashArgs>('scan_clash', (args) => scanClashTool(deps, objectId, args))

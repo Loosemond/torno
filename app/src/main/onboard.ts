@@ -26,6 +26,8 @@ export { MOST_IMAGES }
 const MOST_PARTS_NAMED = 8
 const MAX_DESCRIPTION = 20_000
 const REFERENCE_FILE = /^reference\/(photo|doodle)-[1-9][0-9]*\.(png|jpg|jpeg|webp)$/
+/** A vendor STEP file as `create` names it (`stepFiles`). */
+const STEP_FILE = /^reference\/[A-Za-z0-9][A-Za-z0-9._-]*\.(step|stp)$/
 
 /** The picture an object has on file for its card, or none: a plain file under a plain `.torno`, a PNG within the card's size. */
 export async function readThumb(dir: string): Promise<ImageBytes | undefined> {
@@ -69,6 +71,8 @@ export interface PromptInput {
   description: string
   /** Photos, then doodles. `image` is none for a picture that cannot be attached. */
   items: Array<{ file: string; note: string; image?: ImageBytes }>
+  /** The vendor STEP files copied into `reference/`. */
+  steps?: Array<{ file: string; note: string }>
   /** `id` is none for a scan that could not be imported, and `problem` says why. */
   scans: Array<{ id: string | null; file: string; note: string; problem?: string }>
   objects: Array<{ name: string; summary: string; note: string; thumb?: ImageBytes }>
@@ -102,6 +106,12 @@ export function onboardPrompt(input: PromptInput, toolName: (tool: string) => st
       const tail = attached[i] !== null && !held ? ` (attached: picture ${attached[i]})` : ` (not attached: read ${item.file})`
       lines.push(`- ${item.file}${said(item.note) === '' ? '' : `: ${said(item.note)}`}${tail}`)
     })
+    for (const step of input.steps ?? []) {
+      const note = said(step.note)
+      const file = said(step.file)
+      const name = file.split('/').pop() ?? file
+      lines.push(`- ${file}${note === '' ? '' : `: ${note}`}. A vendor's STEP file of a bought part, copied into the project as it is. It is not a part to print: in the model read it with import_step(Path(__file__).parent / "reference" / "${name}") and return it among references(p) (the torno-model skill, "References: bought parts").`)
+    }
     for (const scan of input.scans) {
       const note = said(scan.note)
       const file = said(scan.file)
@@ -147,7 +157,7 @@ const STAND_IN: ImageBytes = { bytes: new Uint8Array(0), mediaType: 'image/png',
 export async function previewPrompt(deps: Pick<OnboardDeps, 'object' | 'scene'>, name: string, draft: PromptPreviewDraft): Promise<PromptPreview> {
   if (typeof name !== 'string' || typeof draft !== 'object' || draft === null) throw new Error('No draft to preview.')
   if (typeof draft.description !== 'string' || draft.description.length > MAX_DESCRIPTION) throw new Error('The description is not text of at most 20,000 characters.')
-  for (const kind of ['items', 'scans', 'objects'] as const) {
+  for (const kind of ['items', 'steps', 'scans', 'objects'] as const) {
     if (!Array.isArray(draft[kind]) || draft[kind].length > MOST_PREVIEW) throw new Error(`The ${kind} are not a short list.`)
   }
   const text = (v: unknown): string => (typeof v === 'string' ? v.slice(0, 2000) : '')
@@ -162,6 +172,7 @@ export async function previewPrompt(deps: Pick<OnboardDeps, 'object' | 'scene'>,
     name: name.trim() === '' ? 'new-project' : name.trim(),
     description: draft.description,
     items: draft.items.map((item) => ({ file: text(item?.file), note: text(item?.note), ...(item?.picture === true ? { image: STAND_IN } : {}) })),
+    steps: draft.steps.map((step) => ({ file: text(step?.file), note: text(step?.note) })),
     scans: draft.scans.map((scan, i) => ({ id: `S${i + 1}`, file: basename(text(scan?.path)), note: text(scan?.note) })),
     objects
   })
@@ -200,9 +211,9 @@ const firstLine = (e: unknown): string => (e instanceof Error ? e.message : Stri
 async function checked(deps: OnboardDeps, obj: ObjectInfo, draft: OnboardDraft): Promise<void> {
   if (typeof draft !== 'object' || draft === null) throw new Error('No draft to onboard.')
   if (typeof draft.description !== 'string' || draft.description.length > MAX_DESCRIPTION) throw new Error('The description is not text of at most 20,000 characters.')
-  const lists = { items: MOST.photos + MOST.doodles, scans: MOST.scans, objects: MOST.objects }
-  const named = { items: 'items', scans: 'scans', objects: 'projects' }
-  for (const kind of ['items', 'scans', 'objects'] as const) {
+  const lists = { items: MOST.photos + MOST.doodles, steps: MOST.steps, scans: MOST.scans, objects: MOST.objects }
+  const named = { items: 'items', steps: 'bought parts', scans: 'scans', objects: 'projects' }
+  for (const kind of ['items', 'steps', 'scans', 'objects'] as const) {
     if (!Array.isArray(draft[kind])) throw new Error(`The ${named[kind]} are not a list.`)
     if (draft[kind].length > lists[kind]) throw new Error(`At most ${lists[kind]} ${named[kind]}.`)
   }
@@ -212,6 +223,13 @@ async function checked(deps: OnboardDeps, obj: ObjectInfo, draft: OnboardDraft):
     if (typeof item.note !== 'string') throw new Error('The note of a photo or a doodle is not text.')
     const stat = await lstat(join(obj.dir, item.file)).catch(() => null)
     if (!stat?.isFile()) throw new Error(`${item.file} is not there.`)
+  }
+  for (const step of draft.steps) {
+    if (typeof step?.file !== 'string' || !STEP_FILE.test(step.file)) throw new Error('A bought part is a STEP file of reference/ that torno made.')
+    if (typeof step.note !== 'string') throw new Error('The note of a bought part is not text.')
+    oneLine(step.note, 'bought part')
+    const stat = await lstat(join(obj.dir, step.file)).catch(() => null)
+    if (!stat?.isFile()) throw new Error(`${step.file} is not there.`)
   }
   for (const scan of draft.scans) {
     if (typeof scan?.path !== 'string' || !isAbsolute(scan.path) || !(SCAN_FORMATS as readonly string[]).includes(extname(scan.path).toLowerCase())) throw new Error(`A scan is a ${SCAN_FORMATS.join(', ')} file given by its path.`)
@@ -226,7 +244,7 @@ async function checked(deps: OnboardDeps, obj: ObjectInfo, draft: OnboardDraft):
     if (typeof other.note !== 'string') throw new Error('The note of a project is not text.')
     oneLine(other.note, 'project')
   }
-  for (const [kind, keys] of [['file', draft.items.map((i) => i.file)], ['scan', draft.scans.map((s) => s.path)], ['project', draft.objects.map((o) => o.id)]] as const) {
+  for (const [kind, keys] of [['file', [...draft.items.map((i) => i.file), ...draft.steps.map((x) => x.file)]], ['scan', draft.scans.map((s) => s.path)], ['project', draft.objects.map((o) => o.id)]] as const) {
     if (new Set(keys).size !== keys.length) throw new Error(`The same ${kind} is given twice.`)
   }
 }
@@ -273,6 +291,7 @@ async function onboarded(deps: OnboardDeps, obj: ObjectInfo, draft: OnboardDraft
     name: obj.id,
     description: draft.description,
     items: draft.items.map((item) => ({ file: item.file, note: item.note, image: checkedImage(item.image) ?? undefined })),
+    steps: draft.steps.map((step) => ({ file: step.file, note: step.note })),
     scans,
     objects
   })

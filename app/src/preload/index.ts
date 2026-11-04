@@ -69,6 +69,11 @@ const bridge: TornoBridge = {
     onSaveView: (cb) => subscribe('view:saveView', cb),
     saveViewReply: (id, result) => ipcRenderer.send('view:saveViewReply', id, result)
   },
+  asks: {
+    list: () => invokePlain('asks:list'),
+    onChanged: (cb) => subscribe('asks:changed', cb),
+    answer: (id, answer) => ipcRenderer.send('asks:answer', id, answer)
+  },
   marks: {
     list: (objectId) => invokePlain('marks:list', objectId),
     add: (objectId, mark) => invokePlain('marks:add', objectId, mark),
@@ -87,6 +92,7 @@ const bridge: TornoBridge = {
   objects: {
     pickPhotos: () => invokePlain('objects:pickPhotos'),
     pickScan: () => invokePlain('scans:pick'),
+    pickStep: () => invokePlain('objects:pickStep'),
     pathOf: (file) => webUtils.getPathForFile(file),
     readPhoto: (path) => invokePlain('objects:readPhoto', path),
     create: (req) => invokePlain('objects:create', req),
@@ -124,9 +130,14 @@ const bridge: TornoBridge = {
     saveThumbnail: (objectId, revision, png, of) => ipcRenderer.send('show:saveThumbnail', objectId, revision, png, of),
     onChanged: (cb) => subscribe<void>('show:changed', () => cb())
   },
+  git: {
+    status: (objectId) => invoke('git:status', objectId)
+  },
   export: {
     plan: (req) => invokePlain('export:plan', req),
     save: (req) => invokePlain('export:save', req),
+    savePicture: (objectId, png) => invokePlain('export:savePicture', objectId, png),
+    saveSection: (objectId, as) => invokePlain('export:saveSection', objectId, as),
     reveal: () => invokePlain('export:reveal'),
     openSaved: () => invokePlain('export:openSaved'),
     done: () => ipcRenderer.send('export:done')
@@ -161,6 +172,13 @@ const bridge: TornoBridge = {
     setMode: (sessionId, mode) => invokePlain('chat:setMode', sessionId, mode),
     setEffort: (sessionId, effort) => invokePlain('chat:setEffort', sessionId, effort),
     models: () => invokePlain('chat:models')
+  },
+  profile: {
+    choices: () => invokePlain('profile:choices'),
+    savePrinter: (printer) => invokePlain('profile:savePrinter', printer),
+    saveMaterial: (material) => invokePlain('profile:saveMaterial', material),
+    get: (objectId) => invokePlain('profile:get', objectId),
+    set: (objectId, profile) => invokePlain('profile:set', objectId, profile)
   }
 }
 

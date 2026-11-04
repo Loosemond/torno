@@ -10,6 +10,7 @@ import type { BuildDigest } from '../shared/sanity'
 import type { Scene } from '../shared/scene'
 import { type ViewState, MAX_SELECTION_REPORTED, planeText } from '../shared/view'
 import type { ObjectInfo } from '../shared/workspace'
+import { type Profile, profileLine } from '../shared/profile'
 import { describeMark } from './marks/describe'
 import { assumedKey, assumedLine, triedLine } from '../shared/params'
 import { digestText, sanity } from './sanity'
@@ -98,6 +99,8 @@ export interface ContextDeps {
   openObjectId(): string | null
   /** The files of the object's `reference/` (`photo-1.jpg`), photos then doodles: told to a new conversation. None when it has none or cannot be read. */
   references?(objectId: string): string[]
+  /** The printer and material the project is made for: told to a new conversation (`profileLine`). None when it has none. */
+  profile?(objectId: string): Profile | undefined
   now?(): number
   /** Takes out of text that is not torno's own what must not be told or logged (the tokens of the sessions): applied to what the model printed. */
   redact?(text: string): string
@@ -318,6 +321,9 @@ function contextText(deps: ContextDeps, objectId: string, marks: readonly Mark[]
   if (rest.length > 0 && !opts.buildOnly) lines.push(`Open marks: ${openMarks(rest, revision, toolName, openLine.length - 'Open marks: '.length)}`)
   // A new conversation is told which references there are, last, and only when the line fits: it is no mark.
   const referred = (opts.fresh || opts.newConversation) && !opts.buildOnly ? referencesLine(deps.references?.(objectId) ?? []) : ''
+  // And the print profile, the person's numbers the check and measure tools default to: told the same way, in one line.
+  const profiled = (opts.fresh || opts.newConversation) && !opts.buildOnly ? profileLine(deps.profile?.(objectId)) : ''
+  if (profiled && lines.join('\n').length + 1 + profiled.length + (referred ? 1 + referred.length : 0) + (instructed ? 1 + instructed.length : 0) <= CONTEXT_LIMIT) lines.push(profiled)
   const joined = lines.join('\n')
   // Last, so that nothing above it is given up for it: it takes the room that is left.
   const printed = opts.buildOnly ? printedBlock(deps, objectId, toolName, CONTEXT_LIMIT - joined.length - 1) : ''

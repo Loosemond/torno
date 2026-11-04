@@ -231,3 +231,25 @@ def test_a_build_with_no_overrides_is_as_before(tmp_path):
     _, params, _, report = box_of(folder)
     assert report == {"applied": {}, "dropped": []}
     assert all(p["value"] == p["default"] for p in params)
+
+
+def test_references_are_made_with_the_overrides_too(tmp_path):
+    folder = write(
+        tmp_path,
+        """
+        from dataclasses import dataclass
+        from build123d import Box
+
+        @dataclass(frozen=True)
+        class Params:
+            bolt: float = 4
+
+        def assembly(p):
+            return {"plate": Box(20, 20, 3)}
+
+        def references(p):
+            return {"bolt": Box(p.bolt, p.bolt, p.bolt)}
+        """,
+    )
+    layouts, _, _, _ = load_model(folder, "thing.py", {"bolt": 6})
+    assert round(layouts["assembly"]["bolt"].bounding_box().size.X) == 6

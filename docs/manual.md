@@ -39,7 +39,9 @@ Linux or macOS. Developed on Arch with Wayland (Hyprland). macOS is tested on Gi
   kernel in that environment with `uv run --no-sync` and never changes it. A
   workspace with no `pyproject.toml` is built with the build123d of torno's
   own kernel environment (`kernel/.venv`, which uv makes the first time it is
-  needed).
+  needed), which also has `bd_warehouse` (screws, nuts, clearance holes,
+  bearings), so a model there can import it. A workspace with its own
+  `pyproject.toml` has `bd_warehouse` only if it lists it.
 - Importing a scan needs `trimesh` and `pillow`, which uv fetches the first
   time a scan is imported. The checks against a scan use the `scipy` of the
   workspace's environment, which build123d brings.
@@ -313,6 +315,23 @@ A declaration that is not one fails the build and says what is wrong, as a bad `
 never fails the build, and never holds the agent back when it would stop; it is told with the build
 (What the agent is told) and listed in the window under Checks. torno never writes `checks(p)`.
 
+**Bought parts.** A printed part is usually made around something bought: a screw, a bearing, a board. A model says so
+with an optional `references(p)` beside `assembly` (name to shape, in the assembly's frame):
+
+```python
+def references(p: Params):
+    return {"608": Pos(0, 0, 4) * SingleRowDeepGrooveBallBearing(size="M8-22-7", bearing_type="SKT")}
+```
+
+A reference is drawn in a neutral grey, listed in Layers with the tag "bought", and picked and measured like a part. It is an
+obstacle: `check clearance`, `overlap` and `interference` take it against the parts (never one reference against another), and
+`checks(p)` and `groups(p)` may name it. It is not made: it is in no `print` layout, not counted by `check bed`, has no mass, takes no
+`thin`, `overhang` or `mesh` check, and is in no STL or 3MF; a STEP holds it only when ticked in the export sheet. Its name is
+its own (not a part's, no `/`, not of the form `M<n>`), and a model with only a `print` layout cannot have one. Standard parts come
+from `bd_warehouse`, which torno's own kernel environment has (`simple=True` for a screw); a vendor's STEP is read by the
+model itself (`import_step`) and returned among the references, as torno reads no file of its own accord. A reference that is a
+library's compound of many solids is taken as the solids it holds, in one shape.
+
 **Builds.** Saving a file in the project's folder (dotfiles, `out/`, `cache/`,
 `.torno/` and `__pycache__/` are ignored, as are `build/`, `dist/`,
 `node_modules/`, `.venv/` and `.git/`) or in the workspace's `common/` starts
@@ -359,8 +378,8 @@ by their place in the operand, from 0 (`tool F5`), and their numbers are in the 
 distance is OpenCascade's and is told with `≈`; a count of points of one lying inside the other is of points sampled
 on its vertices and the middles of its edges, so it can say that none was found, never that none is there.
 
-**The window.** On the left, the list of projects, then the layers, the parameters and the scans of the
-open project, then its marks. Projects, Layers, Parameters and Scans each fold by their title; folded, the
+**The window.** On the left, the list of projects, then the layers, the parameters, the print profile and the scans of the
+open project, then its marks. Projects, Layers, Parameters, Print profile and Scans each fold by their title; folded, the
 title says what matters (`Layers 12 · 3 hidden`, `Scans 1 · unaligned`). Marks never folds:
 it keeps room for five rows at least, and the sections above give way first. Drag the line
 above Marks up for more (`Up` and `Down` with it in focus), double click it for the shares
@@ -453,6 +472,8 @@ layers, with every defect it has in its tooltip, and the line at the bottom
 counts such parts ("1 part has a defect"). The agent is told the same after its
 edit (What the agent is told).
 
+When the project is in a git work tree, the status line and the card say what has changed since the last commit: "3 files changed since `a1b2c3d`", with the files in the tooltip (the `.py` files and the others of the project's folder, and `common/`; not `.torno/`), or "No changes since `a1b2c3d`". It is read when the project is opened, when a build ends, and when the window is focused again. torno only reads: it runs `git status` with `--no-optional-locks`, which leaves the index as it is, gives it five seconds, and never commits, adds or changes anything. Without git, or outside a repository, nothing is said. Commits are the agent's: ask for one in the chat (the Marks panel offers a request, see Marks).
+
 The pointer is told what it is on: a face (`lid/F12`), or an edge within reach
 of it (`lid/E3`), with a line from the kernel on what that is, such as
 `plane, normal +Z, z = 20, 1180 mm²`. Hidden parts are never picked. While the
@@ -473,6 +494,11 @@ hold, sizes you know, how it will be made), and then for what you have, each wit
   scaled to 1280 px on its long edge; the original is copied to `reference/photo-<n>.<ext>` in the project.
 - **Doodles** ("Draw…"): up to 6, drawn on a board (below). Claude gets each as a PNG with dark ink on white,
   over a light grid (1 square = 40 px of the board, no scale, and the prompt says so), whichever theme you drew it in, and `reference/` keeps it.
+- **Bought parts** ("Add a bought part…", or dropped): a vendor's STEP file (`.step` or `.stp`) of a screw, a bearing, a
+  board, a motor; up to 4, 50 MB each (a larger file is refused, and is never read whole). The file is copied as it is into `reference/` under its own name
+  (made safe for a file name; `608zz.step`, or `608zz-2.step` if two have the name), and the prompt names it and tells Claude to read it in the
+  model with `import_step` and return it among `references(p)` (see "Bought parts" under the model), not as a part to print. torno reads
+  nothing of it itself.
 - **Scans** ("Add a scan…", or dropped): up to 4. They are imported into the project as "Import scan…" does, not
   copied and not aligned; Claude is told each scan's file name and id, and that it is not aligned (you align it in
   torno); `brief.md` keeps the path it came from, with `~` for your home folder.
@@ -497,7 +523,7 @@ cube, to be replaced), `brief.md` (your words and a line for each reference with
 `.torno/` folder is made as for any project. It is made in a hidden temporary folder beside it and renamed into
 place as the last step, so it is whole or not there, and it never goes into or over a folder that exists (an
 empty one of that name is used). A temporary folder a crash left is swept away at the next opening of the
-workspace once it is ten minutes old, unless it holds files in `reference/` (your doodles may be nowhere else):
+workspace once it is ten minutes old, unless it holds files in `reference/` (your doodles and STEP files may be nowhere else):
 such a leftover, a hidden `.<name>.torno-new-<hex>` folder in the workspace, is yours to look at and delete. Then torno opens the project, imports the scans, starts Claude Code in a
 chat and sends one prompt with everything. The prompt asks Claude to list the sizes that decide fit or function and
 say where each comes from (your words, a note, a scan, another project, or nowhere), and to ask you for those that come
@@ -791,7 +817,7 @@ two: the session is ended (torno asks first if it is busy) and started again,
 resuming it. With no session it sets what the next one will be; the choice is
 kept in `.torno/agent.json`. What the chat showed is kept as text in
 `.torno/chat/`, and a resumed conversation shows it under "Earlier in this
-conversation"; pictures are never written. The photos and doodles you gave when
+conversation"; pictures are never written. A revision counts from 1 in every run of torno, so `r12` of an earlier part of the conversation may name another build now: the chip's tooltip says so there, and in the current run it says what the build was made from ("sources `9f3e1a2b4c5d`, on `a1b2c3d` with changes": a hash of the `.py` files it read, the commit then checked out, and whether files differed from it), also under "Show text" of the build line. `.torno/builds.jsonl` keeps the same for each build. The photos and doodles you gave when
 you made the project are shown again from `reference/`, by the name the log
 keeps (one you have since deleted says `reference/doodle-1.png is no longer
 there`); a picture a tool gave says "Picture of an earlier build, not kept",
@@ -860,8 +886,8 @@ that leave a valid but wrong part (a boolean that lost volume, an edge taken fro
 an older shape), the usual OCCT errors (fillets, booleans, `StdFail_NotDone`; of a
 failed fillet, to read why and try one with `try_fillet` before editing again), an
 API reference of build123d 0.13.0 that the agent searches offline in any
-workspace, and the sizes of screw, nut and insert holes (`bd_warehouse` is not in
-torno's kernel); `torno:scans` and `torno:dimensions` what the
+workspace, and the sizes of screw, nut and insert holes and how to use `bd_warehouse`
+(which torno's kernel has) and `references(p)` for bought parts; `torno:scans` and `torno:dimensions` what the
 instructions would otherwise say of scans and of dimensions; `torno:printing`
 the rules of a part for an FDM printer (fits per side, walls as multiples of the
 line width, overhangs, holes, orientation and the bed), with typical numbers
@@ -1057,7 +1083,7 @@ is running or has failed. A tool given a key it does not take is refused,
 naming the keys it takes.
 
 The tools that only read (`scene`, `look`, `marks`, `describe`, `measure`, `section`, `check`, `diff`,
-`try_fillet`, `try_params`, `scans`, `scan_clash`, `scan_deviation`) say so, and Claude Code may call several at once. The server also tells Claude
+`try_fillet`, `try_params`, `features`, `scans`, `scan_clash`, `scan_deviation`) say so, and Claude Code may call several at once. The server also tells Claude
 Code at the start, in a few lines, what each tool is for. Claude Code's tool search keeps an MCP server's tools out
 of the model's sight until it searches for them; five are loaded from the start because nearly every turn uses
 them: `scene`, `look`, `marks`, `describe` and `measure`. The others are found by that search.
@@ -1069,6 +1095,7 @@ them: `scene`, `look`, `marks`, `describe` and `measure`. The others are found b
 | `mcp__torno__marks` | Your marks and the agent's as data, each with a line of text. It lists the marks that are not resolved, 50 at a time; `status` (`resolved` too), `ids` (`["M4"]`, any status), `limit` (200 at most) and `next` say which. A stroke is given as a summary of its points (count, first, last, box) unless `ids` names it. What was left out is said (`omitted`, `next`). |
 | `mcp__torno__describe` | The geometry of a part, a face or an edge (`lid`, `lid/F12`, `lid/E3`), or of a group of parts by its name: the box of its parts and their volume. Of a face or an edge it also gives a `selector`: a build123d expression on `part`, such as `part.faces().filter_by(Axis.Z).sort_by(Axis.Z)[-1]`, that the kernel evaluated on this build and that gave exactly that shape, as `robust` `by geometry` (a direction, an extreme, a radius, a place) or `by order` (an index into a sort, which the next edit may break), and `selectorFrame`, which says in whose frame it is. |
 | `mcp__torno__highlight` | Tints faces or edges in your viewport with a note, to ask "this one?", until you click or a minute passes. A group's name tints all of its parts. |
+| `mcp__torno__ask` | Asks you to choose and waits: a card above the box of the chat (under the view for a terminal session) with a button for each answer, and the refs of an answer light up in your view while the pointer is on its button. If it allows, you may answer with the one face or edge you select in the view instead, or with "None of these". The agent gets back what you chose, as refs. The session shows Needs input meanwhile; the question ends by itself after 10 minutes with "not answered", and when the turn ends. |
 | `mcp__torno__show` | Changes your camera, layout, visible parts (a group's name stands for its parts), section, explode and scans to show you something, or puts a saved view on screen by its name; with `focus` and `margin`, as `look` takes them, it puts your camera on a ref, a mark or a box. For now only: what `.torno/scene.json` keeps stays yours. Refused while you hold a button in the viewport. |
 | `mcp__torno__save_view` | Proposes a saved view: it appears in your strip marked "proposed" until you keep or discard it. Nothing on screen changes. |
 | `mcp__torno__add_mark` | Leaves a mark of the agent's, in green: a pin, a pick, an arrow, a shape, or with `kind: 'dimension'` a dimension, measured at once and on every build like yours. A point that is not on the part is refused, saying how far off it is. |
@@ -1076,10 +1103,11 @@ them: `scene`, `look`, `marks`, `describe` and `measure`. The others are found b
 | `mcp__torno__measure` | An exact number from the geometry. See [Measuring and dimensions](#measuring-and-dimensions). |
 | `mcp__torno__section` | The outlines a plane cuts of the parts, with their areas, and a 2D drawing of the cut. See [Section](#section). |
 | `mcp__torno__check` | Whether two parts overlap, how far apart they are, whether a part's mesh is closed, and whether it prints: overhangs, thin walls, the fit on a bed. |
-| `mcp__torno__diff` | What changed between the last two successful builds (or the two revisions given as `from` and `to`): for each layout the parts added and removed, and for each part its volume (and its change in percent), box size and min corner before and after, with whether each is exact, and its face, edge and solid counts, a hint that refs may name other faces now. The answer to an edit gives the same of each part that changed. Only the last two builds are kept. |
+| `mcp__torno__diff` | What changed between the last two successful builds (or the two revisions given as `from` and `to`): for each layout the parts added and removed, and for each part its volume (and its change in percent), box size and min corner before and after, with whether each is exact, and its face, edge and solid counts, a hint that refs may name other faces now. The answer to an edit gives the same of each part that changed. Only the last two builds are kept. `builds` says what each was made from (a hash of the sources, the commit, whether files differed from it), and a note says when the two were made from the same sources. |
 | `mcp__torno__expect` | Called before an edit: what it should change, as checks (a part's `volume`, `faces`, `edges` or `size` as a `value` or a `change` with a `tolerance`; a `measure` with the number it `expected`; `unchanged` parts). The next successful build is held against it, and the answer to the edit says in a line how many checks were met and which were not, with the numbers (`≈` where the kernel's is not exact). Kept in memory for that one build, told once, no mark, and it never holds a turn back. A ref to a face of a part whose face count changed is told as moved and not measured. `scene` gives the last verdict. |
 | `mcp__torno__try_fillet` | Tries a fillet (or a chamfer, `kind: 'chamfer'`) of `radius` mm of some edges of a part (`part`, `edges` as refs such as `lid/E3`) on the last good build and throws it away: whether it works, and when it does not, the edges that fail alone or in pairs and the largest radius that works, as a failed build's error says it. It changes nothing. |
 | `mcp__torno__try_params` | Builds the model with other values of its `Params` (`set`, the fields `scene` lists under `params` as editable: `{"wall": 2.4}`) in a worker of its own and throws it away, then says whether it built (or the model's error), what changed against the last build part by part, and the measurements (`measure`: `bbox`, `volume`, `area`, `mass` or `distance` of whole parts by name) and checks (`check`: as the `check` tool, parts by name) asked for, all worded as those tools word them and said to be of the trial. It changes nothing: not the model, not the values you are trying in the window, not the build on screen; it is made on top of your values, and refused when there is no memory for a second build or while a build runs. To keep a value the agent edits the model. |
+| `mcp__torno__features` | The holes, bosses, fillets, chamfers and patterns of a part, found on its geometry (`part`, and `kinds` to ask for some of `hole`, `boss`, `fillet`, `chamfer`, `pattern`): for a hole its diameter, axis, where it opens and the face it opens in, depth, whether it is through or blind (and its bottom), and a counterbore, countersink or rounded mouth; for a boss its diameter and height; for a fillet its radius, sweep and length and whether it rounds an outside edge or an inside corner; for a chamfer its size; for a pattern how many holes or bosses alike there are and whether they lie in a row, a grid or on a circle, with the step; each with the faces it is made of and the faces and edges it joins, as refs `highlight` takes. Diameters, radii, angles and axes are exact, and so are depths between planes and round faces; a depth taken between freeform faces says it is not (`≈`). Holes and bosses need a cylinder, cone or torus that goes all the way round: a slot end is neither a hole nor a fillet. |
 | `mcp__torno__scans` | The scans of the project and how each is aligned. |
 | `mcp__torno__scan_clash` | What of a scan is inside a part. |
 | `mcp__torno__scan_deviation` | How far a part lies from a scan. |
@@ -1096,7 +1124,7 @@ them when you type `/`:
 | Command | What it asks the agent |
 |---|---|
 | `/mcp__torno__review` | Go through every open mark and every unmet dimension against the current build: measure, look, and resolve the marks that are done. |
-| `/mcp__torno__printable` | Check the `print` layout for 3D printing: thin walls, overhangs, closed meshes, and whether it fits your bed, given as an argument (`/mcp__torno__printable 256x256x256`, in mm). |
+| `/mcp__torno__printable` | Check the `print` layout for 3D printing: thin walls, overhangs, closed meshes, holes too narrow to print, and whether it fits your bed, given as an argument (`/mcp__torno__printable 256x256x256`, in mm). |
 | `/mcp__torno__explain` | Describe the model for someone new to it: its parts, its `Params` and how the parts relate. |
 
 ## Marks
@@ -1166,6 +1194,11 @@ the camera stays still).
   once, and for ten seconds, or until the next delete, the list says "Deleted
   M3 · **Undo**": Undo puts it back whole, with its number, note and, for a
   region, its triangles. Only the last mark deleted can be put back.
+- Once you have seen marks the agent resolved, and files of the project differ from the last commit (see Projects and
+  builds), a line under the marks offers **Ask Claude Code to commit**. It puts a request in the message box of the chat
+  ("Commit the changes for M4 and M6 of this project with a message saying what changed. Add only this project's
+  files."), opens the session pane, and never sends it: you read it first. The agent commits under your
+  permission rules; torno itself never commits. Not offered with a terminal session or none.
 - A mark on a part that is switched off in the layers is not drawn, in the
   window or in the agent's pictures; its row stays and says "its part is
   hidden".
@@ -1283,7 +1316,7 @@ answer in one line.
 | `bbox` | a part, a face or an edge | `min`, `max`, `size` |
 | `area` | a part or a face | mm² |
 | `volume` | a part that is a solid | mm³ |
-| `mass` | a part that is a solid | grams, with the `density` used (g/cm³; 1.24, PLA, when none is given, and the reply says so) |
+| `mass` | a part that is a solid | grams, with the `density` used (g/cm³; the material's of the project's print profile when it has one, else 1.24, PLA, and the reply says which) |
 
 **`check`** takes `kind`, `a`, for two parts `b`, and `layout`; `a` and `b`
 are names of whole parts. `interference` and `bed` take neither. `overhang`, `thin` and `bed` ask whether it prints:
@@ -1292,12 +1325,23 @@ they are of the `print` layout when the model has one and no other is named.
 | `kind` | Reply |
 |---|---|
 | `overlap` | the `volume` two solid parts share, in mm³, and the box it lies in |
-| `clearance` | the least `distance` between two parts and the `points` it is between; 0 when they touch, and when they overlap, which `overlapping: true` then says |
+| `clearance` | the least `distance` between two parts and the `points` it is between; 0 when they touch, and when they overlap, which `overlapping: true` then says. With `fit` (`press`, `sliding` or `loose`) and a material in the print profile, the reply also says whether the gap is within that fit's band per side, how far outside it, and whose numbers they are |
 | `interference` | no part: every pair of the layout's solid parts at once. The pairs that share volume (`interfering`, each with its `volume` and the box it lies in, largest first), the pairs that only touch (`touching`) and how many are `clear`. Pairs whose boxes are apart are clear without a cut; the others are cut in order of how much their boxes overlap, for 20 s at most, and `sampling` says how many were measured when the time runs out. Not answered in a layout torno spread for display |
 | `mesh` | whether the mesh the part is drawn and exported with is closed (`watertight`), its `triangles`, the number of `openEdges` and where up to 20 of them are |
-| `overhang` | with `angle` (degrees from vertical, 45 when none is given): the `faces` of `a` that face down steeper than that, each a `ref` (`tray/F7`) with its `area` and `steepest` lean, and their whole `area`; faces on the bed are left out. Planes are exact; a curved face is judged by its normals at sampled points and is not |
-| `thin` | with `min` (mm): the `faces` of `a` where the wall, measured along the inward normal at sampled points of each face, is under `min`, with the `thinnest` of each and of the part; always approximate, and `sampling` says what was measured |
-| `bed` | with `size` ([x, y, z] mm), no part: whether the layout's box `fits` the bed, its `size`, and by how much it is `over` along each axis; exact only when every part's box is |
+| `overhang` | with `angle` (degrees from vertical; the profile's material's, else 45, when none is given): the `faces` of `a` that face down steeper than that, each a `ref` (`tray/F7`) with its `area` and `steepest` lean, and their whole `area`; faces on the bed are left out. Planes are exact; a curved face is judged by its normals at sampled points and is not |
+| `thin` | with `min` (mm; the profile's least wall when none is given): the `faces` of `a` where the wall, measured along the inward normal at sampled points of each face, is under `min`, with the `thinnest` of each and of the part; always approximate, and `sampling` says what was measured |
+| `bed` | with `size` ([x, y, z] mm; the profile's printer's bed when none is given), no part: whether the layout's box `fits` the bed, its `size`, and by how much it is `over` along each axis; exact only when every part's box is |
+
+**The print profile** is the printer (bed, nozzle, layer) and the material (density, shrink, the gap per side of a
+press, a sliding and a loose fit, least wall, overhang angle) a project is made for. Choose them under "Print profile" in the
+left column. The printers are yours, kept in torno's settings (`profiles.json`, next to `config.json`; "Add a printer…"
+makes one); PLA, PETG and ABS come with typical values, and a material of your own goes in that file (`materials`: `name`,
+`density`, and optionally `shrink`, `fits`, `minWall`, `overhang`). A choice is copied into `<project>/.torno/profile.json`,
+so the project travels with the numbers it was checked against. With a profile, `check` bed, thin and overhang and
+`measure` mass take their values from it when the call gives none, and the reading says "by your profile (Bambu X1C,
+PETG)"; a new conversation is told the profile in one line, `state.md` holds it, and the skill `printing` writes
+`Params` from it, not from memory. These are your numbers, not measured: a verdict against them is never a claim that
+the part prints.
 
 What is exact, what is approximate and what is refused is under
 [Limits and exactness](#limits-and-exactness).
@@ -1543,6 +1587,7 @@ for the folder. A card has:
   picture was made, what it leaves out (`cut by its section`), and `A source
   has changed since` when a `.py` file of the object, of `common/` or one it imported from another
   project (`Uses box/box.py` on the card, for a project opened in this run) is newer.
+- **What git says**, in a work tree: `3 files changed since a1b2c3d` (the files in its tooltip) or `No changes since a1b2c3d`.
 - **How the build stands**, for a project opened in this run: `Built, r6`,
   building, or failed, with the picture of the last build that worked dimmed.
   Otherwise `Model saved 3 h ago`, read from the date of its `.py` files
@@ -1559,7 +1604,8 @@ Looking at the page builds nothing, opens nothing and writes nothing.
 "Export…" in the line at the bottom (the open project), in the head of the page
 of projects (any of them), on a card, or `Ctrl+Shift+E`, writes **one HTML
 file** for someone who has no torno, or a **STEP, STL or 3MF** file of one
-project (below). It is made from the last build of this run, so a project must
+project (below), or, of the project on show, a **picture** of the view or a
+**drawing of its section** (below). It is made from the last build of this run, so a project must
 have been opened first. Nothing is uploaded: the file goes where the save
 dialog says, which opens in `.torno/exports/`.
 
@@ -1629,6 +1675,31 @@ triangles, closed, volume within 0.04 % of the model`. Checked, not printed. A
 3MF can be opened once saved in the program your system opens 3MF files with,
 your slicer, when "Open it once saved" is ticked.
 
+### A picture of the view, and a drawing of its section
+
+The sheet is grouped by who will open the file: **a page to look at** (the HTML page), **the CAD file** (STEP, STL,
+3MF), and, when the sheet is of the project on show, **a picture** (PNG) and **a drawing of a section** (SVG, PDF),
+which are of the view as it is on screen. Nothing is uploaded, and no agent has a tool for any of them: the save
+dialog opens in `.torno/exports/` with a name offered, and the file is written whole or not at all (a name without
+the ending gets it).
+
+- **PNG** is the view as it is (the camera, the layout, the parts that are on, the section or the explode, the scans),
+  for a forum, a chat or a document (`<name>-r<revision>.png`). It is drawn by the same code as the pictures the agent is
+  given. You choose its long edge, 1280, 2000, 3000 or 4000 pixels, whether the marks are in it, and whether the axes and
+  the scale bar are. A picture you keep is not for the agent, so the 2000 pixels the agent's pictures stop at do not hold
+  for it; `look` is still held to them.
+- **SVG**, while a section is on screen, is a drawing of the cut for someone who will make the part
+  (`<name>-section-r<revision>.svg`). The outlines are the kernel's, within 0.01 mm, laid flat in the plane's own axes
+  at true scale: one unit of the file is one millimetre, so a 40 mm edge is 40 mm long, and the sheet says so (print
+  it at 100 %). It has a scale bar, a title block (the project, the layout, the build, the date, the plane's origin
+  and normal and the sheet's axes in full, how far the outlines may stray, and what was cut of each part with its
+  area, `≈` where the area is not exact), and each dimension that lies in the plane (both ends within 0.01 mm of
+  it), not resolved and measured on this build, as a line with the value torno measured and, when you set them,
+  what was expected and the tolerance. A dimension that is not in the plane, or not measured on this build, is left
+  out.
+- **PDF** is that drawing printed on a page of its own size in millimetres (`<name>-section-r<revision>.pdf`), by a
+  window torno never shows.
+
 ## Keys
 
 `?` shows this table in the window, and searches it. Above the keys the sheet lists
@@ -1637,7 +1708,7 @@ the pointer, which has no keys:
 <!-- pointer: generated from POINTER in app/src/shared/pointer.ts; `TORNO_README=write pnpm -C app exec vitest run src/readme.test.ts` writes it -->
 | Pointer | What it does |
 |---|---|
-| Drag | Turn the view; with Arrow or Draw in hand, a drag that starts on the part draws instead |
+| Drag | Turn the view about the point under the pointer; with Arrow or Draw in hand, a drag that starts on the part draws instead |
 | Right drag | Pan the view (a middle drag does too) |
 | Scroll | Zoom, towards the pointer |
 | Double click | With Measure in hand: measure something round, its diameter or its radius |
@@ -1742,20 +1813,22 @@ place.
 | `marks.json` | the marks of the project: yours and the agent's, with their notes, anchors and status; of a dimension also what is expected of it and the value last measured | travels |
 | `scans.json` | the scans of the project: where each source file is and its hash, how it was imported, and its alignment in each layout | travels |
 | `scans/<id>/mesh.bin`, `<mark>.mask` | the scan as torno draws and checks it, and the triangles of each region | the meshes are ignored (`scans/.gitignore`): a clone has the record, and the row offers "Import again" |
+| `profile.json` | the printer and material the project is made for (a copy of your choice under "Print profile") | travels with the project |
 | `agent.json` | whether Claude Code is shown as a chat or a terminal; without it, in a chat | travels |
 | `chat/<conversation>.jsonl` | what a chat session said and did, as text (a turn's line holds the tokens it used, as numbers); no picture data, no address (a picture of `reference/` by its path) | ignored |
 | `session.json` | the conversation to resume | ignored |
 | `state.md` | the build, the parts, the checks of the model, the views, the scans and the open marks as text | ignored |
 | `thumb.png`, `thumb.json` | the card's picture, and what it is of | ignored |
+| `builds.jsonl` | a line for each build that worked: its revision, when, the run of torno it was made in (revisions count from 1 in every run), a hash of the sources it was made from, and the commit then checked out and whether files differed from it; the last 500 | ignored |
 | `views/<n>.png` | the pictures and section drawings the agent asked for, the latest 20 | ignored (a picture of a scan may show the real world) |
 | `exports/` | where the save dialog of an export opens; empty unless you save there | ignored |
 
 "Ignored" is by `.torno/.gitignore` (or one inside the folder), which torno
 adds lines to and never rewrites; a line you negate there (`!state.md`) is
 yours, and is not added against. What travels with the project in git is what
-is the project's: `scene.json`, `marks.json`, `scans.json` and `agent.json`.
+is the project's: `scene.json`, `marks.json`, `scans.json`, `profile.json` and `agent.json`.
 What changes with every build or session, or is of this machine, is
-ignored: `state.md`, `session.json`, `chat/`, the thumbnail, `views/` and
+ignored: `state.md`, `session.json`, `chat/`, the thumbnail, `builds.jsonl`, `views/` and
 `exports/`. Add `.torno/` to the workspace's `.gitignore` if you
 want none of it in git.
 
@@ -1763,7 +1836,7 @@ Outside the workspace:
 
 - `~/.config/torno/` (on macOS `~/Library/Application Support/torno/`): `config.json` holds the workspace last opened and the
   folders opened lately (eight at most); `models.json` the models Claude Code offered in the last chat, for the page
-  of a new project; the rest is Electron's own cache.
+  of a new project; `profiles.json` your printers and materials (see "Measuring and dimensions"); the rest is Electron's own cache.
 - `~/.config/torno/agent/<session>.mcp.json` (on macOS under `~/Library/Application Support/torno/`): the file
   `--mcp-config` names, which tells a session where torno's MCP server is. It holds the placeholder
   `${TORNO_SESSION}`, never the token, and is removed when the session ends (and at the next start after a crash).
@@ -2118,6 +2191,7 @@ On the screen:
 - **The clipboard in the terminal.** Select text in a session and press `Ctrl+Shift+C`, then `Ctrl+Shift+V`: it is copied and pasted. No test touches the clipboard. "Copy" on the build error sheet likewise.
 - **By eye.** On a monitor, in dark and in light: text, marks, part edges and the terminal's colours are legible; the scrollbars are the thin grey ones, also in the list of projects and on the page of projects in the dark theme; a mark that has moved says so on a line under its note. `?` typed in a field on your own keyboard (with its dead keys) is a question mark.
 - **The doodle board with a mouse and a pen.** Draw with a mouse, a tablet pen and a touch screen: the line follows the pointer without lag, the eraser takes away what it crosses, `Ctrl+Z` takes the last stroke back, and the PNG Claude gets is dark on white in both themes. Tests drew with synthetic pointer events only. A photo dropped from the file manager on the new project's page is taken too; a test cannot drop a file with a path.
+- **The Print profile panel.** Open it in the left column: the Printer and Material lists, "Add a printer…" with its three bed fields, the lines under them in the monospace face; legible in both themes, and the section folds to its title (`Print profile Bambu X1C, PETG`).
 - **The Scans panel.** Import a scan of your own: the sheet `How is S1 read?` is at the top of the Scans panel with the size it would have; "Later" leaves a dot on the row. The row is one line at the column's default width, the name cut with an ellipsis and whole in its tooltip, the word legible in both themes, the dot and a `check` or `rough` word told apart from the rest. Open its detail and another's: one is open at a time, and Frame, Align and Rename are on one line.
 - **Drawing on the view with the real Claude Code.** In a chat, "Draw on view", ring a face and draw an arrow to it with a mouse and with a tablet pen, "Done", then a prompt ("make this thicker"): the ink follows the pointer, the eraser takes ink and never the picture, the row above the box names the faces the ink lies over before anything is sent (and says so, in the warning colour, when it could not be worked out), "Attach view" shows a small picture of the view before it goes, the chat shows the picture and that line with the prompt, and Claude Code's reply speaks of the ringed place and names the face the caption gave. Tests drew with synthetic pointer events and the stand-in agent.
 - **Claude Code's own checkpoints for "Undo" (`Part of #131`).** "Undo" asks the agent in words. Claude Code can also
@@ -2147,12 +2221,30 @@ On the screen:
 - **A scan file dropped on the view.** Drag a GLB or STL from the file manager onto the parts: it is imported as "Import scan…" would.
 - **The folder dialog.** "Open folder" on the first screen, and "Open folder…" in the menu of the folder button at the top left: the system's folder dialog opens, and the folder chosen is opened.
 - **The save dialog of an export.** "Export…", then "Export": the system's save dialog opens in `.torno/exports/` with a name offered, and the file is written where you say.
+- **The save dialog of a picture.** "Export…", PNG, 4000 px, "Export": the system's save dialog opens in `.torno/exports/` with `<name>-r<revision>.png` offered, and the PNG opens in an image viewer at 4000 px on its long edge, with the view as it was on screen.
+- **A section drawing in other programs.** "Export…", SVG with a section on screen: the SVG opens in a browser, Inkscape and a CAD program, its 40 mm edge measures 40 mm there, and printed at 100 % a ruler agrees with the scale bar.
 - **The replace question.** Save an export as `x` where `x.html` exists: torno asks before it replaces that file, and "Cancel" writes nothing.
 - **A 3MF opened in a slicer.** Export a 3MF of a plate of two parts or more and open it in PrusaSlicer, Bambu Studio, OrcaSlicer and Cura: each part is an object of its name, in millimetres, where torno set it; it slices with no repair asked for. "Open it once saved" opens it in the slicer the system gives `.3mf` files to. Tests read the file back with lib3mf only.
 - **An STL in a slicer, a STEP in a CAD program.** Open an STL of a round part in a slicer: no facets you can see on its holes at 0.01 mm. Open a STEP in FreeCAD and in Fusion or Onshape: the parts are named bodies in their colours, in millimetres, and a volume measured there is the one torno told; a part named with an accent (`tampa ção`) keeps it there, as torno writes names in UTF-8. Tests read it back with OCC only.
 - **Torno left on another workspace with a session working.** Give the agent something that takes minutes, or start a long build, and switch to another workspace for ten minutes, watching `ps -o rss -p <pid of the window>`: its memory stays flat and torno idles near zero. Idle with a large project it did; with a session working nobody has watched it.
 - **An exported file elsewhere.** Open one from `file://` in Firefox, in Safari and on a phone, with the network off, and look: parts, layouts, the explode slider, the section, a saved view and the marks work. Headless Firefox drew the parts; nobody has looked at it by eye there, or anywhere but in Electron's Chromium.
 - **The desktop entry.** `scripts/torno --install-desktop`, then start torno from your launcher: it is listed with its icon, the window comes up and is grouped under the entry (`StartupWMClass=torno`) with torno's icon. Given a folder (`gtk-launch torno ~/objects`) it opens that folder; given two, it refuses. With `claude` only on the `PATH` of a login shell, "New session" says it was not found there: start torno from a terminal, or put the command on the launcher's `PATH`.
+- **Build ghosts.** After an edit, the part as it was is drawn faint beside the new one: legible in light and dark, and gone when the next build lands.
+- **The section's hatch and plane label.** Cut a part: the cut face is hatched and the plane is named at its edge; both legible in light and dark, and the label clear of the bars.
+- **The Marks panel's resolve glyph, review walk and undo line.** The glyph on a row, "To review" stepped through one mark at a time, and the line that undoes a delete: each in its place, legible in both themes.
+- **The Checks group and its summary.** In the Marks panel the group of dimensions and its one-line count read at a glance; the model's Checks panel lists each check with its words.
+- **The empty chat pane and its chips.** With no conversation, the pane's words and the chips under them fit the column and are legible in both themes.
+- **The turn summary, "See changes" and "Undo".** After a turn, the summary line, the sheet of the diff and the Undo button sit well in the chat and in a narrow dock.
+- **The page of projects.** Its head and the order buttons are legible, and the cards keep their order when the window is narrow.
+- **The doodle board's grid.** The grid is faint on the board in light and dark, and is not in the PNG Claude gets.
+- **The prompt preview of a new project.** The preview of the first prompt reads clearly and matches what is sent.
+- **The scans walk-through.** Import, align and check a scan by the steps the panel offers: each step is where the eye goes next, in both themes.
+- **The export sheet by reader.** Each reader (a person, a printer, a drawing), and the picture, SVG and PDF formats: the sheet is one screen and legible in both themes.
+- **The sources line of Parameters.** A field's source word is shown after its comment, in the monospace face, and "no source" is quiet.
+- **The splitter of the left column.** The line between the left column and the view drags without lag and keeps its place at start.
+- **The edges of a field and F6.** A focused field shows its edge in both themes, and F6 moves the focus between the regions in a sensible order.
+- **The ask card.** A question from the agent shows its options and the faces they light in the view; legible in both themes.
+- **The edits menu.** The menu beside the model shows the three modes and the one in force, in both themes.
 
 With a real agent:
 
@@ -2202,6 +2294,12 @@ With a real agent:
   held arrives with `stop_hook_active` and is held again for another reason is what the code assumes; the stand-in
   plays it as the documentation says. Whether the hooks of a `torno-reviewer`'s `look` arrive on the session's
   address (so that its look counts) has not been seen.
+- **`ask` with the real Claude Code.** (1) Ask it to call `mcp__torno__ask` and leave the card open for six minutes: it
+  should still be open and the call not time out, because torno sends a progress notice every 30 s, but only when
+  Claude Code sends a progress token with the call, and whether its 5-minute idle limit counts those notices is
+  not known. (2) With a card open, press Stop in the chat: the card should go and the session be idle. Claude Code's
+  cancel of one call does not reach torno's server, which keeps no sessions, so torno ends the question when the turn
+  ends (the `Stop` hook); that was only tried with the stand-in.
 - **Claude Code and the newer tools.** Ask it to cut the part, to look at it drawn apart and to check a part against a scan: `section`, `look` with `explode`, `scan_clash` and `scan_deviation` are called without a permission prompt and their replies are used.
 - **The evals with the real Claude Code.** `pnpm -C app eval` was run end to end only with the stand-in, on the
   `_smoke` case. Its first real run, the spike of one T1 case and then the baseline of every case five times, is yours:

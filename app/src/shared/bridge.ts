@@ -1,6 +1,8 @@
+import type { AskAnswer, OpenAsk } from './ask'
 import type { BuildState } from './build'
 import type { TurnChanges } from './changes'
 import type { AgentChoice, ChatAnswer, ChatHistory, ChatCommand, ChatItem, ChatMeta, ChatModel, Effort, Mode } from './chat'
+import type { GitState } from './git'
 import type { ExportPlan, ExportRequest, ExportSaved } from './exportdata'
 import type { Described, MeasureProbe, MeasuredOnce } from './geometry'
 import type { InstructionFile } from './instructions'
@@ -13,6 +15,7 @@ import type { HighlightRequest, HighlightResult, LookRequest, LookResult, SaveVi
 import type { RecentFolder, WorkspaceInfo } from './workspace'
 import type { ViewDrawing } from './drawing'
 import type { Ready } from './ready'
+import type { Material, Printer, Profile, Profiles } from './profile'
 
 /** What the onboarding page asks for when the person presses "Create": the new object and everything they gave. */
 export interface CreateRequest {
@@ -22,6 +25,8 @@ export interface CreateRequest {
   photos: Array<{ path: string; note: string }>
   /** PNG bytes of a drawing: `reference/doodle-<n>.png`. */
   doodles: Array<{ png: Uint8Array; note: string }>
+  /** Vendor STEP files of bought parts (`.step`, `.stp`, at most 50 MB): copied into `reference/` under their own names (`stepFiles`). */
+  steps: Array<{ path: string; note: string }>
   /** Not copied: imported into the object after it is made. */
   scans: Array<{ path: string; note: string }>
   /** Other objects of the workspace, by id. */
@@ -37,6 +42,8 @@ export interface OnboardDraft {
   description: string
   /** The photos, then the doodles, as `create` named them: `reference/photo-1.jpg`, `reference/doodle-1.png`. */
   items: Array<{ file: string; note: string; image?: Uint8Array }>
+  /** The vendor STEP files, as `create` named them: `reference/608zz.step`. */
+  steps: Array<{ file: string; note: string }>
   /** The scans to import into the new object, by the path the dialog or the drop gave. */
   scans: Array<{ path: string; note: string }>
   objects: Array<{ id: string; note: string }>
@@ -48,6 +55,7 @@ export interface OnboardDraft {
 export interface PromptPreviewDraft {
   description: string
   items: Array<{ file: string; note: string; picture: boolean }>
+  steps: Array<{ file: string; note: string }>
   scans: Array<{ path: string; note: string }>
   objects: Array<{ id: string; note: string }>
 }
@@ -139,6 +147,12 @@ export interface TornoBridge {
     onSaveView(cb: (m: { id: number; request: SaveViewRequest }) => void): () => void
     saveViewReply(id: number, result: SaveViewResult | { error: string }): void
   }
+  /** What the agent asks the person to choose (`ask`): the questions open now, each told again when the list changes, and the answer to one. */
+  asks: {
+    list(): Promise<OpenAsk[]>
+    onChanged(cb: (asks: OpenAsk[]) => void): () => void
+    answer(id: number, answer: AskAnswer): void
+  }
   /** The marks of an object, kept by main in <object>/.torno/marks.json. Calls reject with a plain message. */
   marks: {
     list(objectId: string): Promise<Mark[]>
@@ -169,6 +183,8 @@ export interface TornoBridge {
     pickPhotos(): Promise<string[]>
     /** The scan dialog (`scans.pick`). */
     pickScan(): Promise<string | null>
+    /** The dialog for a vendor STEP file (`.step`, `.stp`); under test, what `__tornoMain.pickStep` holds. null when cancelled. */
+    pickStep(): Promise<string | null>
     /** Where a file dropped on the window is on the disk (`webUtils.getPathForFile`); '' for one that is nowhere. */
     pathOf(file: File): string
     /** The bytes of an image file the dialog or a drop gave (a plain PNG, JPEG or WebP file of at most 25 MB), to draw it and scale a copy for the prompt. */
@@ -243,12 +259,20 @@ export interface TornoBridge {
     /** Something a card says may have changed. */
     onChanged(cb: () => void): () => void
   }
+  /** What git says of an object's sources, read and never written; null where there is no git, no repository, or no answer in time. */
+  git: {
+    status(objectId: string): Promise<GitState | null>
+  }
   /** One HTML file of an object or of several, that opens by itself, or a STEP, STL or 3MF file of one: see `main/export`. Calls reject with a plain message. */
   export: {
     /** What a file of this request would hold and weigh, with every object of the workspace and whether it can be exported. Writes nothing. */
     plan(req: ExportRequest): Promise<ExportPlan>
     /** Asks where to save (under test: `__tornoMain.pickSave`), writes the file there, and says where; of a file of the model, what its check found. Null when the dialog was cancelled. The path is the dialog's alone: the window never names one. */
     save(req: ExportRequest): Promise<ExportSaved | null>
+    /** Keeps a picture of the view the window drew (a PNG, up to 4000 px on its long edge): asks where to save (under test: `__tornoMain.pickSave`) and writes it there. Null when the dialog was cancelled. The path is the dialog's alone. */
+    savePicture(objectId: string, png: Uint8Array): Promise<ExportSaved | null>
+    /** Keeps a drawing (an SVG, or a PDF made of it, at true scale, with a scale bar and a title block) of the section on screen: main asks the kernel for the outlines, asks where to save and writes it there. Null when the dialog was cancelled. Rejects when there is no section on screen. The path is the dialog's alone. */
+    saveSection(objectId: string, as: 'svg' | 'pdf'): Promise<ExportSaved | null>
     /** Shows the file this sheet saved last in its folder. It takes no path: main keeps the one it wrote. Rejects when the file is gone. */
     reveal(): Promise<void>
     /** Has the system open the file this sheet saved last (a page, in the browser). No path either. */
@@ -327,6 +351,18 @@ export interface TornoBridge {
     setEffort(sessionId: string, effort: Effort): Promise<void>
     /** The models a session can be started on before it has said its own: the list the last chat's CLI offered, or Claude Code's aliases. */
     models(): Promise<ChatModel[]>
+  }
+  /** The printer and material a project is made for (`<project>/.torno/profile.json`), and the person's own to choose from (torno's settings). */
+  profile: {
+    /** The person's printers, and their materials after the starter ones. */
+    choices(): Promise<Profiles>
+    /** Keeps a printer (or replaces the one of that name); rejects with why when it is not one. Answers with the choices. */
+    savePrinter(printer: Printer): Promise<Profiles>
+    saveMaterial(material: Material): Promise<Profiles>
+    /** The profile of a project; null when it has none. */
+    get(objectId: string): Promise<Profile | null>
+    /** Names the printer and material a project is made for (copied into it), or, with neither, takes them off. */
+    set(objectId: string, profile: Profile): Promise<Profile | null>
   }
 }
 /** How Claude Code's session is shown: as a chat torno draws, or as the CLI's own terminal. */

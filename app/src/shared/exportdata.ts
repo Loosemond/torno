@@ -271,10 +271,19 @@ export type ExportFormat = 'html' | 'step' | 'stl' | '3mf'
 export const EXPORT_FORMATS: readonly ExportFormat[] = ['html', 'step', 'stl', '3mf']
 /** A file of the model: made by the kernel of the last good build, of one layout's parts, and read back before it takes its name. */
 export type ModelFormat = Exclude<ExportFormat, 'html'>
+/** What the person keeps of the view on screen, besides the files of the model and the page: a picture of it (PNG), and a drawing of its section (SVG, or PDF made of it). Each is one file, written like an export. */
+export type ShareKind = 'png' | 'svg' | 'pdf'
+/** Every kind of file torno writes outside `.torno/`. */
+export type FileFormat = ExportFormat | ShareKind
 /** The extensions a file of each format may end in, the one it is given first. */
-export const EXTENSIONS: Readonly<Record<ExportFormat, readonly string[]>> = { html: ['html', 'htm'], step: ['step', 'stp'], stl: ['stl'], '3mf': ['3mf'] }
+export const EXTENSIONS: Readonly<Record<FileFormat, readonly string[]>> = { html: ['html', 'htm'], step: ['step', 'stp'], stl: ['stl'], '3mf': ['3mf'], png: ['png'], svg: ['svg'], pdf: ['pdf'] }
 /** What each format is called where it is named: in the sheet, the save dialog, what was checked. */
-export const FORMAT_NAMES: Readonly<Record<ExportFormat, string>> = { html: 'HTML', step: 'STEP', stl: 'STL', '3mf': '3MF' }
+export const FORMAT_NAMES: Readonly<Record<FileFormat, string>> = { html: 'HTML', step: 'STEP', stl: 'STL', '3mf': '3MF', png: 'PNG', svg: 'SVG', pdf: 'PDF' }
+/** The long edges, in pixels, a picture saved by the person is offered at. The agent's pictures stop at 2000 (`MAX_EDGE`): a picture the person keeps is not for the agent, so that cap does not hold for it. */
+export const PICTURE_SIZES: readonly number[] = [1280, 2000, 3000, 4000]
+export const MAX_PICTURE_EDGE = 4000
+/** The most bytes of a picture main will write: a PNG of 4000 px is a few MB. */
+export const MAX_PICTURE_BYTES = 64_000_000
 /** How far a triangle of an STL or a 3MF may be from the faces it stands for, mm, unless the sheet says another; the least and the most. As the kernel's (`export.TOLERANCE`). */
 export const MESH_TOLERANCE = 0.01
 export const MESH_TOLERANCES = [0.001, 1] as const
@@ -360,7 +369,7 @@ export interface ExportPlan {
     /** The scans that can be ticked: those with a mesh, aligned in a layout of the build. */
     scans: Array<{ id: string; name: string; triangles: number }>
     /** What a file of the model can hold, layout by layout: each part, whether it has a solid (an STL or a 3MF is of solids alone) and whether it is switched off in torno. */
-    layoutParts?: Array<{ layout: string; parts: Array<{ name: string; solid: boolean; off?: true; arranged?: true }> }>
+    layoutParts?: Array<{ layout: string; parts: Array<{ name: string; solid: boolean; off?: true; arranged?: true; reference?: true }> }>
   }>
   /** What the file would weigh, and what was cut or left out to keep it under the budget, a sentence each. */
   bytes: number

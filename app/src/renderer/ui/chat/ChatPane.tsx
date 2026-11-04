@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { chatActions, useChat } from '../../state/chat'
 import { ChatItems } from './Items'
+import { QuestionCard } from '../QuestionCard'
 import { AskSession } from './AskCard'
 import { Composer } from './Composer'
 import { TasksBar } from './Tasks'
-import { ChatPlace } from './place'
+import { ChatEarlier, ChatPlace } from './place'
 import { ChatOffer, type ChatOffers } from './offers'
 import { UndoableTurn } from './TurnEnd'
 
@@ -113,7 +114,9 @@ export function ChatPane({ sessionId, live, working, dir, onWholePrompt, onUseTe
           {earlier && earlier.length > 0 && (
             <section className="chat-earlier" aria-label="Earlier in this conversation">
               <h3 className="chat-earlier-head">Earlier in this conversation</h3>
-              <ChatItems items={earlier} beat={false} />
+              <ChatEarlier.Provider value={true}>
+                <ChatItems items={earlier} beat={false} />
+              </ChatEarlier.Provider>
             </section>
           )}
           {items && (
@@ -143,6 +146,7 @@ export function ChatPane({ sessionId, live, working, dir, onWholePrompt, onUseTe
           </button>
         </p>
       )}
+      <QuestionCard where="chat" />
       <Composer sessionId={sessionId} live={live} working={working} onSent={toEnd} />
     </div>
     </ChatPlace.Provider>

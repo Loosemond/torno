@@ -13,7 +13,33 @@ export const MAX_PHOTO_BYTES = 25 * 1024 * 1024
 /** The most of each kind of reference a new object is made with: the window holds the draft to it, main holds the request to it. */
 /** The most pictures the first prompt of a new object carries (`main/onboard.ts`). */
 export const MOST_IMAGES = 6
-export const MOST_REFERENCES = { photos: 12, doodles: 6, scans: 4, objects: 8 }
+export const MOST_REFERENCES = { photos: 12, doodles: 6, steps: 4, scans: 4, objects: 8 }
+
+/** What a vendor's STEP file of a bought part may be called: the endings a new object takes, and the most of it (50 MB) it copies. */
+export const STEP_FORMATS = ['.step', '.stp'] as const
+export const MAX_STEP_BYTES = 50 * 1024 * 1024
+
+/**
+ * The files `reference/` is given for the vendor STEP files of a draft, in the order given: the file's own name (the
+ * model reads it by that name), with what a folder name may hold of it and the ending in lower case; a name already
+ * taken, in any case, is numbered (`-2`). One function, so that the window names the file as main writes it.
+ */
+export function stepFiles(paths: readonly string[]): string[] {
+  const taken = new Set<string>()
+  return paths.map((path) => {
+    const base = path.split(/[\\/]/).pop() ?? ''
+    const dot = base.lastIndexOf('.')
+    const ending = dot > 0 ? base.slice(dot).toLowerCase() : '.step'
+    const stem = (dot > 0 ? base.slice(0, dot) : base).replace(/[^A-Za-z0-9._-]/g, '_').replace(/^[._-]+/, '').slice(0, 64) || 'part'
+    for (let n = 1; ; n += 1) {
+      const file = `reference/${n === 1 ? stem : `${stem}-${n}`}${ending}`
+      if (!taken.has(file.toLowerCase())) {
+        taken.add(file.toLowerCase())
+        return file
+      }
+    }
+  })
+}
 
 /** Folders a workspace keeps for itself (the first three are never objects; the rest torno gives a meaning). */
 const RESERVED = ['common', 'tests', 'out', 'docs', 'tools', 'reference']

@@ -74,6 +74,10 @@ def run(
         from . import export
 
         return export.export(shapes, args, kept) if name == "export" else export.export_check(shapes, args, kept)
+    if name == "features":
+        from . import features
+
+        return features.features(shapes, args, kept)
     if name == "try_fillet":
         return try_fillet(shapes, args)
     if name == "match_edges":
@@ -93,7 +97,7 @@ def run(
     raise QueryError(
         "bad_request",
         f"unknown query {name!r}; the queries are describe, nearest, measure, section, check, "
-        "scan_clash, scan_deviation, scan_section, export, export_check, try_fillet and match_edges",
+        "scan_clash, scan_deviation, scan_section, export, export_check, features, try_fillet and match_edges",
     )
 
 
@@ -253,6 +257,19 @@ def need_solid(shape: Any, name: str) -> None:
     """Refuse what has no solid: it has no volume, no inside and no walls to measure."""
     if not topo.solids(shape):
         raise QueryError("bad_request", f"{name} is not a solid: it is {topo.what(shape)}")
+
+
+def is_reference(kept: dict[Any, Any] | None, key: str) -> bool:
+    """Whether the part ``layout:name`` is a reference (``loader.Layouts``): bought, not made. Noted by ``tess.build_scene``."""
+    return bool(kept) and kept.get(("reference", key)) is True
+
+
+def need_made(kept: dict[Any, Any] | None, key: str, name: str, what: str) -> None:
+    """Refuse a reference where the answer is of something to make: ``what`` says what that is asked of it."""
+    if is_reference(kept, key):
+        raise QueryError(
+            "bad_request", f"{name} is a reference (a bought part): {what} is of the parts to make, and it is not one"
+        )
 
 
 def need_part(shapes: dict[str, Any], layout: str, part: str) -> Any:
@@ -652,6 +669,8 @@ def _describe_part(key: str, shape: Any, kept: dict[Any, Any] | None) -> dict[st
         "valid": valid_of(shape, key, kept),
         # Which solids are inside out: absent of a sound part.
         **({"reversed": list(volume.reversed)} if volume.reversed else {}),
+        # Bought, not made: present only of a reference.
+        **({"role": "reference"} if is_reference(kept, key) else {}),
     }
     return {**facts, "descriptor": descriptor("part", facts)}
 

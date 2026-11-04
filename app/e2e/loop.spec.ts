@@ -244,7 +244,8 @@ test('dragging orbits the camera, and main is told where it came to rest', async
   await page.mouse.up()
   const after = await camera()
   expect(after.position).not.toEqual(before.position)
-  expect(after.target).toEqual(before.target)
+  // The turn is about the point under the pointer (#103), so the target has moved along the view.
+  expect(after.target).not.toEqual(before.target)
 
   await expect.poll(async () => (await mainView('bracket'))?.camera.position, { timeout: 5_000 }).toEqual(after.position)
   expect(await mainView('bracket')).toMatchObject({
@@ -555,7 +556,7 @@ test('the workspace is written nowhere but under .torno/', async () => {
   // One that built has the picture of its card, what that is of, and the word to git to pass over the two.
   await expect
     .poll(() => added().sort())
-    .toEqual(['bracket/.torno', 'bracket/.torno/.gitignore', 'bracket/.torno/scene.json', 'bracket/.torno/state.md', 'bracket/.torno/thumb.json', 'bracket/.torno/thumb.png', 'noscene/.torno', 'noscene/.torno/.gitignore', 'noscene/.torno/state.md', 'two/.torno', 'two/.torno/.gitignore', 'two/.torno/state.md'])
+    .toEqual(['bracket/.torno', 'bracket/.torno/.gitignore', 'bracket/.torno/builds.jsonl', 'bracket/.torno/scene.json', 'bracket/.torno/state.md', 'bracket/.torno/thumb.json', 'bracket/.torno/thumb.png', 'noscene/.torno', 'noscene/.torno/.gitignore', 'noscene/.torno/state.md', 'two/.torno', 'two/.torno/.gitignore', 'two/.torno/state.md'])
 })
 
 test.describe('the workspace is remembered', () => {

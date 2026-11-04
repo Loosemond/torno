@@ -124,7 +124,7 @@ let whole: string
 test('before an object has been built, scene and look say there is no build', async () => {
   await page.emulateMedia({ colorScheme: 'light' })
   bracket = await connect('bracket')
-  expect((await bracket.listTools()).tools.map((t) => t.name).sort()).toEqual(['add_mark', 'check', 'describe', 'diff', 'expect', 'highlight', 'look', 'marks', 'measure', 'resolve_mark', 'save_view', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show', 'try_fillet', 'try_params'])
+  expect((await bracket.listTools()).tools.map((t) => t.name).sort()).toEqual(['add_mark', 'ask', 'check', 'describe', 'diff', 'expect', 'features', 'highlight', 'look', 'marks', 'measure', 'resolve_mark', 'save_view', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show', 'try_fillet', 'try_params'])
   const asked: Array<[string, Record<string, unknown>]> = [
     ['scene', {}],
     ['look', {}],
@@ -132,7 +132,8 @@ test('before an object has been built, scene and look say there is no build', as
     ['highlight', { refs: ['base'] }],
     ['show', { view: 'top' }],
     ['add_mark', { kind: 'pin', note: '', ref: 'base' }],
-    ['try_fillet', { part: 'base', edges: ['base/E0'], radius: 1 }]
+    ['try_fillet', { part: 'base', edges: ['base/E0'], radius: 1 }],
+    ['features', { part: 'base' }]
   ]
   for (const [name, args] of asked) {
     const result = await call(bracket, name, args)
@@ -551,6 +552,59 @@ test('highlight shows the user what the agent means, until they click', async ()
   await expect(line).toHaveCount(0)
 })
 
+// #132: the agent asks, the user answers in the window, and the tool returns what they chose.
+test('ask puts a card to the user, lights the refs under the pointer, and returns the option they click, the face they pick, or none', async () => {
+  const card = page.locator('.ask-question')
+  await expect(card).toHaveCount(0)
+  const options = [
+    { label: 'The top of the base', refs: ['base/F5'] },
+    { label: 'The post', refs: ['post'] }
+  ]
+  const first = call(bracket, 'ask', { question: 'Which one do you mean?', options })
+  await expect(card).toBeVisible()
+  await expect(card.locator('.ask-text')).toHaveText('Which one do you mean?')
+  await expect(card.getByRole('button')).toHaveText(['The top of the base base/F5', 'The post post', 'None of these'])
+  await card.getByRole('button', { name: /The post/ }).hover()
+  await expect.poll(() => page.evaluate(() => window.__tornoTest!.peeked())).toEqual(['post'])
+  await card.getByRole('button', { name: /The post/ }).click()
+  const chosen = await first
+  expect(chosen.isError).toBe(false)
+  expect(JSON.parse(chosen.text)).toMatchObject({ answered: true, kind: 'option', index: 1, label: 'The post', refs: ['post'], layout: 'assembly' })
+  await expect(card).toHaveCount(0)
+  expect(await page.evaluate(() => window.__tornoTest!.peeked())).toEqual([])
+
+  // Two at once are refused; the first goes on waiting.
+  const second = call(bracket, 'ask', { question: 'Which face?', options: [], pick: true })
+  await expect(card).toBeVisible()
+  expect((await call(bracket, 'ask', { question: 'And this?', options })).text).toContain('already waiting')
+  // A face the user selects in the view is offered as the answer.
+  await expect(card.getByText('Or select one face or edge in the view.')).toBeVisible()
+  const box = (await canvas().boundingBox())!
+  const hit = await page.evaluate(() => {
+    for (let fy = 0.3; fy < 0.8; fy += 0.05) for (let fx = 0.3; fx < 0.8; fx += 0.05) {
+      const h = window.__tornoTest!.pickAt(fx, fy)
+      if (h && (h.kind === 'face' || h.kind === 'edge')) return { fx, fy, ref: h.ref }
+    }
+    return null
+  })
+  expect(hit).not.toBeNull()
+  await page.mouse.click(box.x + box.width * hit!.fx, box.y + box.height * hit!.fy)
+  await card.getByRole('button', { name: /^Answer with / }).click()
+  const picked = JSON.parse((await second).text)
+  expect(picked).toMatchObject({ answered: true, kind: 'pick', ref: hit!.ref, layout: 'assembly' })
+
+  const third = call(bracket, 'ask', { question: 'Either?', options })
+  await card.getByRole('button', { name: 'None of these' }).click()
+  expect(JSON.parse((await third).text)).toEqual({ answered: false, reason: 'not answered: the user chose none of the options' })
+  await expect(card).toHaveCount(0)
+
+  // A ref the build does not have is refused before the user is asked.
+  const wrong = await call(bracket, 'ask', { question: 'Which?', options: [{ label: 'A', refs: ['lid'] }] })
+  expect(wrong).toMatchObject({ isError: true })
+  expect(wrong.text).toContain("nothing was asked: no part 'lid'")
+  await expect(card).toHaveCount(0)
+})
+
 test('resolve_mark resolves a mark, which the user sees as resolved by the agent with what it did, and then moves under Resolved', async () => {
   const result = await call(bracket, 'resolve_mark', { id: 'M1', note: 'made the corner 2 mm thicker' })
   expect(result).toMatchObject({ isError: false, text: `resolved: ${describeMark(pin)}\nnote: made the corner 2 mm thicker` })
@@ -772,7 +826,7 @@ let plateFaces: Array<{ ref: string; descriptor: string }>
 test('measure answers with the exact value, how it was taken and a reading, through refs, points and marks', async () => {
   await openObject('measures')
   measures = await connect('measures')
-  expect((await measures.listTools()).tools.map((t) => t.name).sort()).toEqual(['add_mark', 'check', 'describe', 'diff', 'expect', 'highlight', 'look', 'marks', 'measure', 'resolve_mark', 'save_view', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show', 'try_fillet', 'try_params'])
+  expect((await measures.listTools()).tools.map((t) => t.name).sort()).toEqual(['add_mark', 'ask', 'check', 'describe', 'diff', 'expect', 'features', 'highlight', 'look', 'marks', 'measure', 'resolve_mark', 'save_view', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show', 'try_fillet', 'try_params'])
   const whole = JSON.parse((await call(measures, 'describe', { ref: 'plate' })).text) as { faceCount: number }
   plateFaces = []
   for (let i = 0; i < whole.faceCount; i += 1) plateFaces.push({ ref: `plate/F${i}`, descriptor: JSON.parse((await call(measures, 'describe', { ref: `plate/F${i}` })).text).descriptor })

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { peek } from '../state/agent'
 import { actions, layerOf, useStore } from '../state/store'
-import { colorFor, colorsByName } from '../../shared/palette'
+import { colorFor, colorsOfParts } from '../../shared/palette'
 import { groupsIn, groupVisibility } from '../../shared/groups'
 import type { Part, PartGroup } from '../../shared/scene'
 import type { LayerSettings } from '../../shared/scenefile'
@@ -34,7 +34,7 @@ export function Layers() {
   const revision = useStore((s) => (s.scene ? s.revision : 0))
   const onPart = useStore((s) => s.marksOnPart)
   // The same assignment as the viewport's, so a swatch matches its part.
-  const colors = useMemo(() => colorsByName((scene?.parts ?? []).map((p) => p.name)), [scene])
+  const colors = useMemo(() => colorsOfParts(scene?.parts ?? []), [scene])
   if (!scene) return null
   const parts = scene.parts.filter((p) => p.layout === layout)
   const groups = groupsIn(scene, layout)
@@ -175,6 +175,11 @@ function LayerRow({ part, layout, layer, color, inGroup, marks, listed }: { part
       >
         {name}
       </button>
+      {part.role === 'reference' && (
+        <span className="layer-bought" data-part="reference" title="A bought part, put in the model to see and to check against. It is not printed, weighed or exported as a part">
+          bought
+        </span>
+      )}
       {defects.length > 0 && (
         <span className="layer-defect" data-part="defect" title={defects.map((d) => `${d[0].toUpperCase()}${d.slice(1)}: ${DEFECT_MEANS[d]}`).join('. ')}>
           {defects[0]}

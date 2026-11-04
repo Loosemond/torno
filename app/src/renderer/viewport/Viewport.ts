@@ -17,7 +17,7 @@ import { overlayFonts, type LabelStyle } from './overlay'
 import { OverlayPass } from './overlayPass'
 import { partChanged } from '../../shared/diff'
 import { Ghosts, type GhostItem } from './ghosts'
-import { STALE_FADE, colorFor, colorsByName, edgeTint, mix } from '../../shared/palette'
+import { STALE_FADE, colorFor, colorsOfParts, edgeTint, mix } from '../../shared/palette'
 import { aimKeyLight, makeLights } from './lights'
 import { selectionBox } from './selectionBox'
 import { buildPart, type BuiltPart, disposePart } from './partMesh'
@@ -72,6 +72,8 @@ export class Viewport {
   private lastDown: { x: number; y: number; button: number } | null = null
   /** The selection `fit` last framed, until the camera is moved or something else is framed. */
   private fittedSelection: string | null = null
+  /** The press of a turn that has not begun to turn yet: the target moves onto what is under it at the first move. */
+  private pivotPending: { x: number; y: number } | null = null
   private readonly lights = makeLights()
   private readonly keyLight = this.lights.key
   private readonly ground = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial())
@@ -177,6 +179,7 @@ export class Viewport {
     this.controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.PAN }
     // Before the controls' own listener, so that their `start` knows where the press was.
     canvas.addEventListener('pointerdown', (e) => (this.lastDown = { x: e.clientX, y: e.clientY, button: e.button }), true)
+    canvas.addEventListener('pointermove', () => this.onPivotMove(), true)
     this.controls.addEventListener('start', this.onControlStart)
     this.controls.addEventListener('end', this.onControlEnd)
     this.controls.addEventListener('change', this.onCameraChange)
@@ -299,7 +302,7 @@ export class Viewport {
 
     this.layouts = [...scene.layouts]
     if (!this.layouts.includes(this.layout)) this.layout = this.layouts[0] ?? ''
-    this.colors = colorsByName(scene.parts.map((p) => p.name))
+    this.colors = colorsOfParts(scene.parts)
     this.refresh()
     this.showGhosts(stood)
 
@@ -1286,8 +1289,17 @@ export class Viewport {
     this.fittedSelection = null
     this.move.drop()
     // A turn is about what is under the pointer when it starts: only the target moves, along the view.
+    // Not at once: a tool that takes the press holds the orbit just after it, and then nothing turns and the target stays.
+    // At the first move that the orbit is still on for.
     const down = this.lastDown
-    if (down && down.button === 0) this.pivotAt(down.x, down.y)
+    this.pivotPending = down && down.button === 0 ? down : null
+  }
+
+  private readonly onPivotMove = (): void => {
+    const down = this.pivotPending
+    if (!down || !this.controls.enabled) return
+    this.pivotPending = null
+    this.pivotAt(down.x, down.y)
   }
 
   private pivotAt(clientX: number, clientY: number): void {
@@ -1303,6 +1315,7 @@ export class Viewport {
 
   private readonly onControlEnd = (): void => {
     this.navigating = false
+    this.pivotPending = null
   }
 
   private readonly onCameraChange = (): void => {

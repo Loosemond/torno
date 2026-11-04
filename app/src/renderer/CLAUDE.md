@@ -173,6 +173,8 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 
 ## Layers
 
+- `ui/Layers.tsx`: a reference (`Part.role`, a bought part) has the neutral swatch (`colorsOfParts`) and the tag "bought"
+  (`.layer-bought`), and is otherwise a row like any (it can be picked, hidden, made translucent).
 - `ui/Layers.tsx`: the groups of the layout (`groupsIn`) come first, a header each (`li.layer-group`,
   `data-group`): a fold chevron (`aria-expanded`, `Fold flat` / `Unfold flat`), the name and the count in the
   monospace face, "Show only" (on hover, as the opacity slider; `actions.soloLayers`) and an eye whose
@@ -235,6 +237,14 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   replaces or silences a person's dimension. Under the rows, what the agent made easier to pass or removed since it was
   first declared (`checkNotes`, `since r7`). A model with no checks, or a kernel that does not read them, has no section
   (`e2e/checks.spec.ts`).
+
+## Print profile
+
+- `ui/PrintProfile.tsx`, under Checks: a section (`print` in `ColumnSection`, folded at first; its title says
+  `Bambu X1C, PETG` or `none`) with two lists, Printer and Material, and "Add a printer…" (name, bed X Y Z, nozzle),
+  through `window.torno.profile` (`profile:*` channels). A choice is copied into the object's `.torno/profile.json` by
+  main; the printers are the person's, in torno's settings. The numbers shown are the person's, set in the monospace
+  face, with the line that they are not measured. Materials of the person's own are added in `profiles.json` (no form).
 
 ## Section
 
@@ -564,7 +574,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 - **The draft** (`state/onboard.ts`) lives in the window, for the workspace it was begun in, until the object is made
   or the person throws it away; nothing of it is on disk, and it is dropped when the workspace root changes. Caps
   are `MOST_REFERENCES` (shared with main), a photo or scan is refused as a duplicate by path and an object by id.
-  A doodle keeps its strokes as vectors as well as its PNG, so that it is opened again to change. `epoch()` goes up
+  A bought part (`steps`: a vendor's STEP file, by path; a dropped `.step`/`.stp`, 50 MB at most) is named in the preview and the prompt by the `reference/` file `stepFiles` gives it (`make.ts` `stepReferences`). A doodle keeps its strokes as vectors as well as its PNG, so that it is opened again to change. `epoch()` goes up
   at each discard: photos being read when the draft was thrown away are not put back. The held first prompt
   (`hold/take/dismiss`) is in the same store.
 - **Keys** are rows of `shared/keys.ts`: `new.back` (Esc) in the scope `newobject`, and the board's `board.undo` (Ctrl+Z) in the scope `sheet`. The
@@ -748,6 +758,11 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   is; otherwise, and after that question, `applyView('terminal', true)`, which ends a live session, writes the view and
   starts a terminal session resuming the conversation whether the chat was live or had ended, and also when the
   choice already was the terminal. A note's `action` other than `terminal` is dropped when a log is read (`readLog`).
+- **A build's chip says what it was made from** (#62). A context item carries `identity` (`BuildIdentity`, main's, from `builds.jsonl`'s
+  record of this run); the `r12` chip's title gets `made from sources …, on a1b2c3d with changes` (`RefChip`'s `of`, `identitySaid`),
+  and a build line's "Show text" has it in a line. Under "Earlier in this conversation" (`ChatEarlier`) the title says that a
+  revision counts from 1 in every run and may name another build now. The status line and the card say what has changed since
+  the last commit (`useGit`, `GitText`): read, never written.
 - **The end of a turn** (`ui/chat/TurnEnd.tsx`; the rule is `ui/chat/turnSummary.ts`, pure). Its first quiet line is
   "Done in 42 s" and then what the turn did, said from the turn's own items and nothing else (`turnSummary` over
   `itemsOfTurn`, the items after the turn before it): the files the agent's `Edit`, `Write` and `MultiEdit` changed (only
@@ -766,6 +781,13 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   the session is live and idle and no prompt of the person's follows that turn. It asks once in the row (a group named "Undo
   this turn", "Ask to undo" / "Keep it"), main sends the prompt and a note, and a refusal of main is said beside the button.
   A further action for a turn is one more button in `TurnActions`, given the turn's `item` and `account`.
+- **The agent's question** (`ask`; `state/asks.ts` follows main's list, `ui/QuestionCard.tsx` draws it): a card with
+  the question, a button for each answer (its label, its refs in the monospace face), and "None of these". The pointer
+  or the keys' focus on a button lights its refs by `peek`, as a ref chip does, and only when the layout shown is the
+  question's. With `pick` the card offers "Answer with `lid/F12`" while exactly one face or edge is selected in the
+  view (selecting is the Select tool's, unchanged), else says to select one. It stands above the box of the chat
+  (`where="chat"`) and, where the chat is not in sight (a terminal session, or the dock put away), over the foot of the
+  view (`where="view"`), never both. It answers once (the buttons go off) and goes when main takes the question down.
 - Refs are chips (`RefChip`, `refs.ts` `refInfo`): hover lights the ref through `peek` in `state/agent.ts`, which
   is not an agent highlight (no agent line, no locked tools) and is drawn in the accent on a layer of its own
   (`point` in `viewport/highlight.ts`, `Viewport.setPointed`), never in a mark's colour, whoever made the mark it is
@@ -874,3 +896,13 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   tolerance and an angle typed in, and Export is off while either is out of its range. A 3MF has "Open it once
   saved", off by default. The window sends names and numbers and never a path; once saved, the sheet says where,
   of which build, and what the read-back checked (`ExportSaved.checked`), every number in the monospace face.
+- **The sheet is grouped by who will open the file** (`READERS` in `ui/ExportSheet.tsx`, inside the group "Format"): "A page to
+  look at" (HTML page), "The CAD file" (STEP, STL, 3MF), and, only where the sheet is of the open project's view
+  (`ofView`: an object on show, not the page of projects), "A picture" (PNG) and "A drawing of a section" (SVG, PDF).
+  A picture or a drawing is of the open project as it is on screen: the sheet then shows no list of projects, `ViewChoices`
+  in its place (a picture's long edge, `PICTURE_SIZES` 1280 to 4000, "Marks", "Axes and scale bar"; a drawing needs a section on
+  screen and says so, with Export off, when there is none). The window draws the picture itself (`pictureForPerson` in
+  `state/agent.ts`, the code of `look` with `ImageRequest.person`) and hands main its bytes with the object's id
+  (`export.savePicture`); the drawing is made in main (`export.saveSection(id, 'svg' | 'pdf')`, no bytes from the window).
+  Main asks where to save, so the window names no path. `person` is set only there: a request of the agent's, which comes
+  over `view:look`, is held to 2000 px (`connectLook`). Its saved line offers "Show in folder", never "Open in browser".

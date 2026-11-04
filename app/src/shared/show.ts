@@ -1,4 +1,5 @@
 import type { SessionStatus } from './bridge'
+import type { GitState } from './git'
 
 /**
  * What the page of objects says of one object of the workspace. Everything here is read: from what main already
@@ -36,6 +37,8 @@ export interface ObjectCard {
   lastRun?: { dimensions: number; failed: number }
   /** Where its session stands. */
   session: SessionStatus | null
+  /** What git says of its sources (`gitState`); absent where there is no git or no repository. */
+  git?: GitState
 }
 
 /** What a picture is of besides its layout, as the window says it of one it drew. */

@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { ExplodeState } from '../../shared/explode'
 import type { MeasureKind, Quat, ShapeIntent, ShapeKind } from '../../shared/marks'
+import { MAX_ASK_OPTIONS, MAX_ASK_REFS } from '../../shared/ask'
 import type { AxisPlane, SectionPlane } from '../../shared/view'
 import { unknownKeys } from './keys'
 import type { EndArg } from './markTools'
@@ -142,6 +143,16 @@ const highlightInput = {
   layout: z.string().optional().describe('The layout the refs are of. It must be the one on screen, which is the default.')
 }
 
+const askInput = {
+  question: z.string().describe('The question, in a line or two.'),
+  options: z
+    .array(z.object({ label: z.string().describe('What the button says, a few words.'), refs: z.array(z.string()).max(MAX_ASK_REFS).describe(`The refs this answer is about; they light up in the viewport when the person points at the button. ${refText} A mark number (M3) stands for what that mark is on. A group name stands for all of its parts. None is fine for "neither".`) }))
+    .max(MAX_ASK_OPTIONS)
+    .describe(`The answers to choose from, at most ${MAX_ASK_OPTIONS}. May be empty when pick is true.`),
+  pick: z.boolean().optional().describe('True lets the person answer by selecting one face or edge in the viewport instead. Default: false.'),
+  layout: z.string().optional().describe('The layout the refs are of. It must be the one on screen, which is the default.')
+}
+
 const showInput = {
   view: loose(z.union([z.string(), cameraInput]))
     .optional()
@@ -226,7 +237,7 @@ const measureInput = {
   // Not required by the schema: left out, the tool says what an end is.
   a: endInput.optional().describe(`What is measured, or its first end. ${endText} A whole part (lid) where the kind takes one. ${scanEndText}`),
   b: endInput.optional().describe('The other end of a distance or an angle, given as a is.'),
-  density: z.number().optional().describe('For mass: g/cm³. Default 1.24, PLA, and the reply says so.'),
+  density: z.number().optional().describe('For mass: g/cm³. Default: the density of the material in the project\'s print profile when it has one, else 1.24, PLA; the reply says so.'),
   layout: z.string().optional().describe(layoutText)
 }
 
@@ -278,9 +289,10 @@ const checkInput = {
   a: z.string().optional().describe('The name of a part, as listed by scene. Not for interference or bed.'),
   b: z.string().optional().describe('The name of the other part, for overlap and clearance only.'),
   layout: z.string().optional().describe('The layout the parts are in, as listed by scene. Default: print for overhang, thin and bed when the model has it, else the one on screen.'),
-  angle: loose(z.number()).optional().describe('For overhang: how far from vertical a face may lean before it overhangs, in degrees, above 0 and below 90. Default 45.'),
-  min: loose(z.number()).optional().describe('For thin: the least wall, in mm.'),
-  size: loose(z.array(z.number())).optional().describe('For bed: the build volume of the printer, [x, y, z] in mm.')
+  angle: loose(z.number()).optional().describe('For overhang: how far from vertical a face may lean before it overhangs, in degrees, above 0 and below 90. Default: the material\'s in the project\'s print profile, else 45.'),
+  min: loose(z.number()).optional().describe('For thin: the least wall, in mm. Default: the print profile\'s (the material\'s, else two nozzle widths).'),
+  size: loose(z.array(z.number())).optional().describe('For bed: the build volume of the printer, [x, y, z] in mm. Default: the bed of the project\'s print profile.'),
+  fit: loose(z.enum(['press', 'sliding', 'loose'])).optional().describe('For clearance: judge the gap against that fit of the material in the project\'s print profile (per side); the reply says whose numbers they are.')
 }
 
 // Loose: what is not a list of refs or a number reaches the tool, which says what it takes (`tryFilletTool`).
@@ -298,6 +310,13 @@ const tryParamsInput = {
   measure: loose(z.array(z.record(z.string(), z.unknown()))).optional().describe('Measurements to take on the trial, as measure takes them but of whole parts by name only: [{"kind": "bbox", "a": "lid"}, {"kind": "distance", "a": "lid", "b": "base"}]. kind is bbox, volume, area, mass or distance. 10 at most.'),
   check: loose(z.array(z.record(z.string(), z.unknown()))).optional().describe('Checks to run on the trial, as check takes them, parts by name: [{"kind": "clearance", "a": "lid", "b": "base"}]. 10 at most.'),
   layout: z.string().optional().describe('The layout the measurements and checks are of unless one names its own. Default: the one on screen.')
+}
+
+// Loose: what is not a list of kinds reaches the tool, which says what it takes (`featuresTool`).
+const featuresInput = {
+  part: loose(z.string()).optional().describe('The name of a part, as listed by scene: "lid".'),
+  kinds: loose(z.array(z.enum(['hole', 'boss', 'fillet', 'chamfer', 'pattern']))).optional().describe('What to look for: hole, boss, fillet, chamfer, pattern (holes or bosses alike at equal steps on a line, in a grid or on a circle). Default: all of them.'),
+  layout: z.string().optional().describe('The layout the part is in, as listed by scene. Default: the one on screen.')
 }
 
 const resolveMarkInput = {
@@ -319,6 +338,12 @@ export interface DescribeArgs {
 export interface HighlightArgs {
   refs: string[]
   note?: string
+  layout?: string
+}
+export interface AskArgs {
+  question: string
+  options: Array<{ label: string; refs?: string[] }>
+  pick?: boolean
   layout?: string
 }
 export interface ShowArgs {
@@ -414,6 +439,13 @@ export const TOOLS = {
       "Returns which refs are now tinted in the user's viewport in your colour, with your note beside them, until the user clicks there or 60 s pass. Use it to ask \"this one?\" before a change that would be costly to get wrong, and then wait for the answer.",
     inputSchema: highlightInput
   },
+  ask: {
+    title: 'Ask the user to choose',
+    annotations: CHANGES_VIEW_OR_MARKS,
+    description:
+      "Returns the answer of the user to a question you put as a card in their chat and under their viewport, and waits for it: the option they chose, with its label and refs, or, with pick, the face or edge they selected, or that they declined. Pointing at an option lights its refs in their viewport, and the call ends with not answered after 10 minutes or when they stop the turn. Use it instead of highlight when you need to know which face, edge or part they mean before a costly change; the answer is data, so you need not turn the left one back into a ref.",
+    inputSchema: askInput
+  },
   show: {
     title: 'Change the view',
     annotations: CHANGES_VIEW_OR_MARKS,
@@ -468,7 +500,7 @@ export const TOOLS = {
     title: 'Compare two builds',
     annotations: READ_ONLY,
     description:
-      "Returns JSON of what changed between two successful builds (by default the one before the last and the last; only those two are kept): for each layout the parts added and removed, and for each part in both its volume, the size of its box and its min corner, before, after and the change in mm and mm³, each with exact (false where either build's number is approximate, as scene's sizeExact and volumeExact say), its face, edge and solid counts before and after, changed, and a line saying what changed (the volume's change also in percent; a number that is not exact has changed only by more than both builds' doubt of it). Call it after an edit to see what it did; numbers are the kernel's of each build, for orientation (call measure for one to rely on), and face or edge counts that changed mean refs such as lid/F12 may name other faces now, so describe a ref again before relying on it.",
+      "Returns JSON of what changed between two successful builds (by default the one before the last and the last; only those two are kept): for each layout the parts added and removed, and for each part in both its volume, the size of its box and its min corner, before, after and the change in mm and mm³, each with exact (false where either build's number is approximate, as scene's sizeExact and volumeExact say), its face, edge and solid counts before and after, changed, and a line saying what changed (the volume's change also in percent; a number that is not exact has changed only by more than both builds' doubt of it). `builds` says what each build was made from: a hash of the sources, and the commit then checked out, with dirty when files differed from it. Call it after an edit to see what it did; numbers are the kernel's of each build, for orientation (call measure for one to rely on), and face or edge counts that changed mean refs such as lid/F12 may name other faces now, so describe a ref again before relying on it.",
     inputSchema: diffInput
   },
   expect: {
@@ -491,6 +523,13 @@ export const TOOLS = {
     description:
       "Returns JSON and a reading of what the model gives with other values of its Params (set: the fields scene lists under params with an editable kind), built in a worker of its own and thrown away: whether it built or the model's error, what changed against the last build part by part, and the measurements and checks you ask for (measure and check, of whole parts by name), each worded as those tools word them and said to be of the trial. Use it to search a value (\"which clearance gives 0.3 mm between lid and base\") instead of editing the model and building again; it changes nothing, the person's values included, keeps no ref of the trial, is made over the values the person is trying (scene says), and is refused while a build runs or when there is no room for a second one. To keep a value, edit its default in the model.",
     inputSchema: tryParamsInput
+  },
+  features: {
+    title: 'List features of a part',
+    annotations: READ_ONLY,
+    description:
+      "Returns JSON and a reading of the holes, bosses, fillets, chamfers and patterns of a part of the last build that worked, found on its B-rep: for each hole its diameter, axis (pointing into the part), entry point, the face it opens in, depth, whether it is through or blind (and its bottom), and any counterbore, countersink or rounded mouth; for each boss its diameter, height and base; for each fillet its radius, sweep and length, whether it rounds an outside edge or an inside corner, and the faces and edges it joins; for each chamfer its setback (or setbacks, when uneven) in the same way; for each pattern of holes or bosses alike how many there are and whether they lie in a row, a grid or on a circle, with the step; with the faces each is made of, as refs that describe and highlight take. Diameters, radii, angles, axes and depths between planes and round faces are exact, a depth taken between freeform faces says it is not (exact false, ≈ in the reading), and only analytic faces count: cylinders, cones and tori that go all the way round for holes and bosses, blends tangent to both faces for fillets, so slot ends are counted as arcs and told as neither (at most 100 of a kind are listed, the rest counted). Use it to answer how many holes there are, of what size and how deep, what the fillets are, and before you edit any of them, instead of describing faces one by one.",
+    inputSchema: featuresInput
   },
   scans: {
     title: 'List scans',
@@ -535,10 +574,12 @@ export const SERVER_INSTRUCTIONS = `torno's server reads and measures the CAD pa
 - expect: say before an edit what it should change (volume, faces, size, a measurement, parts unchanged); the build after it is checked against that.
 - try_fillet: try a fillet or chamfer of some edges on the last build and throw it away: whether it works, the largest radius that does, which edges or pairs fail.
 - try_params: build the model with other values of its Params in a throwaway worker and measure or check there, to search a value without editing the model.
+- features: the holes (diameter, depth, through or blind, counterbore, countersink), bosses, fillets (radius), chamfers (size) and patterns (4 holes on a square, a bolt circle) of a part, exact, with the faces they are made of.
 - scans: the scans the person imported, and how each is aligned to the model.
 - scan_clash: what of a scan is inside a part, as clusters with their depth.
 - scan_deviation: how far a part, or some of its faces, lie from a scan (min, mean, max, percentiles).
 - highlight: tint faces or edges in the person's viewport with a note, to ask "this one?" before a costly change.
+- ask: ask the person to choose between options whose answers are refs, or to pick a face or edge, and wait for the answer.
 - show: change the person's camera, layout, visible parts, section, explode or scans, put a saved view on screen, or point their camera at a ref, mark or box.
 - save_view: propose a saved view to the person's strip, for them to keep or discard.
 - add_mark: leave a mark of yours (pin, pick, arrow, shape, or a dimension measured on every build).

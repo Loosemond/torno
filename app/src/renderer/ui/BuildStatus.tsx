@@ -12,6 +12,9 @@ import { BuildErrorSheet } from './BuildErrorSheet'
 import { UNCHECKED_AFTER_MS, useLasting } from './MarkRow'
 import { AGENT_LABEL } from '../../shared/agents'
 import { focusAsk, waitingObjects } from './sessionSign'
+import { gitFilesSaid } from '../../shared/git'
+import { GitText } from './GitText'
+import { useGit } from './useGit'
 
 /** `2 dimensions fail`, `1 dimension not measured`. */
 export function dimensionCount(count: number, what: 'fail' | 'not measured'): string {
@@ -104,6 +107,8 @@ export function BuildStatus({ onOpen }: { onOpen: (id: string) => void }) {
   const asking = useStore((s) => waitingObjects(s.workspace?.objects ?? [], s.sessions).map((o) => o.name).join('\n'))
   const askingId = useStore((s) => waitingObjects(s.workspace?.objects ?? [], s.sessions)[0]?.id ?? null)
   const askingNames = asking === '' ? [] : asking.split('\n')
+  // What git says of the sources: read by main, never written.
+  const git = useGit()
 
   // The sheet shows the failure of the build it was opened for, no longer.
   useEffect(() => {
@@ -160,6 +165,11 @@ export function BuildStatus({ onOpen }: { onOpen: (id: string) => void }) {
             <span data-part="revision">
               {build.stale && 'showing '}
               <span className="num">r{build.revision}</span>
+            </span>
+          )}
+          {git && (
+            <span className="status-git" data-part="git" title={git.changed > 0 ? gitFilesSaid(git) : undefined}>
+              <GitText git={git} />
             </span>
           )}
           {hasScene && failing.length > 0 && (

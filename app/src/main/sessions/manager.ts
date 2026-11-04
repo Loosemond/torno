@@ -6,6 +6,7 @@ import { isInsideFolder } from './inside'
 import * as pty from 'node-pty'
 import type { AgentView, SessionStatus } from '../../shared/bridge'
 import { type AgentChoice, agentChoiceOf, type ChatAnswer, type ChatCommand, type ChatHistory, type ChatItem, type ChatMeta, type ChatModel, type Effort, isEffort, type Mode } from '../../shared/chat'
+import type { BuildIdentity } from '../../shared/git'
 import { modelsOf } from './models'
 import { type BuildState, errorLine, failedAfter } from '../../shared/build'
 import { type DrawnOver, type ViewDrawing, drawnOver } from '../../shared/drawing'
@@ -83,6 +84,10 @@ interface Session {
   logFailed: boolean
   /** A chat session: the requests of the CLI's that wait for the person. */
   asks: Map<string, AgentAsk>
+  /** How many questions of torno's own (`ask`, main/asks.ts) wait for the person: the status is `needs_input` while there are any. */
+  held: number
+  /** The status a session had when the first question of torno's own was put: the one it goes back to, as it was working or idle then. */
+  beforeHold?: SessionStatus
   /** A chat session: what the CLI printed or posted last (it grows with every line and hook), to tell a moment of quiet from a change. */
   activity: number
   /** A chat session: waits a moment after a `result` that left prompts untaken, to see whether the CLI begins on them. */
@@ -310,6 +315,8 @@ export class Sessions {
       settled?: (objectId: string, revision: number, until: number) => Promise<void>
       /** When the newest `.py` of an object, and of the `common/` beside it, was saved (null: none): a `Bash` after which it is newer has rewritten the model. Absent: a `Bash` is taken for no change. */
       sourcesSaved?: (objectDir: string) => Promise<number | null>
+      /** What the build of this run with this revision was made from: told under the chat's build lines and chips. Absent: nothing is. */
+      identity?: (objectId: string, revision: number) => BuildIdentity | undefined
       /** Tests only: how long an edit's answer waits for its build, and for it to begin, and how long a `Stop` waits for a build. */
       editTiming?: { answerMs: number; graceMs: number; stopMs?: number }
       /** False only in an eval run that takes the holds away (`main/ablations.ts`): a `Stop` is never held back. */
@@ -454,6 +461,7 @@ export class Sessions {
       logging: Promise.resolve(),
       logFailed: false,
       asks: new Map(),
+      held: 0,
       activity: 0,
       stderr: [],
       heard: false,
@@ -594,7 +602,8 @@ export class Sessions {
     // How long it took and what it said, as data: the window draws a build line from these and the digest, never from the text.
     const took = told.buildState === 'ok' && at?.status === 'ok' && at.revision === told.revision ? at.seconds : undefined
     const error = told.buildState === 'failed' && at?.status === 'failed' && at.error ? errorLine(at.error) : undefined
-    session.chat?.transcript.toolContext({ toolUseId: session.turn?.lastToolUse, text: told.text, ...(told.revision !== undefined ? { revision: told.revision } : {}), ...(told.buildState ? { buildState: told.buildState } : {}), ...(took !== undefined ? { seconds: took } : {}), ...(error ? { error } : {}), ...(told.digest ? { digest: told.digest } : {}) })
+    const identity = told.revision === undefined ? undefined : this.deps.identity?.(objectId, told.revision)
+    session.chat?.transcript.toolContext({ toolUseId: session.turn?.lastToolUse, text: told.text, ...(told.revision !== undefined ? { revision: told.revision } : {}), ...(told.buildState ? { buildState: told.buildState } : {}), ...(took !== undefined ? { seconds: took } : {}), ...(error ? { error } : {}), ...(told.digest ? { digest: told.digest } : {}), ...(identity ? { identity } : {}) })
     return { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: told.text } }
   }
 
@@ -820,7 +829,7 @@ export class Sessions {
     s.agent.answer(requestId, response)
     s.chat?.transcript.answered(requestId, response.behavior === 'allow' ? 'allowed' : 'denied', response.behavior === 'allow' ? answersText(response.updatedInput) : response.message)
     this.emit('asked', { sessionId, requestId, answered: true })
-    if (s.asks.size === 0) this.advance(s, 'answered')
+    if (s.asks.size === 0 && s.held === 0) this.advance(s, 'answered')
   }
 
   /**
@@ -1051,7 +1060,7 @@ export class Sessions {
     if (!session.asks.delete(requestId)) return
     session.chat?.transcript.cancelled(requestId)
     this.emit('asked', { sessionId: session.id, requestId, answered: false })
-    if (session.asks.size === 0) this.advance(session, 'answered')
+    if (session.asks.size === 0 && session.held === 0) this.advance(session, 'answered')
   }
 
   /**
@@ -1146,8 +1155,38 @@ export class Sessions {
     }
   }
 
+  /**
+   * The agent put a question of torno's own to the person (`ask`): the session shows `needs_input` until the
+   * function returned is called (once). The hooks do not say it: the call is one tool, open as long as the
+   * person takes, and nothing is posted meanwhile. A session that is not there holds nothing.
+   */
+  holdAsk(objectId: string): () => void {
+    const session = this.of(objectId)
+    if (!session) return () => {}
+    session.held += 1
+    if (session.held === 1) {
+      session.beforeHold = session.status
+      this.advance(session, 'ask')
+    }
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      session.held -= 1
+      if (session.held !== 0 || session.asks.size !== 0) return
+      // Back to what it was: working, as the call that asked is still open, unless the turn has ended meanwhile.
+      const back = session.beforeHold === 'idle' || session.beforeHold === 'starting' ? session.beforeHold : undefined
+      if (back && session.status === 'needs_input') {
+        session.status = back
+        this.emit('status', { sessionId: session.id, objectId: session.object.id, status: back })
+      } else this.advance(session, 'answered')
+    }
+  }
+
   private advance(session: Session, event: string, body?: unknown): void {
-    const next = reduceStatus(session.status, event, body)
+    let next = reduceStatus(session.status, event, body)
+    // A tool of the turn that ends while a question waits (they may run side by side) is no answer to it.
+    if (next === 'working' && session.status === 'needs_input' && session.held > 0 && event !== 'answered') next = 'needs_input'
     if (next === session.status) return
     session.status = next
     this.emit('status', { sessionId: session.id, objectId: session.object.id, status: next })
@@ -1312,7 +1351,7 @@ export class Sessions {
       context = { text: '', sentMarkIds: [] }
     }
     const { text, sentMarkIds } = context
-    session.chat?.transcript.context({ text, sentMarkIds, ...(context.revision !== undefined ? { revision: context.revision } : {}), ...(context.buildState ? { buildState: context.buildState } : {}), ...(context.selection ? { selection: context.selection } : {}), ...(context.instructions ? { instructions: context.instructions } : {}), ...(typeof fields.prompt === 'string' ? { prompt: fields.prompt } : {}) })
+    session.chat?.transcript.context({ text, sentMarkIds, ...(context.revision !== undefined ? { revision: context.revision } : {}), ...(context.buildState ? { buildState: context.buildState } : {}), ...(context.selection ? { selection: context.selection } : {}), ...(context.instructions ? { instructions: context.instructions } : {}), ...(context.revision !== undefined && this.deps.identity?.(objectId, context.revision) ? { identity: this.deps.identity(objectId, context.revision) } : {}), ...(typeof fields.prompt === 'string' ? { prompt: fields.prompt } : {}) })
     this.emit('context', { sessionId: session.id, objectId, text, sentMarkIds, ...(typeof fields.prompt === 'string' ? { prompt: fields.prompt } : {}) })
     if (this.deps.debug) console.error(`[torno] session ${session.id} hook ${event}${text ? `, answered with: ${text}` : ''}`)
     // Marks are sent once the answer that names them has been handed over whole: not when the agent hung

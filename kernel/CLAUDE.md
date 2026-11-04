@@ -98,6 +98,38 @@ is the detail of this folder, under the headings it has there.
   told `exact: false`. `thin` is never exact: the wall along the inward normal at 5 × 5 points of each face, in
   10 s at most (`THIN_BUDGET`, then `sampling.complete` false). `bed` is the layout's box from the parts' boxes
   (`tess.part_box`), exact only when every one of them is.
+- `features` (`features.py`) finds holes and bosses of a part in the layout asked on the B-rep's own adjacency, with no
+  boolean and no mesh: faces that are cylinders, cones or tori about one axis (the same axis within 1e-5 mm), that
+  meet at an edge or on the plane of a step, form a run, and a run whose every surface goes right round (its faces'
+  parameter ranges add up to a full turn) is a hole where the material is outside it and a boss where it is
+  inside; the side is the sign of the face's outward normal against the radial vector. A run's ends are read from
+  the faces across its boundary edges at the ends: a plane or other face whose outward normal points on along the
+  axis is where it opens (a hole) or where a boss ends, one that points back into it is a floor or a boss's base;
+  a cone that comes to a point is a drill point or a tip. A hole drilled across another is two runs and is joined
+  into one (`crosses`). Diameters, angles and axes are exact; an entry, a depth or a height is the distance
+  between where the axis meets the faces at its ends, exact when each is a plane, a cylinder, a cone, a sphere or a
+  torus (a line met with an analytic surface by `GeomAPI_IntCS`), and otherwise (a mouth on a freeform wall) is
+  taken at the end of the run and told with `exact: false` and `how`. Slot ends and rounded corners (round faces
+  that do not go all the way round) and a cylinder that stands on nothing are counted (`notFeatures`), not told;
+  freeform faces are counted too, since a hole in one is not recognised. A fillet is a cylinder or a torus less than
+  half a turn round (its sweep, the cylinder's angle or the torus's tube angle) whose boundary edges meet faces with
+  no corner (normals alike within 1e-6 at the middle of the edge), at least two of them; blends of one radius and
+  side that touch are one. A chamfer is a plane with all lines for edges, two of them parallel and the longest,
+  across which are two planes it leaves at 5° to 85°, the same way round, whose line of meeting is parallel to
+  them, and whose setback from that line (the distance between parallel lines, so exact) is under half of what is
+  left of each face (a hexagon's sides and a ramp are not); or a cone between a plane across a cylinder's axis and
+  that cylinder (setbacks the radii's difference and the axial distance), unless it is a step of a hole, which is
+  told as a countersink. A pattern (`patterns.py`) is holes (or bosses) alike in diameter, shape, end, depth and
+  direction, taken as one set whole, whose axes (their places across the axis, so wherever along it the hole
+  was measured) lie on a line at equal steps, in a grid (the rows along the way to the nearest of the others from the
+  first, a full rectangle) or at equal angles on a circle (three are a circle only if they fill it; a part of
+  one needs four); a set that is none of these is told as none, and its holes are still told one by one.
+  A line is tested before a grid and a grid before a circle, so four holes at the corners of a square are a 2 × 2
+  grid. Positions are in the frame of the shapes
+  as built, so of an `arranged` part in the displayed frame. It is bounded as `check overhang` is: 10 s
+  (`BUDGET`, then `complete` false and the runs left over are not told as none) and `MAX_FEATURES` (100) of a
+  kind told, the rest counted in `left`. What it found is kept in the worker, under `("features", key)`, until
+  the next build.
 - An angle (`measure.py` `_angle`) is exact between planes, lines and the axes of cylinders, cones, tori and
   circles (`_round_axis`). A face of another type that `GeomLib_IsPlanarSurface` finds flat within 1e-6 mm, or an
   edge whose 129 sampled points are within 1e-6 mm of the line through its ends (`_flat`, `_straight`), is taken
@@ -301,6 +333,21 @@ is the detail of this folder, under the headings it has there.
   results as `checks`: `status` (`pass`, `fail`, `error` for one that could not be measured, `not run`), `value`,
   `unit`, `min`, `max`, `exact` and `how` of the kernel, and the `declared` dict. A check that does not pass never
   fails the build; a `thin` that finds none says so by sampling, never as a proof.
+
+- **References are bought parts, read by the worker** (`loader._references`). Under the `Params` convention an optional
+  `references(p)` (name to shape, in the assembly's frame) is called with `Params()` after the layouts are collected and
+  before `groups(p)` and `checks(p)`, which may name them. They are added to every layout but `print` (a model with
+  only a print layout fails the build, saying it needs an assembly), as `loader.Layouts`, a dict that also holds which
+  names are references (`Layouts.references`), so the signature of `load_model` is as it was. A shape with children (a
+  bearing of bd_warehouse, a STEP with an assembly in it) is taken as the compound of its solids, where they are. A
+  name is refused when it is a part's, has a `/`, has the form `M<n>`, or the value has no solid. A vendor STEP is
+  read by the model itself (`import_step`); the kernel reads no file. `tess.build_scene` tells such a part `role:
+  "reference"` and notes it in `kept[("reference", key)]` (`queries.is_reference`), which is all the queries know.
+  A reference is an obstacle: `clearance`, `overlap` and `interference` take it against the parts (`interference`
+  never against another reference, and names them in `references`). It is not made: `bed` leaves it out (and says
+  so), `mass`, `mesh`, `overhang`, `thin` and a STL or 3MF refuse it (`queries.need_made`; a group in a model's
+  `thin`, `overhang` or `mesh` check skips them, and naming one is refused when the model loads), while a STEP may
+  hold it when asked. `describe` says `role: "reference"`.
 
 - **The scene says what the model imported (`uses`).** After the load, the worker (`loader.used_files`, from
   `sys.modules`, never from a declaration) lists the Python files under the workspace (the folder above the

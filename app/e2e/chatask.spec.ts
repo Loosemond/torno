@@ -1,8 +1,11 @@
 import { cpSync, mkdtempSync, readdirSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { _electron as electron, expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import type { TornoState } from '../src/renderer/state/store'
+import { SESSION_HEADER } from '../src/main/http'
 import { openListed, switcher } from './objects'
 
 // What the chat asks of the person and what it offers: a permission request, the questions of `AskUserQuestion`
@@ -746,4 +749,34 @@ test('a request that waits for the person shows on the dock\'s toggle when the d
   await expect(toggle().locator('.session-sign')).toHaveCount(0)
   await toggle().click()
   await expect(dock()).toBeVisible()
+})
+
+// #132: the agent's own `ask` is a card of torno's in the chat, above the box, and the session needs input while it is open.
+test('ask is a card above the box of the chat, the session needs input meanwhile, and the option clicked is what the tool returns', async () => {
+  await openListed(page, 'bracket')
+  if (await dock().getByRole('button', { name: 'New session' }).isVisible()) await newSession()
+  await expect(composer()).toBeEnabled()
+  await expect(status()).toHaveText('Idle')
+  const { url, token } = await app.evaluate((_electron, id) => (globalThis as unknown as { __tornoMain: { mcpFor(id: string): { url: string; token: string } } }).__tornoMain.mcpFor(id), 'bracket')
+  const client = new Client({ name: 'torno-e2e', version: '0' })
+  await client.connect(new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers: { [SESSION_HEADER]: token } } }))
+  try {
+    const waiting = client.callTool({ name: 'ask', arguments: { question: 'Which wall do you mean?', options: [{ label: 'The left wall', refs: ['base/F1'] }, { label: 'The right wall', refs: ['base/F2'] }] } })
+    const card = chat().locator('.ask-question')
+    await expect(card).toBeVisible()
+    await expect(card.locator('.ask-text')).toHaveText('Which wall do you mean?')
+    await expect(status()).toHaveText('Needs input')
+    // The viewport does not show it twice while the chat is in sight.
+    await expect(page.locator('.ask-question[data-where="view"]')).toHaveCount(0)
+    await card.getByRole('button', { name: /The right wall/ }).hover()
+    expect(await peeked()).toEqual(['base/F2'])
+    await card.getByRole('button', { name: /The right wall/ }).click()
+    const result = await waiting
+    expect(JSON.parse((result.content as Array<{ text: string }>)[0].text)).toMatchObject({ answered: true, kind: 'option', index: 1, label: 'The right wall', refs: ['base/F2'] })
+    await expect(card).toHaveCount(0)
+    await expect(status()).toHaveText('Idle')
+    expect(await peeked()).toEqual([])
+  } finally {
+    await client.close()
+  }
 })

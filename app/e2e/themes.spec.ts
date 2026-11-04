@@ -219,7 +219,7 @@ for (const theme of ['light', 'dark'] as const) {
 
 // Set TORNO_SHOTS=<dir>, as for the captures of the other specs, to capture the window in every state the pass
 // over the themes looks at, one launch each, into <dir>/ui-<state>-<theme>.png.
-const STATES = ['main', 'mark-chip', 'section', 'explode', 'views', 'scans', 'scan-read', 'region', 'page', 'export', 'error', 'welcome', 'welcome-first', 'welcome-first-ready', 'welcome-first-open', 'empty', 'ready-sheet', 'folders', 'switcher', 'folded', 'params', 'chat', 'view-board', 'view-board-chip', 'view-board-sent', 'onboard', 'onboard-board', 'onboard-missing', 'confirm-close', 'tools', 'keys', 'instructions', 'measure-raised', 'measure-raised-narrow', 'marks-tall', 'landed'] as const
+const STATES = ['main', 'mark-chip', 'section', 'explode', 'views', 'scans', 'scan-read', 'region', 'page', 'export', 'error', 'welcome', 'welcome-first', 'welcome-first-ready', 'welcome-first-open', 'empty', 'ready-sheet', 'folders', 'switcher', 'folded', 'params', 'chat', 'view-board', 'view-board-chip', 'view-board-sent', 'onboard', 'onboard-board', 'onboard-missing', 'confirm-close', 'tools', 'keys', 'instructions', 'measure-raised', 'measure-raised-narrow', 'measure', 'marks-tall', 'landed'] as const
 
 /** Shots of a window with no folder open, or an empty one, where no object is opened. */
 const FIRST_SCREEN = ['welcome-first', 'welcome-first-ready', 'welcome-first-open'] as const
@@ -350,6 +350,15 @@ for (const theme of ['light', 'dark'] as const) {
           await expect(page.locator('.sectionbar')).toHaveAttribute('data-raised', '1')
           // The bars slide to their rows: the picture is of where they stop.
           for (const bar of ['.sectionbar', '.selection', '.tool-hint']) await stableBox(page.locator(bar))
+        } else if (shot === 'measure') {
+          // A measurement held in the view: two clicks with Measure in hand, the kernel's value drawn between its points as a draft.
+          await page.keyboard.press('m')
+          await expect(page.locator('.measure-choice')).toBeVisible()
+          const box = (await canvas.boundingBox())!
+          await canvas.click({ position: { x: box.width * 0.5, y: box.height * 0.5 } })
+          await canvas.click({ position: { x: box.width * 0.4, y: box.height * 0.62 } })
+          await expect.poll(() => page.evaluate(() => window.__tornoTest!.draft()), { timeout: 30_000 }).toMatchObject({ kind: 'dimension', held: expect.any(String) })
+          await page.mouse.move(box.x + box.width * 0.85, box.y + box.height * 0.1)
         } else if (shot === 'marks-tall') {
           // The line above the marks dragged to the top with Parameters unfolded, then the window made shorter: the marks
           // take the room there is, above the status line.

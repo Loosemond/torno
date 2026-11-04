@@ -25,7 +25,7 @@ function tree(dir: string, prefix = ''): string[] {
 }
 
 function request(over: Partial<CreateRequest> = {}): CreateRequest {
-  return { name: 'cable-clip', description: 'A clip for a 6 mm cable.', photos: [], doodles: [], scans: [], objects: [], ...over }
+  return { name: 'cable-clip', description: 'A clip for a 6 mm cable.', photos: [], doodles: [], steps: [], scans: [], objects: [], ...over }
 }
 
 const make = (req: CreateRequest, objects: string[] = [], hooks?: Parameters<typeof createObject>[1]['hooks']) => createObject(req, { root: ws, objects, hooks })
@@ -241,6 +241,56 @@ describe('creating an object', () => {
       await attempt(join(files, 'doc.pdf'))
     })
     it('is not an absolute path', () => attempt('photo.png'))
+  })
+
+  describe('a vendor STEP file (a bought part)', () => {
+    const STEP = 'ISO-10303-21;\nHEADER;\nENDSEC;\n'
+    const step = (name: string, text = STEP) => {
+      writeFileSync(join(files, name), text)
+      return join(files, name)
+    }
+
+    it('is copied into reference/ under its own name, and listed in the brief after the doodles', async () => {
+      const a = step('608zz.STEP')
+      const b = step('motor mount.stp', 'other')
+      await make(request({ steps: [{ path: a, note: 'the bearing' }, { path: b, note: '' }] }))
+      const dir = join(ws, 'cable-clip')
+      expect(tree(dir)).toEqual(['brief.md', 'cable_clip.py', 'reference/', 'reference/608zz.step', 'reference/motor_mount.stp'])
+      expect(readFileSync(join(dir, 'reference', '608zz.step'), 'utf8')).toBe(STEP)
+      expect(readFileSync(join(dir, 'brief.md'), 'utf8')).toContain('## References\n\n- reference/608zz.step: the bearing\n- reference/motor_mount.stp\n')
+    })
+
+    it('is numbered when two files have the same name', async () => {
+      mkdirSync(join(files, 'b'))
+      writeFileSync(join(files, 'b', 'part.step'), 'b')
+      await make(request({ steps: [{ path: step('part.step'), note: '' }, { path: join(files, 'b', 'part.step'), note: '' }] }))
+      expect(tree(join(ws, 'cable-clip', 'reference'))).toEqual(['part-2.step', 'part.step'])
+    })
+
+    it('is refused when it is a link, a folder, or no STEP file, and nothing is left', async () => {
+      const real = step('real.step')
+      symlinkSync(real, join(files, 'link.step'))
+      mkdirSync(join(files, 'dir.step'))
+      for (const path of [join(files, 'link.step'), join(files, 'dir.step'), join(files, 'missing.step')]) {
+        await expect(make(request({ steps: [{ path: real, note: '' }, { path, note: '' }] }))).rejects.toThrow()
+        expect(readdirSync(ws)).toEqual(['lid'])
+      }
+      await expect(make(request({ steps: [{ path: step('x.iges'), note: '' }] }))).rejects.toThrow(/STEP/)
+      await expect(make(request({ steps: [{ path: 'relative.step', note: '' }] }))).rejects.toThrow(/STEP/)
+      expect(readdirSync(ws)).toEqual(['lid'])
+    })
+
+    it('is refused over 50 MB, and the same file given twice, and more than four', async () => {
+      const big = step('big.step')
+      truncateSync(big, 50 * 1024 * 1024 + 1)
+      await expect(make(request({ steps: [{ path: big, note: '' }] }))).rejects.toThrow(/50 MB/)
+      const ok = step('ok.step')
+      truncateSync(ok, 50 * 1024 * 1024)
+      const fine = await make(request({ steps: [{ path: ok, note: '' }] }))
+      expect(fine).toEqual({ objectId: 'cable-clip' })
+      await expect(make(request({ name: 'two', steps: [{ path: ok, note: '' }, { path: ok, note: '' }] }))).rejects.toThrow(/twice/)
+      await expect(make(request({ name: 'five', steps: Array.from({ length: 5 }, (_, i) => ({ path: `/x/${i}.step`, note: '' })) }))).rejects.toThrow(/bought parts/)
+    })
   })
 
   it('refuses a doodle that is not a PNG, or too big, and removes what was copied', async () => {

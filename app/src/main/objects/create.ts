@@ -5,7 +5,7 @@ import { lstat, mkdir, open, readdir, rename, rm, rmdir } from 'node:fs/promises
 import { homedir } from 'node:os'
 import { extname, isAbsolute, join } from 'node:path'
 import type { CreateRequest } from '../../shared/bridge'
-import { MAX_PHOTO_BYTES, moduleName, MOST_REFERENCES, objectNameProblem } from '../../shared/objectName'
+import { MAX_PHOTO_BYTES, MAX_STEP_BYTES, moduleName, MOST_REFERENCES, objectNameProblem, STEP_FORMATS, stepFiles } from '../../shared/objectName'
 import { SCAN_FORMATS } from '../../shared/scans'
 import { writeFileAtomic } from '../atomic'
 import template from './template.py.txt?raw'
@@ -20,6 +20,8 @@ import template from './template.py.txt?raw'
 export const MOST = MOST_REFERENCES
 /** The biggest photo, and the biggest doodle, in bytes. */
 export const MAX_PHOTO = MAX_PHOTO_BYTES
+/** The biggest vendor STEP file, in bytes (50 MB). */
+export const MAX_STEP = MAX_STEP_BYTES
 export const MAX_DOODLE = 8 * 1024 * 1024
 /** The longest description and the longest note, in characters. */
 const MAX_DESCRIPTION = 20_000
@@ -104,10 +106,10 @@ const line = (what: string, note: string): string => (note === '' ? `- ${what}` 
  * is too big are refused before any of it is read. The file is opened without following a link and looked at
  * through the open handle, so that what was checked is what is read.
  */
-export async function readRegular(path: unknown, cap: number, what: string): Promise<{ bytes: Buffer; ext: string }> {
+export async function readRegular(path: unknown, cap: number, what: string, types: readonly string[] = PHOTO_TYPES): Promise<{ bytes: Buffer; ext: string }> {
   if (typeof path !== 'string' || !isAbsolute(path)) throw new Error(`A ${what} is given by the path of a file; this is not one.`)
   const ext = extname(path).toLowerCase()
-  if (!PHOTO_TYPES.includes(ext)) throw new Error(`${path} is not a ${PHOTO_TYPES.join(', ')} file.`)
+  if (!types.includes(ext)) throw new Error(`${path} is not a ${types.join(', ')} file.`)
   const stat = await lstat(path).catch(() => null)
   if (!stat) throw new Error(`${path} is not there.`)
   if (!stat.isFile()) throw new Error(`${path} is ${stat.isSymbolicLink() ? 'a link' : 'not a plain file'}: torno copies only plain files.`)
@@ -150,8 +152,8 @@ function checked(req: CreateRequest, deps: CreateDeps, existing: readonly string
   if (problem) throw new Error(problem)
   if (typeof req.description !== 'string' || req.description.trim() === '') throw new Error('Say what it is first.')
   if (req.description.length > MAX_DESCRIPTION) throw new Error(`The description is over ${MAX_DESCRIPTION} characters.`)
-  const named = { photos: 'photos', doodles: 'doodles', scans: 'scans', objects: 'projects' }
-  for (const kind of ['photos', 'doodles', 'scans', 'objects'] as const) {
+  const named = { photos: 'photos', doodles: 'doodles', steps: 'bought parts', scans: 'scans', objects: 'projects' }
+  for (const kind of ['photos', 'doodles', 'steps', 'scans', 'objects'] as const) {
     if (!Array.isArray(req[kind])) throw new Error(`The ${named[kind]} are not a list.`)
     if (req[kind].length > MOST[kind]) throw new Error(`At most ${MOST[kind]} ${named[kind]}.`)
   }
@@ -163,12 +165,18 @@ function checked(req: CreateRequest, deps: CreateDeps, existing: readonly string
     // The path is one line of `brief.md`: one with a line break (or any control character) could write lines of its own.
     if (/\p{Cc}/u.test(scan.path)) throw new Error('The path of a scan has a control character or a line break in it.')
   }
+  for (const step of req.steps) {
+    if (typeof step?.path !== 'string' || !isAbsolute(step.path) || !(STEP_FORMATS as readonly string[]).includes(extname(step.path).toLowerCase())) {
+      throw new Error(`A bought part is a STEP file (${STEP_FORMATS.join(" or ")}) given by its path.`)
+    }
+    oneLine(step.note, 'bought part')
+  }
   for (const photo of req.photos) {
     if (typeof photo?.path !== 'string') throw new Error('A photo is given by the path of a file; this is not one.')
     oneLine(photo.note, 'photo')
   }
   for (const doodle of req.doodles) oneLine(doodle?.note, 'doodle')
-  for (const [kind, keys] of [['photo', req.photos.map((p) => p.path)], ['scan', req.scans.map((s) => s.path)], ['project', req.objects.map((o) => o?.id)]] as const) {
+  for (const [kind, keys] of [['photo', req.photos.map((p) => p.path)], ['bought part', req.steps.map((s) => s.path)], ['scan', req.scans.map((s) => s.path)], ['project', req.objects.map((o) => o?.id)]] as const) {
     if (new Set(keys).size !== keys.length) throw new Error(`The same ${kind} is given twice.`)
   }
   for (const other of req.objects) {
@@ -212,6 +220,13 @@ export async function createObject(req: CreateRequest, deps: CreateDeps): Promis
       const file = `reference/doodle-${++n}.png`
       await writeFileAtomic(join(temp, file), png)
       references.push(line(file, oneLine(doodle.note, 'doodle')))
+    }
+    const stepNames = stepFiles(req.steps.map((step) => step.path))
+    for (const [i, step] of req.steps.entries()) {
+      // Copied as it is, under its own name: the model reads it by that name. A STEP file is plain text, within its cap.
+      const { bytes } = await readRegular(step.path, MAX_STEP, 'bought part', STEP_FORMATS)
+      await writeFileAtomic(join(temp, stepNames[i]), bytes)
+      references.push(line(stepNames[i], oneLine(step.note, 'bought part')))
     }
     for (const scan of req.scans) references.push(line(`scan ${homeRelative(scan.path)}`, oneLine(scan.note, 'scan')))
     for (const other of req.objects) references.push(line(`../${other.id}/`, oneLine(other.note, 'project')))

@@ -7,6 +7,7 @@ import { type ScanInfo, importText } from '../shared/scans'
 import { groupsIn } from '../shared/groups'
 import { checkText, noteText } from '../shared/modelChecks'
 import { sourceOf, isSize, triedLine } from '../shared/params'
+import { type Profile, profileLine } from '../shared/profile'
 import type { Scene } from '../shared/scene'
 import { type SavedView, viewGone } from '../shared/views'
 import type { ObjectInfo } from '../shared/workspace'
@@ -34,7 +35,7 @@ export const STATE_DELAY_MS = 1000
  * since the successful build before and what the shape says.
  * The file itself begins with `writtenLine`, before this.
  */
-export function stateText(obj: ObjectInfo, build: BuildState | undefined, last: { revision: number; scene: Scene } | undefined, marks: readonly Mark[], scans?: readonly ScanInfo[], views?: readonly SavedView[], digest?: BuildDigest): string {
+export function stateText(obj: ObjectInfo, build: BuildState | undefined, last: { revision: number; scene: Scene } | undefined, marks: readonly Mark[], scans?: readonly ScanInfo[], views?: readonly SavedView[], digest?: BuildDigest, profile?: Profile): string {
   const lines = [
     `# ${obj.name}`,
     '',
@@ -59,7 +60,7 @@ export function stateText(obj: ObjectInfo, build: BuildState | undefined, last: 
       const parts = last.scene.parts.filter((p) => p.layout === layout)
       const groups = groupsIn(last.scene, layout)
       const grouped = groups.length > 0 ? `groups ${groups.map((g) => `${g.name} (${g.parts.join(', ')})`).join(', ')}; ` : ''
-      lines.push(`- ${layout}: ${grouped}${parts.map((p) => `${p.name} ${p.bboxExact === true ? '' : '≈ '}${sizes(p.bbox.max.map((max, i) => toHundredth(max - p.bbox.min[i])))} mm`).join(', ') || 'no parts'}`)
+      lines.push(`- ${layout}: ${grouped}${parts.map((p) => `${p.name}${p.role === 'reference' ? ' (reference)' : ''} ${p.bboxExact === true ? '' : '≈ '}${sizes(p.bbox.max.map((max, i) => toHundredth(max - p.bbox.min[i])))} mm`).join(', ') || 'no parts'}`)
     }
     // Exact only where the kernel says so.
     if (last.scene.parts.some((p) => p.bboxExact !== true)) lines.push('', 'A size with ≈ is approximate (the part has freeform or turned faces): measure it for a number to rely on.')
@@ -78,6 +79,8 @@ export function stateText(obj: ObjectInfo, build: BuildState | undefined, last: 
     lines.push('', '## Params', '', 'The model says where each size comes from (the first word of its comment); torno has not checked it.', '')
     for (const param of sized) lines.push(`- ${param.name} = ${String(param.default)}: ${sourceOf(param.doc) === 'unsaid' ? 'no source' : (param.doc ?? '').split(':')[0]?.trim()}`)
   }
+  const printed = profileLine(profile)
+  if (printed) lines.push('', '## Print profile', '', printed)
   if (views && views.length > 0) lines.push('', `Saved views: ${views.map((view) => viewSaid(view, last?.scene)).join(', ')}.`)
   if (scans && scans.length > 0) {
     lines.push('', '## Scans', '', 'A scan is a mesh of the real surroundings: nothing from it is exact.', '')
@@ -164,6 +167,8 @@ export interface StateFileDeps {
   scans?(objectId: string): Promise<ScanInfo[]>
   /** The views saved of an object: each is named. */
   views?(objectId: string): Promise<SavedView[]>
+  /** The printer and material the project is made for. */
+  profile?(objectId: string): Profile | undefined
   delayMs?: number
   write?(path: string, text: string): Promise<void>
   log?(message: string): void
@@ -215,7 +220,7 @@ export class StateFiles {
     // As things are once the marks are read: a build may have ended meanwhile.
     const build = this.deps.build(objectId)
     if (!build || this.deps.object(objectId)?.dir !== obj.dir) return
-    const text = stateText(obj, build, this.deps.scene(objectId), marks, scans, views, buildDigest({ build: this.deps.build, scenes: this.deps.scenes }, objectId))
+    const text = stateText(obj, build, this.deps.scene(objectId), marks, scans, views, buildDigest({ build: this.deps.build, scenes: this.deps.scenes }, objectId), this.deps.profile?.(objectId))
     const path = join(obj.dir, FOLDER, NAME)
     if (this.written.get(path) === text) return
     await ownTorno(obj.dir)

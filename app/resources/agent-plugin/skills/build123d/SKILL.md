@@ -22,8 +22,7 @@ Grep "Mixin3D.max_fillet"           a method, by the class that defines it
 Grep "sort_by|group_by"             what a word is used for
 ```
 
-A name that is not there is, very likely, not in 0.13.0 (`bd_warehouse`, `ocp_vscode`, `show()` are not in torno's kernel
-either). Do not start Python to look: torno builds the model, and in the usual workspace (no `.venv` of its own)
+A name that is not there is, very likely, not in 0.13.0 (`ocp_vscode` and `show()` are not in torno's kernel; `bd_warehouse` is, as a package of its own that this reference does not list). Do start Python to look: torno builds the model, and in the usual workspace (no `.venv` of its own)
 build123d is not installed where you can run it. Only where the workspace has its own `.venv` can the installed version be read,
 with `uv run --no-sync python -c "import build123d; print(build123d.__version__)"` (`--no-sync`, never `uv sync` or a
 plain `uv run` there). `${CLAUDE_SKILL_DIR}/reference/fasteners.md` has the sizes of screws, nuts and inserts.
@@ -168,6 +167,16 @@ assert abs(top.center().Z - 2.5) < 1e-9 and len(plate.faces().filter_by(Axis.Z))
 Select by position and kind, never by a face's number: torno's refs (`lid/F12`) are for talking about a model, and
 must never be written into it.
 
+## Holes and blends
+
+Before you move, resize or add to the holes of a part, call `mcp__torno__features` (`{"part": "lid", "kinds":
+["hole"]}`): it lists the holes of the last build with their diameter, axis, where each opens (a face ref), depth,
+through or blind, and a counterbore or countersink, as the B-rep has them, so you need not describe their faces one
+by one or read the numbers off the code. A diameter it gives is exact; a depth it marks `≈` is not. With `kinds`
+`["fillet", "chamfer"]` it lists the fillets (radius, outside edge or inside corner, the edges they run along) and
+chamfers (setback), so you can see the radius a fillet has before you change it, then `try_fillet` the new one; with
+`"pattern"` it says which holes lie in a row, a grid or on a circle at equal steps, and the step.
+
 To pick the face or edge a ref names, describe the ref, paste its `selector` (an expression on `part`, such as
 `part.faces().filter_by(Axis.Z).sort_by(Axis.Z)[-1]`), and look at the result. The kernel evaluated it on the last
 build and it gave exactly that shape, so it is right for this build only: `robust: "by geometry"` is made of a
@@ -229,10 +238,13 @@ not write files: it returns shapes and torno draws and exports them.
 
 ## Screws, nuts and inserts
 
-`bd_warehouse` is not in torno's kernel environment, so do not import it. The hole sizes of metric screws, their
-heads and nuts, with the standards they come from, the heat-set insert holes (assumed values: the insert's datasheet wins), and an example that makes a hole with a head pocket and
-a nut pocket from `Params`, are in `${CLAUDE_SKILL_DIR}/reference/fasteners.md`. Keep each size a field of
-`Params` with its source in a comment, or "assumed" where it has none.
+`bd_warehouse` is in torno's kernel environment in any workspace: `from bd_warehouse.fastener import SocketHeadCapScrew,
+ClearanceHole, InsertHole`, `from bd_warehouse.bearing import SingleRowDeepGrooveBallBearing`. Use it for a standard
+part rather than computing a head or a tap diameter by hand, with `simple=True` for a screw, and put the fastener
+or bearing itself among `references(p)` (a bought part: see the `torno-model` skill), not among the parts. The
+hole sizes of metric screws, their heads and nuts, with the standards they come from, the heat-set insert holes
+(assumed values: the insert's datasheet wins), and examples are in `${CLAUDE_SKILL_DIR}/reference/fasteners.md`. Keep
+each size a field of `Params` with its source in a comment, or "assumed" where it has none.
 
 ## Text and threads
 

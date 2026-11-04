@@ -2,6 +2,7 @@ import { pressed, which } from '../shared/keys'
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
 import { EXAMPLE_NOTE, type WorkspaceInfo } from '../shared/workspace'
 import { connectLook } from './state/agent'
+import { connectAsks } from './state/asks'
 import { actions, sceneFileOf, store, useStore } from './state/store'
 import { BuildStatus } from './ui/BuildStatus'
 import { closingWhy, isExporting, leavingWhy, unkept, type Reason } from './closing'
@@ -11,6 +12,7 @@ import { WorkspaceQuestion } from './ui/WorkspaceQuestion'
 import { openProblem } from './ui/openFolder'
 import { Layers } from './ui/Layers'
 import { ChecksPanel } from './ui/ChecksPanel'
+import { PrintProfile } from './ui/PrintProfile'
 import { ParamsPanel } from './ui/ParamsPanel'
 import { MarksPanel } from './ui/MarksPanel'
 import { ColumnSplit } from './ui/ColumnSplit'
@@ -179,6 +181,8 @@ function useMain(): void {
     const offScansProblem = window.torno.scans.onProblem(actions.setScansProblem)
     // Whatever the window shows, even nothing: a picture asked for is answered, or said at once to be none.
     const offLook = connectLook()
+    // What the agent asked the person to choose (`ask`).
+    const offAsks = connectAsks()
 
     // Layer and layout changes are written to <object>/.torno/scene.json, once they stop coming.
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -210,6 +214,7 @@ function useMain(): void {
     return () => {
       live = false
       offBuild()
+      offAsks()
       offMarks()
       offMarksProblem()
       offScans()
@@ -469,6 +474,7 @@ export function App() {
         {page === 'object' && <Layers />}
         {page === 'object' && <ParamsPanel />}
         {page === 'object' && <ChecksPanel />}
+        {page === 'object' && <PrintProfile />}
         {page === 'object' && <ScansPanel />}
         {/* The line that gives the marks more room than their share, from the sections above. */}
         {page === 'object' && <ColumnSplit />}
