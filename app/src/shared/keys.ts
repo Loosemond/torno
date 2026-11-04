@@ -18,12 +18,12 @@ export type KeyContext = 'Everywhere' | 'Viewport' | 'With a tool in hand' | 'Wi
  * - `measure`, `section`, `align`, `region`: with that tool in hand, which then has the key before the viewport.
  * - `shape`: while a shape of the person's is the active mark.
  * - `page`: on the page of objects; `filter`: in its field. `newobject`: on the page of a new object.
- * - `session`: in the terminal. `composer`: in the box a chat prompt is written in. `picture`: while a picture of the
+ * - `session`: in the terminal. `composer`: in the box a chat prompt is written in. `ask`: on a card of the chat that asks the person. `picture`: while a picture of the
  *   chat is shown large. `separator`: on the edge of the session pane, or the line above the marks.
  * - `field`, `menu`, `sheet`: in a field, an open menu, a sheet or a question.
  * - `dev`: under the dev server only.
  */
-export type KeyScope = 'global' | 'window' | 'viewport' | 'measure' | 'section' | 'align' | 'region' | 'shape' | 'page' | 'filter' | 'newobject' | 'session' | 'composer' | 'picture' | 'separator' | 'field' | 'menu' | 'sheet' | 'dev'
+export type KeyScope = 'global' | 'window' | 'viewport' | 'measure' | 'section' | 'align' | 'region' | 'shape' | 'page' | 'filter' | 'newobject' | 'session' | 'composer' | 'ask' | 'picture' | 'separator' | 'field' | 'menu' | 'sheet' | 'dev'
 
 /**
  * The palette's tools, in the order of their groups (`TOOL_GROUPS` in `renderer/state/tools.ts`): those that inspect
@@ -158,6 +158,8 @@ const ROWS = [
   row('chat.newline', ['Shift+Enter'], 'Chat: a new line in the prompt, not a send', 'Session', 'composer'),
   row('chat.command', ['Up', 'Down'], 'Chat: choose among the / commands offered while one is typed', 'Session', 'composer'),
   row('chat.complete', ['Tab'], 'Chat: complete the / command chosen', 'Session', 'composer'),
+  row('chat.stop', ['Ctrl+C'], 'Chat: stop the turn while Claude Code works, with nothing selected in the box', 'Session', 'composer'),
+  row('chat.allow', ['Enter'], 'Chat: allow what the card in focus asks (in its reason field, Enter denies)', 'Session', 'ask'),
   row('chat.close', ['Esc'], 'Chat: put away a picture shown large', 'Session', 'picture'),
   row('dock.resize', ['Left', 'Right'], 'On the edge of the session pane: wider or narrower', 'Session', 'separator'),
 

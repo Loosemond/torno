@@ -38,7 +38,9 @@ import { readChoice, writeChoice } from './sessions/choice'
 import { drawingOf } from './sessions/drawing'
 import type { Sessions } from './sessions/manager'
 import type { KnownModels } from './sessions/models'
+import { lastConversation } from './sessions/chatlog'
 import { readReference } from './sessions/reference'
+import { storedConversation } from './sessions/resume'
 import { sessionOfWorkspace } from './sessions/status'
 import { type KeepDeps, cardsOf, keepThumbnail, newestPython, thumbnailOnFile } from './show/cards'
 import { onboardObject, previewPrompt, sessionRunning } from './onboard'
@@ -62,7 +64,7 @@ function handle(channel: string, fn: (event: Electron.IpcMainInvokeEvent, ...arg
 //           workspace:recent, workspace:forget, workspace:hasExample, workspace:openExample,
 //           object:open, object:rebuild, object:sceneFile,
 //           session:current, session:start, session:trust, session:instructions, session:revealInstruction, session:stop, session:chooseView,
-//           chat:history, chat:reference, chat:send, chat:interrupt, chat:setModel, chat:setEffort, chat:models,
+//           chat:history, chat:lastConversation, chat:reference, chat:send, chat:interrupt, chat:setModel, chat:setEffort, chat:models,
 //           marks:list, marks:add, marks:update, marks:acknowledge, marks:remove, marks:restore, marks:replace, marks:problem (also sent to the renderer),
 //           marks:dismissProblem, geometry:describe, geometry:measure,
 //           scans:list, scans:pick, scans:import, scans:convert, scans:rename, scans:remove, scans:align, scans:mesh,
@@ -667,6 +669,13 @@ export function registerIpc(
     const history = sessions && sessionOfWorkspace(sessions.chatOf(String(sessionId)), current?.info.root) ? sessions.history(String(sessionId)) : undefined
     if (!history) throw new Error('There is no such conversation')
     return history
+  })
+
+  // What the pane with no session shows of the conversation it would go on with: read from `.torno/chat/`, nothing made.
+  handle('chat:lastConversation', async (_event, objectId: string) => {
+    const obj = findObject(String(objectId))
+    const stored = obj ? storedConversation(obj.dir) : null
+    return obj && stored !== null ? lastConversation(obj.dir, stored) : null
   })
 
   handle('chat:reference', async (_event, sessionId: string, file: string) => {

@@ -21,7 +21,9 @@ const toolName = (name: string): string => (name.startsWith(TORNO_TOOL_PREFIX) ?
 /** How long a card waits for main to take its answer before it lets the person answer again. */
 const ANSWER_WAIT_MS = 10_000
 
-function useAnswer(item: Ask): { answering: boolean; answer: (a: ChatAnswer) => void } {
+type Answering = { answering: boolean; answer: (a: ChatAnswer) => void }
+
+function useAnswer(item: Ask): Answering {
   const session = useContext(AskSession)
   const [answering, setAnswering] = useState(false)
   // Main ends the ask with the answer; should nothing change within moments, the buttons are the person's again.
@@ -43,14 +45,14 @@ function useAnswer(item: Ask): { answering: boolean; answer: (a: ChatAnswer) => 
 /** The requests that have had the focus once: a pane drawn again (another object shown and back) does not take it again. */
 const focused = new Set<string>()
 
-/** The reason for a refusal, typed on the card; Enter refuses with it, Escape gives the keys back. */
+/** What to do instead, typed on the card as the reason for a refusal; Enter refuses with it, Escape gives the keys back. */
 function Reason({ value, onChange, onKeep }: { value: string; onChange: (v: string) => void; onKeep: () => void }) {
   return (
     <input
       type="text"
       className="chat-ask-reason"
-      aria-label="Reason (optional)"
-      placeholder="Reason (optional)"
+      aria-label="Tell Claude Code what to do instead (optional)"
+      placeholder="Tell Claude Code what to do instead (optional)"
       value={value}
       onChange={(e) => onChange(e.target.value)}
       onKeyDown={(e) => {
@@ -81,8 +83,7 @@ function Outcome({ item, said }: { item: Ask; said: Record<'allowed' | 'denied',
   )
 }
 
-function Permission({ item }: { item: Ask }) {
-  const { answering, answer } = useAnswer(item)
+function Permission({ item, answering, answer }: { item: Ask } & Answering) {
   const [reason, setReason] = useState('')
   const open = item.state === 'open'
   const [all, setAll] = useState(false)
@@ -134,8 +135,7 @@ function Permission({ item }: { item: Ask }) {
   )
 }
 
-function Plan({ item }: { item: Ask }) {
-  const { answering, answer } = useAnswer(item)
+function Plan({ item, answering, answer }: { item: Ask } & Answering) {
   const [reason, setReason] = useState('')
   const open = item.state === 'open'
   const plan = typeof (item.input as { plan?: unknown } | null)?.plan === 'string' ? (item.input as { plan: string }).plan : ''
@@ -186,8 +186,7 @@ function QuestionView({ question, picked, other, onPick, onOther, disabled }: { 
   )
 }
 
-function Questions({ item }: { item: Ask }) {
-  const { answering, answer } = useAnswer(item)
+function Questions({ item, answering, answer }: { item: Ask } & Answering) {
   const questions = questionsOf(item.input)
   const [picks, setPicks] = useState<string[][]>(() => questions.map(() => []))
   const [others, setOthers] = useState<string[]>(() => questions.map(() => ''))
@@ -262,6 +261,7 @@ function Questions({ item }: { item: Ask }) {
  */
 export const AskCard = memo(function AskCard({ item }: { item: Ask }) {
   const card = useRef<HTMLElement>(null)
+  const { answering, answer } = useAnswer(item)
   useEffect(() => {
     if (item.state !== 'open' || focused.has(item.requestId)) return
     focused.add(item.requestId)
@@ -272,8 +272,18 @@ export const AskCard = memo(function AskCard({ item }: { item: Ask }) {
     // Once, when it appears.
   }, [])
   return (
-    <section ref={card} className="chat-item chat-ask" data-kind="ask" data-state={item.state} data-tool={item.toolName} tabIndex={-1} aria-label="Request from Claude Code">
-      {item.toolName === 'AskUserQuestion' ? <Questions item={item} /> : item.toolName === 'ExitPlanMode' ? <Plan item={item} /> : <Permission item={item} />}
+    <section ref={card} className="chat-item chat-ask" data-kind="ask" data-state={item.state} data-tool={item.toolName} tabIndex={-1}
+      aria-label="Request from Claude Code"
+      onKeyDown={(e) => {
+        // The card itself in focus, not a button or a field in it: those keep their own Enter. Questions are chosen, not allowed.
+        if (e.target !== e.currentTarget || e.nativeEvent.isComposing || item.state !== 'open' || item.toolName === 'AskUserQuestion' || answering) return
+        if (pressed(e, 'chat.allow')) {
+          e.preventDefault()
+          answer({ allow: true })
+        }
+      }}
+    >
+      {item.toolName === 'AskUserQuestion' ? <Questions item={item} answering={answering} answer={answer} /> : item.toolName === 'ExitPlanMode' ? <Plan item={item} answering={answering} answer={answer} /> : <Permission item={item} answering={answering} answer={answer} />}
     </section>
   )
 })

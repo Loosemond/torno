@@ -999,7 +999,9 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `readReference`) gives the window the bytes of such a file again, for a session of the open workspace (one ended
   too): only a name of the form `create.ts` gives (`REFERENCE_FILE`), only a plain file read with `readRegular` of
   `create.ts` (no link, `reference` itself no link), at most `MAX_PHOTO`; anything else is null, never an error. A resumed chat
-  reads the tail of the file as "Earlier in this conversation". A log over 5 MB is cut to its last 2,000 lines, whole
+  reads the tail of the file as "Earlier in this conversation". The pane with no session shows the end of the conversation on file the same
+  way, read-only (`chat:lastConversation`, `lastConversation` of `chatlog.ts`: the last eight `user`, `text` and `turn` items and the
+  log's modification time; it only reads, and the object must be of the open workspace). A log over 5 MB is cut to its last 2,000 lines, whole
   and atomically, when a session starts on it (`trimLog`). Switching `view` ends the session and resumes the
   conversation in the other kind (`session.json` is the same).
 - The first prompt of a new conversation (`newConversation`: a session not resumed, its first `UserPromptSubmit`;

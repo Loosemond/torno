@@ -632,6 +632,16 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   New session or Resume, no view switch, no held prompt, and `DraftPane` in the body; `.session-term` stays laid out.
   A live session (any status but `exited`) of the object that was open stays as it is, with the note
   `.session-aside` above it ("This is the session of …"); an ended one counts as none.
+- **The pane with no session, in the chat view** (`ui/chat/StartChat.tsx`, in `SessionPane` when `choice.view` is `chat`)
+  has the box at its foot (`data-start-composer`, not `data-chat-composer`: that is the live chat's): Enter starts a
+  session and sends the prompt to it (`startWith`, the prompt held in `pending` until the session exists, so that the
+  trust question keeps it; a failed send puts it in the new chat's box, and a terminal view types it at the prompt,
+  `fixRequest`, never sent). With a conversation on file (`resumable`) it shows the end of that conversation read-only
+  under "Last conversation, 2 days ago" (`chat.lastConversation`: main reads `.torno/chat/`, the words and the turns of
+  the last eight items, no tools, writes nothing; `ago.ts`), and "Continue" (resume, the default) / "New conversation"
+  beside "Send". "New session" and "Resume" stay as plain buttons: they start with no prompt, and what was written
+  waits unsent in the new chat's box (`holdDraft`). A terminal view keeps the old empty state. No "Attach view" or
+  "Draw on view" here: a drawing is of a session.
 - The session header names Claude Code, the one agent there is; under it, "Chat · Terminal" chooses the view.
   When `.torno/agent.json` could not be followed (`note` of `session:current`) the pane says why, with "Use
   Claude Code", which writes the file anew and is disabled while a session runs.
@@ -694,11 +704,23 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   options are set in the monospace face like the rest.
 - Keys of the chat are rows of `shared/keys.ts` in the scopes `composer` and `picture`: `chat.send` Enter,
   `chat.newline` Shift+Enter, `chat.command` Up/Down and `chat.complete` Tab (while `/` commands are offered),
-  `chat.close` Esc (a picture shown large; the focus returns to its thumbnail). Escape in the box gives the keys
+  `chat.close` Esc (a picture shown large; the focus returns to its thumbnail), `chat.stop` Ctrl+C (composer, only while the session
+  works and nothing in the box is selected: with a selection it is a copy) and `chat.allow` Enter (scope `ask`: on the card itself
+  in focus, not its buttons or its field, where Enter refuses; not on a question). While a permission or a plan is open
+  (`openAsk` in `Composer`) the box's placeholder is "Answer the card above, or say what to do instead", its primary button
+  is "Deny and send" (`chat.answer` with `allow: false` and the text as the message; Enter in the box does the same) and "Queue"
+  is the secondary; a question (`AskUserQuestion`) changes nothing in the box. Escape in the box gives the keys
   back, except while the list of `/` commands is open: it closes the list. A card takes focus once per request, and
   only when the composer is empty and not focused. An unsent prompt in a chat that is not over is among what closing
   the window asks about (`closingWhy`'s `unsent`). "Attach view" is sent in order: main waits for the picture
   before taking the next prompt, so one sent meanwhile cannot overtake it.
+- **Suggestions** (`ui/chat/Suggestions.tsx`, the rule pure in `ui/chat/suggest.ts`): while the box is empty and the
+  session live, at most three chips above it (`MOST_SUGGESTIONS`), in this order and each only when it applies: "Fix the
+  build" (`fixPrompt`, the build failed), "Review N marks" (marks not resolved; `/mcp__torno__review `), "Check
+  printability" (the layouts have `print` and the conversation, `earlier` too, holds no `check` of kind thin, overhang,
+  mesh or bed and no `/mcp__torno__printable` prompt), "Explain this model" (no prompt of the person yet). The three
+  commands are not offered when `meta.tornoConnected` is false. A chip fills the box, cursor after, keys the box's, and
+  never sends. The build error sheet's "Ask Claude Code to fix it" already does the same with `fixPrompt`.
 - **The instruction files Claude Code reads** are one quiet line under the view's row in `SessionPane`
   (`.session-reads`, `role="note"`, shown for both views and with no session, not while a new object is being made;
   `session.instructions`, asked again when a session starts): "Claude Code also reads, by default" and, for each file, its name

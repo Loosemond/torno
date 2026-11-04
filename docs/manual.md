@@ -218,8 +218,8 @@ that was not shown; step 7 with a stand-in for the agent.
    the arrow on the plane, or use the arrow keys, to move it. "Off" in the bar
    takes the cut away, and `Esc` puts the tool down.
 
-7. In the pane on the right, press "New session". With Claude Code, type
-   "what did I mark?" and press Enter: your two marks go with the prompt, as
+7. In the pane on the right, write "what did I mark?" in the box and press Enter
+   (it starts a session and sends the prompt; "New session" starts one without): your two marks go with the prompt, as
    text: the face, the point, your note, the measured value and whether it
    passes. From then on they show as sent. The agent can ask torno for a
    picture (`look`), a measurement (`measure`) and a cut (`section`), and it
@@ -479,7 +479,12 @@ posts no system notification. "New session"
 starts one, in place of the session running there, if any; torno asks first if
 that one is in the middle of its work. "End" ends the session and starts
 none, asking first in the same way. "Resume" continues the last
-conversation Claude Code had there. ``Ctrl+` `` moves between the session and
+conversation Claude Code had there. In the chat view the empty pane has the box already: write, press
+`Enter`, and a session starts with your prompt. Where a conversation is on file its last turns are shown above the box,
+under "Last conversation, 2 days ago", with "Continue" (the default) and "New conversation" beside "Send"; the
+buttons "New session" and "Resume" start one with no prompt and leave what you wrote in its box, unsent. If
+the folder has Claude Code settings of its own, the question is asked first and your prompt waits in the box. The empty
+pane has no "Attach view" or "Draw on view": those are of a session. ``Ctrl+` `` moves between the session and
 the viewport. In a terminal `Shift+Enter` is a new line, `Ctrl+Shift+C` and
 `Ctrl+Shift+V` copy and paste.
 
@@ -489,8 +494,17 @@ The chat is your own `claude`, under your own login, started in its headless
 mode (JSON on pipes instead of a screen). Torno draws what it says and does;
 nothing of Claude Code's settings is read or changed (torno lists the paths and sizes of the instruction files Claude Code reads, never their text). `Enter` sends, `Shift+Enter`
 is a new line, and a prompt sent while the agent is at work waits its turn
-("Queued"; "Stop" interrupts the turn, and what was queued still runs after it).
+("Queued"; "Stop" interrupts the turn, and what was queued still runs after it; `Ctrl+C` does the same in the box when nothing is selected there).
 
+- **Suggestions.** While the box is empty, up to three quiet chips above it offer
+  the next useful prompt, each only when it applies: "Fix the build" while the
+  build has failed, "Review N marks" while marks are open (`/mcp__torno__review`),
+  "Check printability" for a model with a `print` layout that no turn has checked
+  (`/mcp__torno__printable`, for which you may add your bed after it), and "Explain
+  this model" in a conversation not yet begun (`/mcp__torno__explain`). A chip puts
+  its words in the box and gives it the keys; nothing is sent until you press
+  `Enter`. The prompts of torno are not offered when Claude Code says torno's
+  tools are not connected.
 - **What torno added.** Under each prompt, a "torno added" line shows what went
   with it: the marks sent, as chips in their colours, the build (`r12 ok`, or
   `build after r12 failed`), and the selection; "Show text" opens the exact text the agent was given. Above the
@@ -522,7 +536,9 @@ no mark `M3`, a build `r9` that has not been made, a part the build does not hav
 - **When it asks.** A permission is a card in the conversation: "Allow",
   "Allow for this session" (offered when Claude Code suggests a rule; the rule
   holds for this session only and is never written to any settings file) and
-  "Deny", with a reason if you give one. A change to a file (`Edit`, `MultiEdit`)
+  "Deny", with what to do instead if you give it. While a permission or a plan waits, what you
+  write in the box is the answer: "Deny and send" (or `Enter` in the box) refuses with it, and
+  "Queue" leaves the card as it is. `Enter` on the card itself allows it. A change to a file (`Edit`, `MultiEdit`)
   is shown as lines removed (struck through, with a "−") and lines added (with a
   "+"), the first six of them and "Show all"; the same lines are in its tool card
   when you open it. They are the lines of the edit, not of the file: where in the
@@ -1461,6 +1477,8 @@ until the camera is first moved; the window remembers that in its own storage, n
 | Session | `Shift+Enter` | Chat: a new line in the prompt, not a send |
 | Session | `Up` `Down` | Chat: choose among the / commands offered while one is typed |
 | Session | `Tab` | Chat: complete the / command chosen |
+| Session | `Ctrl+C` | Chat: stop the turn while Claude Code works, with nothing selected in the box |
+| Session | `Enter` | Chat: allow what the card in focus asks (in its reason field, Enter denies) |
 | Session | `Esc` | Chat: put away a picture shown large |
 | Session | `Left` `Right` | On the edge of the session pane: wider or narrower |
 | In a field, a menu or a sheet | `Enter` | Field: keep what was typed |
