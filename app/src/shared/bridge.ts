@@ -43,6 +43,22 @@ export interface OnboardDraft {
   choice?: AgentChoice
 }
 
+/** A draft as `objects.previewPrompt` takes it: what the prompt says of it, and no picture data (`picture`: the window holds one fit to attach). */
+export interface PromptPreviewDraft {
+  description: string
+  items: Array<{ file: string; note: string; picture: boolean }>
+  scans: Array<{ path: string; note: string }>
+  objects: Array<{ id: string; note: string }>
+}
+
+/** The first prompt of a draft as it would be sent. `attached[i]` is the number of the picture of `items[i]` in it, none when it is named only; `pictured` the same for the objects listed in `objects` (those of the draft that exist). */
+export interface PromptPreview {
+  text: string
+  attached: Array<number | null>
+  pictured: Array<number | null>
+  objects: string[]
+}
+
 /** What came of `objects.onboard`. The object is made and open whatever it says. */
 export interface Onboarded {
   /** The chat session started in the object; null when it could not be (then `problem` says why). */
@@ -149,6 +165,8 @@ export interface TornoBridge {
      * cannot be started is not a rejection: `sessionId` is null and the prompt comes back to be held.
      */
     onboard(objectId: string, draft: OnboardDraft): Promise<Onboarded>
+    /** The first prompt `onboard` would send for this draft, with the project named `name`; writes and starts nothing. */
+    previewPrompt(name: string, draft: PromptPreviewDraft): Promise<PromptPreview>
     /** Every name in the open workspace's folder (folders and files, hidden ones too), for the page to check a new name against as main does. */
     taken(): Promise<string[]>
   }

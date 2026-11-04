@@ -524,7 +524,7 @@
   font-weight: 600;
 }
 
-.draft-pane ul {
+.draft-pane ul:not(.draft-pane-pictures) {
   display: grid;
   gap: var(--space-1);
   margin: 0;
@@ -543,4 +543,45 @@
   color: var(--muted);
   font-size: var(--text-small);
   text-wrap: pretty;
+}
+
+/* The first prompt, read back (#84): the session pane while a new project is made. */
+.draft-pane {
+  align-content: start;
+  overflow-y: auto;
+}
+.draft-pane .draft-pane-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: var(--text-small);
+  line-height: 1.5;
+}
+.draft-pane .draft-pane-mine {
+  color: var(--ink);
+}
+.draft-pane-pictures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.draft-pane-pictures li {
+  display: grid;
+  gap: var(--space-1);
+  width: 96px;
+  font-size: var(--text-small);
+}
+.draft-pane-pictures img {
+  width: 96px;
+  height: 64px;
+  object-fit: cover;
+  border: 1px solid var(--hairline);
+  border-radius: 4px;
+}
+.draft-pane-state,
+.draft-pane-foot {
+  color: var(--muted);
 }

@@ -33,7 +33,7 @@ import { frameOf } from './scans/alignments'
 import type { ScanStore } from './scans/store'
 import { forgetSceneFiles, loadSceneFile, saveSceneFile, sceneFileNow } from './scenefile'
 import { EFFORTS, isEffort, MODEL_ALIASES, MODEL_NAME, type ChatAnswer } from '../shared/chat'
-import type { AgentView, CreateRequest, OnboardDraft } from '../shared/bridge'
+import type { AgentView, CreateRequest, OnboardDraft, PromptPreviewDraft } from '../shared/bridge'
 import { readChoice, writeChoice } from './sessions/choice'
 import { drawingOf } from './sessions/drawing'
 import type { Sessions } from './sessions/manager'
@@ -41,7 +41,7 @@ import type { KnownModels } from './sessions/models'
 import { readReference } from './sessions/reference'
 import { sessionOfWorkspace } from './sessions/status'
 import { type KeepDeps, cardsOf, keepThumbnail, newestPython, thumbnailOnFile } from './show/cards'
-import { onboardObject, sessionRunning } from './onboard'
+import { onboardObject, previewPrompt, sessionRunning } from './onboard'
 import { createObject, readPhoto, sweepStaleNew } from './objects/create'
 import { Offered } from './objects/offered'
 import { scanOrder, scanWorkspace } from './workspace'
@@ -67,7 +67,7 @@ function handle(channel: string, fn: (event: Electron.IpcMainInvokeEvent, ...arg
 //           marks:dismissProblem, geometry:describe, geometry:measure,
 //           scans:list, scans:pick, scans:import, scans:convert, scans:rename, scans:remove, scans:align, scans:mesh,
 //           scans:problem (also sent to the renderer), scans:dismissProblem, scans:reimport, scans:undoAlign, scans:alignHolds,
-//           objects:pickPhotos, objects:readPhoto, objects:create, objects:onboard, objects:taken, show:cards, show:thumbnail, export:plan, export:save
+//           objects:pickPhotos, objects:readPhoto, objects:create, objects:onboard, objects:previewPrompt, objects:taken, show:cards, show:thumbnail, export:plan, export:save
 //   from the renderer: export:done, show:saveThumbnail, object:saveSceneFile, view:report, view:lookReply, view:showReply, view:highlightReply,
 //           view:drawSectionReply, view:saveViewReply, session:write, session:resize, session:insert,
 //           chat:answer
@@ -826,6 +826,12 @@ export function registerIpc(
       String(objectId),
       draft
     )
+  })
+  // The first prompt of a draft as `objects:onboard` would send it. Nothing is written, imported or started.
+  handle('objects:previewPrompt', (_event, name: string, draft: PromptPreviewDraft) => {
+    const ws = current
+    if (!ws) throw new Error('No workspace is open.')
+    return previewPrompt({ object: (id) => ws.info.objects.find((o) => o.id === id), scene: (id) => ws.builds.scene(id)?.scene }, name, draft)
   })
   handle('scans:import', (_event, objectId: string, path: string) => requireScans().import(String(objectId), path))
   // Read again, a scan may be another mesh: what the last build makes of its alignments is asked anew.

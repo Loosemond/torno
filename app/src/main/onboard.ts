@@ -1,10 +1,10 @@
 import { constants } from 'node:fs'
 import { lstat, open } from 'node:fs/promises'
 import { basename, extname, isAbsolute, join } from 'node:path'
-import type { OnboardDraft, Onboarded } from '../shared/bridge'
+import type { OnboardDraft, Onboarded, PromptPreview, PromptPreviewDraft } from '../shared/bridge'
 import { type AgentChoice, agentChoiceOf } from '../shared/chat'
 import { number } from '../shared/format'
-import { moduleName } from '../shared/objectName'
+import { MOST_IMAGES, moduleName } from '../shared/objectName'
 import type { Scene } from '../shared/scene'
 import { SCAN_FORMATS } from '../shared/scans'
 import type { ObjectInfo } from '../shared/workspace'
@@ -22,7 +22,7 @@ export { type ImageBytes, MAX_EDGE, MAX_IMAGE_BYTES, checkedImage } from './imag
 // person gave. What the window sends is checked again here, and a picture that is not what it says is left out.
 
 /** The most pictures one prompt carries: photos and doodles first, then the pictures of the objects referred to. */
-export const MOST_IMAGES = 6
+export { MOST_IMAGES }
 const MOST_PARTS_NAMED = 8
 const MAX_DESCRIPTION = 20_000
 const REFERENCE_FILE = /^reference\/(photo|doodle)-[1-9][0-9]*\.(png|jpg|jpeg|webp)$/
@@ -84,7 +84,7 @@ const CLAUDE_TOOL = (tool: string): string => `mcp__torno__${tool}`
  * the same text for a prompt that is not sent with its pictures (the composer holds it): each picture is named by
  * its file and says it is not attached, and a referred object's picture by the file it is in.
  */
-export function onboardPrompt(input: PromptInput, toolName: (tool: string) => string = CLAUDE_TOOL): { text: string; held: string; blocks: PromptBlock[] } {
+export function onboardPrompt(input: PromptInput, toolName: (tool: string) => string = CLAUDE_TOOL): { text: string; held: string; blocks: PromptBlock[]; attached: Array<number | null>; pictured: Array<number | null> } {
   const images: Array<{ image: ImageBytes; caption: (n: number) => string }> = []
   const said = (note: string): string => oneLine(note, 'note')
   /** The number of the picture when it fits in the prompt (it is attached then), else none. */
@@ -132,8 +132,42 @@ export function onboardPrompt(input: PromptInput, toolName: (tool: string) => st
     ].join('\n')
   }
   const text = compose(false)
-  return { text, held: compose(true), blocks: [{ type: 'text', text }, ...images.flatMap((p, i): PromptBlock[] => [{ type: 'text', text: p.caption(i + 1) }, imageBlock(p.image)])] }
+  return { text, held: compose(true), blocks: [{ type: 'text', text }, ...images.flatMap((p, i): PromptBlock[] => [{ type: 'text', text: p.caption(i + 1) }, imageBlock(p.image)])], attached, pictured }
 }
+
+/** A stand-in for a picture the window holds and says is fit to attach: the preview shows which are attached, and carries none. */
+const STAND_IN: ImageBytes = { bytes: new Uint8Array(0), mediaType: 'image/png', width: 1, height: 1 }
+
+/**
+ * The first prompt of the draft being made, as `onboardPrompt` writes it for `objects.onboard`, with nothing done:
+ * no scan imported (they are numbered S1, S2, ... as the import will), no file read but the thumbnails of the objects
+ * referred to, no session. `attached` says which picture of the prompt each item and each object has, or none.
+ */
+export async function previewPrompt(deps: Pick<OnboardDeps, 'object' | 'scene'>, name: string, draft: PromptPreviewDraft): Promise<PromptPreview> {
+  if (typeof name !== 'string' || typeof draft !== 'object' || draft === null) throw new Error('No draft to preview.')
+  if (typeof draft.description !== 'string' || draft.description.length > MAX_DESCRIPTION) throw new Error('The description is not text of at most 20,000 characters.')
+  for (const kind of ['items', 'scans', 'objects'] as const) {
+    if (!Array.isArray(draft[kind]) || draft[kind].length > MOST_PREVIEW) throw new Error(`The ${kind} are not a short list.`)
+  }
+  const text = (v: unknown): string => (typeof v === 'string' ? v.slice(0, 2000) : '')
+  const objects: PromptInput['objects'] = []
+  for (const other of draft.objects) {
+    const found = typeof other?.id === 'string' ? deps.object(other.id) : undefined
+    if (!found) continue
+    const thumb = await readThumb(found.dir)
+    objects.push({ name: found.id, summary: objectSummary(deps.scene(found.id)), note: text(other.note), ...(thumb ? { thumb } : {}) })
+  }
+  const built = onboardPrompt({
+    name: name.trim() === '' ? 'new-project' : name.trim(),
+    description: draft.description,
+    items: draft.items.map((item) => ({ file: text(item?.file), note: text(item?.note), ...(item?.picture === true ? { image: STAND_IN } : {}) })),
+    scans: draft.scans.map((scan, i) => ({ id: `S${i + 1}`, file: basename(text(scan?.path)), note: text(scan?.note) })),
+    objects
+  })
+  return { text: built.text, attached: built.attached, pictured: built.pictured, objects: objects.map((o) => o.name) }
+}
+
+const MOST_PREVIEW = 40
 
 export interface OnboardDeps {
   /** An object of the open workspace. */

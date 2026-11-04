@@ -415,8 +415,9 @@ and Discard do nothing.
 While the page is up the window is about the project being made: no project of the list is selected (folded, the
 list reads "New project"), the Marks
 section gives way, and the status line says "New project" with the build123d version alone. The session pane says
-what Claude Code will start with once you create the project (the name, whether you said what it is, and how many
-photos, doodles, scans and projects you gave), filled in as you go. A session of the project that was open that is
+the first prompt Claude Code will get once you create the project, as it will be sent and read-only, filled in as you go:
+your own words in ink and what torno adds in grey, and under it a thumbnail of each photo and doodle, with "attached"
+or "named only" (only the first 6 pictures go with the prompt). Change the words on the left; the prompt follows. A session of the project that was open that is
 still running stays as it is, a question waiting in it included, under a note saying whose it is: it goes on, and
 the new project gets its own. Cancel or `Esc` brings everything back as it was.
 

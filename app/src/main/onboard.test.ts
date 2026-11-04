@@ -6,7 +6,7 @@ import type { OnboardDraft } from '../shared/bridge'
 import type { Scene } from '../shared/scene'
 import type { ObjectInfo } from '../shared/workspace'
 import { TOOLS } from './mcp/schemas'
-import { type ImageBytes, MOST_IMAGES, checkedImage, objectSummary, onboardObject, onboardPrompt, readThumb, sessionRunning } from './onboard'
+import { type ImageBytes, MOST_IMAGES, checkedImage, objectSummary, onboardObject, onboardPrompt, previewPrompt, readThumb, sessionRunning } from './onboard'
 
 /** A PNG with the header of a picture w x h (and not a picture after it). */
 function png(w: number, h: number): Uint8Array {
@@ -275,6 +275,27 @@ describe('onboardObject', () => {
     sent = []
   })
   afterEach(() => rmSync(base, { recursive: true, force: true }))
+
+  it('previews the very text it sends, writing and starting nothing (#84)', async () => {
+    mkdirSync(join(base, 'lid', '.torno'))
+    writeFileSync(join(base, 'lid', '.torno', 'thumb.png'), png(480, 360))
+    const d = draft({
+      items: [{ file: 'reference/photo-1.jpg', note: 'desk', image: jpeg(1280, 960) }, { file: 'reference/doodle-1.png', note: 'shape', image: png(1200, 800) }],
+      scans: [{ path: '/s/desk.stl', note: 'the edge' }],
+      objects: [{ id: 'lid', note: 'mounts on this' }, { id: 'nope', note: '' }]
+    })
+    const shown = await previewPrompt(deps(), 'cable-clip', {
+      description: d.description,
+      items: d.items.map((i) => ({ file: i.file, note: i.note, picture: true })),
+      scans: d.scans,
+      objects: d.objects
+    })
+    expect(calls).toEqual([])
+    expect(shown.attached).toEqual([1, 2])
+    expect(shown.pictured).toEqual([3])
+    await onboardObject(deps(), 'cable-clip', { ...d, objects: [{ id: 'lid', note: 'mounts on this' }] })
+    expect(shown.text).toBe(sent[0].blocks[0].text)
+  })
 
   it('imports the scans, then starts the session, then sends one prompt with everything', async () => {
     mkdirSync(join(base, 'lid', '.torno'))

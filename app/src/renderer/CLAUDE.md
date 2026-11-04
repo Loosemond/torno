@@ -478,8 +478,10 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 - `ui/onboard/NewObject.tsx` is a page in place of the viewport (`store.page`: `'new'`; the view is `covered` and
   inert under it as under the page of objects, and the layers, parameters, scans and marks are hidden). No row of the list is
   current (the "New project" button is pressed; folded, the switcher reads "New project", pressed), and the status line is "New project" and the build123d version alone:
-  no Rebuild, revision, parts or Export. The session pane shows `ui/onboard/DraftPane.tsx` (from `draftSummary`):
-  what Claude Code will start with, live; unless the open object's session is live, which stays whole (see Agents).
+  no Rebuild, revision, parts or Export. The session pane shows `ui/onboard/DraftPane.tsx` (#84):
+  the first prompt Claude Code will get, read-only, as main writes it (`objects.previewPrompt`, asked again 300 ms after a
+  change; the one `onboardPrompt` that `objects.onboard` sends), the person's own words in ink and torno's in the muted face,
+  and a thumbnail of each photo and doodle with "attached" or "named only"; unless the open object's session is live, which stays whole (see Agents).
   All of it reads `store.page`, and nothing under the page changes, so leaving it brings everything back as it was.
   The page is opened from "New project" at the foot of the list, in the head of the page of objects and in its empty
   state (`openNewObject`). It takes the focus (the name field) when it comes and gives it back to where it was when it goes. Leaving the workspace
