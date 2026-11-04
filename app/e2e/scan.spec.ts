@@ -211,6 +211,8 @@ test('a unit that was assumed wrongly is changed on the row, without the source'
   await expect.poll(async () => (await state()).scans[0].imported.assumed).toEqual({ unit: false, up: false })
   await expect(row('S1')).not.toContainText('assumed')
   await expect(row('S1').locator('.scan-guess')).toHaveCount(0)
+  // Answered, the reading is folded under "How it is read" (issue #106).
+  await row('S1').getByText('How it is read').click()
   await expect(row('S1').getByRole('button', { name: 'Apply' })).toBeDisabled()
 })
 
@@ -469,6 +471,56 @@ test('a scan is renamed from its detail; an empty name is refused, and Escape le
   await page.keyboard.press('Escape')
   await expect(name()).toHaveText('hatch')
   expect((await state()).scans.find((scan) => scan.id === 'S3')?.name).toBe('hatch')
+})
+
+// Issue #95.
+test('a scan read as metres that is far larger than the parts is compared with them, and is in view after its import', async () => {
+  const big = join(root, 'engine bay.stl')
+  writeFileSync(big, stl(box([13, 13, 1], [0, 0, 0])))
+  await pickFile(big)
+  await page.getByRole('button', { name: 'Import scan…' }).click()
+  const sheet = page.getByRole('dialog', { name: 'How is S4 read?' })
+  await expect(sheet.locator('[data-part="size"]')).toHaveText('Its size would be 13000 × 13000 × 1000 mm')
+  await expect(sheet.locator('[data-part="parts"]')).toContainText('The parts of assembly: about')
+  await expect(sheet.locator('[data-part="doubt"]')).toContainText('times the parts: is it in millimetres?')
+  // The detail does not ask what the sheet asks.
+  await row('S4').getByRole('button', { name: 'Details of S4' }).evaluate((b: HTMLElement) => b.click())
+  await expect(row('S4').locator('.scan-detail')).toBeVisible()
+  await expect(row('S4').locator('.scan-guess')).toHaveCount(0)
+  await expect(row('S4').getByRole('combobox', { name: 'Unit of S4' })).toHaveCount(0)
+  // Brought into view with the parts, once, though nothing was framed by hand.
+  await expect.poll(async () => (await scans()).find((scan) => scan.id === 'S4')?.clipped).toBe(false)
+  expect(await page.evaluate(() => { const c = window.__tornoTest!.camera(); return Math.hypot(...c.position.map((p, i) => p - c.target[i])) })).toBeGreaterThan(5000)
+  await sheet.getByRole('combobox', { name: 'Unit of S4' }).selectOption('mm')
+  await expect(sheet.locator('[data-part="doubt"]')).toHaveCount(0)
+  await sheet.getByRole('button', { name: 'Later' }).click()
+})
+
+// Issue #106.
+test('a long scan name keeps ten characters on a hovered row, and the detail is in order: actions, reading folded, Remove last', async () => {
+  const long = join(root, 'Scan 2026-10-21 14-03 engine bay.stl')
+  writeFileSync(long, PLATE)
+  const count = (await state()).scans.length
+  await pickFile(long)
+  await page.getByRole('button', { name: 'Import scan…' }).click()
+  await expect.poll(async () => (await state()).scans.length).toBe(count + 1)
+  const last = (await state()).scans.at(-1)!.id
+  await page.getByRole('dialog', { name: `How is ${last} read?` }).getByRole('button', { name: 'Keep' }).click()
+  await row(last).hover()
+  const shown = await row(last).locator('.row-name').evaluate((el: HTMLElement) => {
+    const probe = document.createElement('canvas').getContext('2d')!
+    probe.font = getComputedStyle(el).font
+    return { have: el.clientWidth, want: probe.measureText('Scan 2026-').width }
+  })
+  expect(shown.have).toBeGreaterThanOrEqual(Math.floor(shown.want))
+  // The order of the detail.
+  const open = await detail(last)
+  const parts = await open.evaluate((el: HTMLElement) => [...el.children].map((c) => c.getAttribute('data-part') ?? c.className))
+  expect(parts.indexOf('scan-actions')).toBeGreaterThanOrEqual(0)
+  expect(parts.indexOf('scan-actions')).toBeLessThan(parts.indexOf('reading'))
+  expect(parts.indexOf('reading')).toBeLessThan(parts.indexOf('remove'))
+  expect(parts.at(-1)).toBe('remove')
+  await expect(open.locator('details[data-part="reading"]')).toBeVisible()
 })
 
 test.describe('a large scan', () => {

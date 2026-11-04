@@ -40,6 +40,8 @@
 }
 
 .scan-row .row-name {
+  /* At least ten characters of it, whatever else is on the row. */
+  flex: 1 0 10ch;
   font-size: var(--text-small);
   cursor: default;
 }
@@ -47,7 +49,7 @@
 input.scan-name-field {
   height: 22px;
   padding: 0 var(--space-1);
-  border: var(--divider);
+  border: var(--field-border);
   border-radius: var(--radius-control);
   background: var(--panel);
   color: var(--ink);
@@ -64,8 +66,13 @@ input.scan-name-field {
   background: var(--warn);
 }
 
+/* The state word gives way before the name does, when the opacity takes its room on hover: the word is in the tooltip and in the detail. */
 .scan-head .chip {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: var(--text-small);
 }
 
@@ -240,6 +247,11 @@ input.scan-name-field {
   color: var(--warn);
 }
 
+/* A scan never aligned anywhere is at its next step, not at fault. */
+.chip[data-state='unaligned'][data-never] {
+  color: var(--muted);
+}
+
 .chip[data-state='mesh-missing'] {
   color: var(--fail);
 }
@@ -329,4 +341,59 @@ input.scan-name-field {
 .scan-row > .confirm {
   margin-top: var(--space-1);
   font-size: var(--text-small);
+}
+
+.scan-sheet-warn {
+  color: var(--warn);
+}
+
+/* The scan's regions: marks painted on it, as chips of the colour of their author, that go to the mark. */
+.scan-regions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin: 0;
+  padding: var(--space-1) 0 0 var(--space-3);
+  font-size: var(--text-small);
+}
+
+.scan-region {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+}
+
+.scan-region:hover .scan-region-note {
+  color: var(--ink);
+}
+
+.scan-region-note {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+/* How it is read, folded once it has been answered. */
+details.scan-reading > summary {
+  padding: var(--space-1) 0 0 var(--space-3);
+  font-size: var(--text-small);
+  color: var(--muted);
+  cursor: default;
+}
+
+details.scan-reading > summary:hover {
+  color: var(--ink);
+}
+
+.scan-fields[data-part='remove'] {
+  padding-top: var(--space-1);
 }

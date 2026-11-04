@@ -152,6 +152,8 @@ export function measureTool(): Tool {
     // As they are now: the kernel is asked before anything is held, and the view may move meanwhile.
     const { objectId, layout, revision, camera } = ctx
     const mine = ++committing
+    /** Whether the answer is drawn in the view, where the pending draft was. */
+    let shown = false
     ctx.viewport.setDraft({ kind: 'dimension', from: a.hit.point, to: b ? b.hit.point : null })
     try {
       const [from, to] = await Promise.all([end(a, ctx), b ? end(b, ctx) : null])
@@ -159,7 +161,12 @@ export function measureTool(): Tool {
       const got = await ctx.measure(probe)
       if (mine !== committing) return
       // Held for the strip, to be kept as a dimension only when the person means to. Nothing is made of it.
-      measuredStore.getState().setHeld({ ...probe, objectId, camera, value: got.value, how: got.how, revision: got.revision })
+      measuredStore.getState().setHeld({ ...probe, objectId, camera, value: got.value, how: got.how, revision: got.revision, ...(got.points ? { points: got.points } : {}) })
+      // Drawn between the kernel's own points, in ink with its value, until the next first end, Escape or the tool put down. An angle is no line.
+      if (got.points && measure !== 'angle') {
+        ctx.viewport.setDraft({ kind: 'dimension', from: got.points[0], to: got.points[1], held: valueText(measure, got.value) })
+        shown = true
+      }
       // The kernel's value, in place of the estimate: until the pointer moves on.
       release()
       held = { until: 0, client: hover?.client ?? client, within: RESULT_PX }
@@ -183,7 +190,7 @@ export function measureTool(): Tool {
       ctx.readout.say(at, reason)
     } finally {
       // Its draft, unless a first end was clicked meanwhile, whose own is drawn now.
-      if (mine === committing && !first) ctx.viewport.setDraft(null)
+      if (mine === committing && !first && !shown) ctx.viewport.setDraft(null)
     }
   }
 
@@ -327,6 +334,7 @@ export function measureTool(): Tool {
           // With nothing under way, Escape lets go of the last measurement.
           if (measuredStore.getState().held === null) return said
           measuredStore.getState().clearHeld()
+          ctx.viewport.setDraft(null)
           return true
         }
         drop(ctx)

@@ -58,6 +58,18 @@ export function spreadApart(scene: Scene, layout: string, a: string | undefined,
 }
 
 /**
+ * Why a question about every part of a layout is not answered in one torno spread, or null when the parts are where
+ * the model placed them. `what` is what was asked: `what the parts share in`.
+ */
+export function spreadLayout(scene: Scene, layout: string, what: string): string | null {
+  const moved = scene.parts.filter((p) => p.layout === layout && isMoved(p)).map((p) => p.name)
+  if (moved.length === 0) return null
+  const assembled = scene.layouts.filter((of) => of !== layout && !scene.parts.some((p) => p.layout === of && isMoved(p)))
+  const where = assembled.length > 0 ? `Ask in a layout that places the parts as assembled (layouts: ${assembled.join(', ')}).` : 'This project has no layout that places its parts as assembled.'
+  return `In layout ${layout} torno spread the parts apart for display (${moved.join(', ')} moved, as they overlapped as the model placed them), so ${what} it is torno's, not the model's. ${where}`
+}
+
+/**
  * The same in short, as the reason a dimension that is there already is not
  * measurable, with what can be done about it: null when it is measurable.
  */

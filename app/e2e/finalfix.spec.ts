@@ -81,7 +81,7 @@ test('X cuts at once, through the middle of the parts and open towards the viewe
   expect(await tool()).toBe('section')
 
   // The offset typed and kept with Enter: the plane moves, and the next letter is a tool's, not a figure in the field.
-  const field = page.getByLabel('Offset in millimetres')
+  const field = page.getByLabel('Plane position in millimetres')
   await field.click()
   await field.fill('2')
   await page.keyboard.press('Enter')
@@ -297,7 +297,7 @@ test('the example says for as long as it is open that it is a temporary copy', a
   // A session runs here (the stand-in says nothing of being at work once it has answered): leaving may ask first.
   const leave = page.getByRole('button', { name: 'Open another folder' })
   if (await leave.isVisible().catch(() => false)) await leave.click()
-  await expect(page.locator('.workspace-example')).toHaveText(EXAMPLE_NOTE)
+  await expect(page.locator('.workspace-example')).toContainText(EXAMPLE_NOTE)
   expect(EXAMPLE_NOTE).toBe('A temporary copy: it is removed when torno quits')
   expect((await state()).workspace!.example).toBe(true)
 })

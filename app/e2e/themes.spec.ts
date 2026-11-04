@@ -219,7 +219,7 @@ for (const theme of ['light', 'dark'] as const) {
 
 // Set TORNO_SHOTS=<dir>, as for the captures of the other specs, to capture the window in every state the pass
 // over the themes looks at, one launch each, into <dir>/ui-<state>-<theme>.png.
-const STATES = ['main', 'mark-chip', 'section', 'explode', 'views', 'scans', 'scan-read', 'region', 'page', 'export', 'error', 'welcome', 'welcome-first', 'welcome-first-ready', 'welcome-first-open', 'empty', 'ready-sheet', 'folders', 'switcher', 'folded', 'params', 'chat', 'view-board', 'view-board-chip', 'view-board-sent', 'onboard', 'onboard-board', 'onboard-missing', 'confirm-close', 'tools', 'keys', 'instructions', 'measure-raised', 'measure-raised-narrow', 'marks-tall'] as const
+const STATES = ['main', 'mark-chip', 'section', 'explode', 'views', 'scans', 'scan-read', 'region', 'page', 'export', 'error', 'welcome', 'welcome-first', 'welcome-first-ready', 'welcome-first-open', 'empty', 'ready-sheet', 'folders', 'switcher', 'folded', 'params', 'chat', 'view-board', 'view-board-chip', 'view-board-sent', 'onboard', 'onboard-board', 'onboard-missing', 'confirm-close', 'tools', 'keys', 'instructions', 'measure-raised', 'measure-raised-narrow', 'marks-tall', 'landed'] as const
 
 /** Shots of a window with no folder open, or an empty one, where no object is opened. */
 const FIRST_SCREEN = ['welcome-first', 'welcome-first-ready', 'welcome-first-open'] as const
@@ -564,6 +564,16 @@ for (const theme of ['light', 'dark'] as const) {
           await page.getByLabel('Name', { exact: true }).fill('cable-clip')
           await page.getByLabel('What is it?').fill('A clip that holds a 6 mm cable to the edge of a desk, printed in PETG.')
           await expect(page.locator('.new-foot .ready[data-variant="missing"]')).toBeVisible()
+        } else if (shot === 'landed') {
+          // A build has just landed that thickened the base: the old edges and the new, in the accent, and the status line naming the part. Held, so that the capture sees them.
+          await open(page, 'bracket')
+          await page.evaluate(() => window.__tornoTest!.holdGhosts(true))
+          const before = (await state(page)).revision
+          const model = join(root, 'bracket', 'bracket.py')
+          writeFileSync(model, readFileSync(model, 'utf8').replace('Box(40, 30, 5)', 'Box(40, 30, 9)'))
+          await expect.poll(async () => (await state(page)).revision, { timeout: 60_000 }).toBe(before + 1)
+          await expect.poll(() => page.evaluate(() => window.__tornoTest!.ghosts())).toEqual(['assembly:base'])
+          await expect(page.locator('[data-region="status"] [data-part="landing"]')).toHaveText('base changed, post same')
         } else if (shot === 'error') {
           await open(page, 'bracket')
           appendFileSync(join(root, 'bracket', 'bracket.py'), '\nraise ValueError("the post is taller than the base is wide")\n')

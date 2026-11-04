@@ -76,6 +76,39 @@ test('"Show only" leaves that group alone on screen', async () => {
   await expect.poll(visible).toEqual(['flat-a', 'flat-b'])
 })
 
+test('a part\'s row lights it, its name selects it and a double click frames it, "Show only" leaves it alone and "Show all" gives the rest back', async () => {
+  const peeked = (): Promise<string[]> => page.evaluate(() => window.__tornoTest!.peeked())
+  await page.getByRole('button', { name: 'Show all', exact: true }).click()
+  await expect.poll(visible).toEqual(['flat-a', 'flat-b', 'tall-a', 'key'])
+  await expect(page.locator('.layers-hidden')).toHaveCount(0)
+
+  // The pointer on a row lights its part in the view, and leaving takes the light away.
+  await page.locator('[data-layer="key"]').hover()
+  await expect.poll(peeked).toEqual(['key'])
+  await page.mouse.move(700, 400)
+  await expect.poll(peeked).toEqual([])
+
+  // A click on the name selects the part as a ref.
+  await page.locator('[data-layer="key"]').getByRole('button', { name: 'key', exact: true }).click()
+  await expect.poll(async () => (await state()).selection).toEqual(['key'])
+  await page.keyboard.press('Escape')
+
+  // A double click brings it into view: the camera comes to rest somewhere else.
+  const camera = (): Promise<unknown> => page.evaluate(() => window.__tornoTest!.camera())
+  const before = JSON.stringify(await camera())
+  await page.locator('[data-layer="tall-a"]').getByRole('button', { name: 'tall-a', exact: true }).dblclick()
+  await expect.poll(async () => JSON.stringify(await camera())).not.toBe(before)
+
+  // "Show only" on a part, then "Show all" in the title.
+  await page.locator('[data-layer="flat-a"]').hover()
+  await page.getByRole('button', { name: 'Show only flat-a', exact: true }).click()
+  await expect.poll(visible).toEqual(['flat-a'])
+  await expect(page.locator('.layers-hidden')).toContainText('3 hidden')
+  await page.getByRole('button', { name: 'Show all', exact: true }).click()
+  await expect.poll(visible).toEqual(['flat-a', 'flat-b', 'tall-a', 'key'])
+  await expect(page.locator('.layers-hidden')).toHaveCount(0)
+})
+
 test('a group folds, and is still folded when the object is opened again', async () => {
   await page.getByRole('button', { name: 'Fold flat', exact: true }).click()
   await expect.poll(rows).toEqual(['group flat', 'group tall', '  tall-a', 'key'])

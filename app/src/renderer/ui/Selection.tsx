@@ -68,6 +68,7 @@ export function Selection({ viewport }: { viewport: Viewport }) {
           </li>
         ))}
       </ul>
+      {selection.length === 1 && <span className="selection-hint">Shift-click to add</span>}
       <span className="viewbar-rule" aria-hidden="true" />
       <button
         type="button"

@@ -112,7 +112,7 @@ def _build(
 
     Returns the shapes and what the build worked out of each part that its
     queries would otherwise work out again, or None on failure. A failure
-    inside a fillet or a chamfer of build123d carries why it failed
+    inside a fillet, a chamfer or a boolean of build123d carries why it failed
     (``diagnose``), found here, before the frame is written, within what the
     build's ``deadline`` leaves.
     """
@@ -123,6 +123,7 @@ def _build(
         # Read here, by the worker that loaded the model: the supervisor never does.
         scene["params"] = params
         scene["groups"] = groups
+        scene["uses"] = loader.used_files(Path(dir), model)
         # Each part names its group, so that whoever has the part has it (an explode moves a group as one).
         group_of = {name: group["name"] for group in groups for name in group["parts"]}
         for part in scene.get("parts", []):
@@ -151,7 +152,7 @@ def _build(
 
 
 def _diagnose(error: BaseException, told: dict[str, Any], deadline: float | None) -> dict[str, Any] | None:
-    """Why a fillet or a chamfer of build123d failed, if one raised ``error``; None otherwise.
+    """Why a fillet, a chamfer or a boolean of build123d failed, if one raised ``error``; None otherwise.
 
     It runs in this worker, which is about to exit: no fork, no other process. What OCC
     might print meanwhile is not the model's output, and is not captured with it. It runs
@@ -164,7 +165,7 @@ def _diagnose(error: BaseException, told: dict[str, Any], deadline: float | None
 
     # Whatever goes wrong here, the build's own error is still written: a diagnosis that fails is none.
     try:
-        if diagnose.find_call(error) is None:
+        if diagnose.find(error) is None:
             return None
         noted = _note(told)
         saved = [os.dup(1), os.dup(2)]

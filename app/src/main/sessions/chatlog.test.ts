@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { ChatItem } from '../../shared/chat'
 import { onNotOwn } from '../own'
-import { appendItems, readLog, trimLog } from './chatlog'
+import { appendItems, lastConversation, readLog, trimLog } from './chatlog'
 
 const CONVERSATION = '6c9664ef-90c4-4c7f-b6d5-180948ac85ee'
 let dir: string
@@ -138,5 +138,19 @@ describe('a log that grew (M13)', () => {
     expect(await trimLog(dir, CONVERSATION, 0, 1)).toBe(false)
     expect(readFileSync(elsewhere, 'utf8')).toBe('x\n'.repeat(50))
   })
-})
 
+  it('gives the end of a conversation for the pane with no session: the words and the turns, the last few, and when it was written', async () => {
+    const user = (n: number): ChatItem => ({ kind: 'user', id: `u${n}`, text: `ask ${n}`, images: [], state: 'sent', at: n })
+    const text = (n: number): ChatItem => ({ kind: 'text', id: `a${n}`, text: `answer ${n}`, streaming: false })
+    const tool: ChatItem = { kind: 'tool', id: 't1', toolUseId: 'x', name: 'Bash', torno: false, input: {}, state: 'done', images: [] }
+    await appendItems(dir, CONVERSATION, [user(1), text(1), tool, user(2), text(2), note(1)])
+    const last = await lastConversation(dir, CONVERSATION, 3)
+    expect(last.items.map((i) => i.id)).toEqual(['a1', 'u2', 'a2'])
+    expect(Date.now() - Date.parse(last.at!)).toBeLessThan(60_000)
+  })
+
+  it('says no time and no items for a conversation with no log, and reads nothing through a link', async () => {
+    expect(await lastConversation(dir, CONVERSATION)).toEqual({ items: [], at: null })
+    expect(await lastConversation(dir, '../escape')).toEqual({ items: [], at: null })
+  })
+})

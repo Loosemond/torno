@@ -254,7 +254,7 @@
   height: 22px;
   /* Room for -1258.9 in a 58 px field: a scan of a room is metres across. */
   padding: 0 2px;
-  border: var(--divider);
+  border: var(--field-border);
   border-radius: 4px;
   background: var(--panel);
   color: var(--ink);
@@ -365,4 +365,17 @@
 
 .scan-basis .num {
   color: var(--ink);
+}
+
+.align-step .num {
+  color: var(--muted);
+}
+
+.align-step-tick {
+  margin-left: 4px;
+  color: var(--ok);
+}
+
+.alignbar-purpose {
+  color: var(--muted);
 }

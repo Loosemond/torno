@@ -10,6 +10,7 @@ import type { Scene } from '../shared/scene'
 import { type ViewState, MAX_SELECTION_REPORTED, planeText } from '../shared/view'
 import type { ObjectInfo } from '../shared/workspace'
 import { describeMark } from './marks/describe'
+import { assumedKey, assumedLine } from '../shared/params'
 import { digestText, sanity } from './sanity'
 import { alignmentSaid, shownText } from './scans/said'
 import { type BuildVerdicts, verdictChanges } from './verdicts'
@@ -244,6 +245,9 @@ function contextText(deps: ContextDeps, objectId: string, marks: readonly Mark[]
   const digest = opts.buildOnly ? buildDigest(deps, objectId) : undefined
   const digestLines = digest ? digestText(digest, CONTEXT_LIMIT - lines.join('\n').length - floor - 1, toolName) : ''
   if (digestLines) lines.push(digestLines)
+  // Which sizes the model says it assumed, only when that set is other than after the build before.
+  const assumed = opts.buildOnly && digest ? paramsLine(deps, objectId) : ''
+  if (assumed && lines.join('\n').length + 1 + assumed.length <= CONTEXT_LIMIT - floor - 1) lines.push(assumed)
   let used = lines.join('\n').length + (openLine ? openLine.length + 1 : 0) + floor + (instructed ? instructed.length + 1 : 0)
   /**
    * A head, and under it a line for each mark that fits; then how many did not. Returns the marks listed.
@@ -322,6 +326,19 @@ export function buildDigest(deps: Pick<ContextDeps, 'build' | 'scenes' | 'verdic
   const previous = kept.length > 1 ? kept.at(-2) : undefined
   const changes = previous ? verdictChanges(deps.verdicts?.(objectId, previous.revision), deps.verdicts?.(objectId, last.revision)) : []
   return sanity(previous, last, changes)
+}
+
+/**
+ * What the model's `Params` comments say of where the sizes come from (`assumedLine`), when the set of assumed and
+ * unsaid sizes of the last build is other than that of the build before it (a first build is compared with none).
+ */
+function paramsLine(deps: Pick<ContextDeps, 'scenes'>, objectId: string): string {
+  const kept = deps.scenes?.(objectId) ?? []
+  const last = kept.at(-1)
+  if (!last) return ''
+  const previous = kept.length > 1 ? kept.at(-2) : undefined
+  if (assumedKey(last.scene.params) === assumedKey(previous?.scene.params)) return ''
+  return assumedLine(last.scene.params)
 }
 
 /**

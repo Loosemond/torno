@@ -86,7 +86,7 @@ def run(
         ref = args.get("ref")
         if not isinstance(ref, str):
             raise QueryError("bad_request", "describe needs args.ref, a string")
-        return describe(shapes, ref, kept)
+        return describe(shapes, ref, kept, selector=args.get("selector") is True)
     if name == "nearest":
         layout, anchors = args.get("layout"), args.get("anchors")
         if not isinstance(layout, str) or not isinstance(anchors, list):
@@ -102,19 +102,27 @@ def run(
 
 
 def describe(
-    shapes: dict[str, Any], ref: str, kept: dict[Any, Any] | None = None
+    shapes: dict[str, Any], ref: str, kept: dict[Any, Any] | None = None, selector: bool = False
 ) -> dict[str, Any]:
     """Describe a part (``layout:name``), or one of its faces (``/F<i>``) or edges (``/E<i>``).
 
     Positions and directions are in the object frame. ``descriptor`` says the
-    same in one line. ``kept`` is the worker's (``run``).
+    same in one line. ``kept`` is the worker's (``run``). With ``selector`` a face
+    or an edge also gets a build123d selector that picks it now (``selectors``): it
+    is searched for only when asked, as it costs a pass over the part.
     """
     key, kind, shape = resolve(shapes, ref)
     if kind == "part":
         return _describe_part(key, shape, kept)
     if kind == "face":
-        return _describe_face(ref, shape, _held(kept, "span", key, lambda: extent.span(shapes[key])))
-    return _describe_edge(ref, shape)
+        told = _describe_face(ref, shape, _held(kept, "span", key, lambda: extent.span(shapes[key])))
+    else:
+        told = _describe_edge(ref, shape)
+    if selector:
+        from . import selectors
+
+        told.update(selectors.selector_for(shapes[key], shape, kind))
+    return told
 
 
 # The seconds a trial fillet may take of its query's 30: OCC's tries cannot be stopped, so some are left over.

@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Ask a question
+    url: https://github.com/luisg0nc/torno/discussions/categories/q-a
+    about: How do I do something with torno? Ask in Discussions.
+  - name: The manual
+    url: https://github.com/luisg0nc/torno/blob/main/docs/manual.md
+    about: Everything torno does, and every key.
+  - name: Report a security problem
+    url: https://github.com/luisg0nc/torno/security/advisories/new
+    about: Privately, please. See SECURITY.md.

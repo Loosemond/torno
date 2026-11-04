@@ -1,4 +1,4 @@
-"""Why a fillet or a chamfer failed, found by trying it again in parts.
+"""Why a fillet or a chamfer failed, found by trying it again in parts (a boolean: ``booleans.py``).
 
 OCC says only that it could not (``StdFail_NotDone``, ``command not done``), and build123d that the radius may be
 too large: neither names an edge. What does is trying: each edge alone at the size asked, then, if every one works
@@ -22,6 +22,9 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from itertools import combinations
 from typing import Any
+
+from . import booleans
+from .booleans import BooleanCall
 
 # Seconds a failed build may spend finding out why, within what its timeout leaves.
 BUDGET = 5.0
@@ -118,11 +121,19 @@ def _positive(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value > 0
 
 
+def find(error: BaseException) -> Call | BooleanCall | None:
+    """The fillet, chamfer or boolean of build123d that raised ``error`` (``find_call``, ``booleans.find_boolean``):
+    None when it was raised by none."""
+    return find_call(error) or booleans.find_boolean(error)
+
+
 def from_exception(error: BaseException, budget: float = BUDGET) -> dict[str, Any] | None:
-    """The diagnosis of the fillet or chamfer that raised ``error``, in the frame of the shape filleted
-    (``local``), or None when it was raised by none. It never raises: a diagnosis that fails is none."""
+    """The diagnosis of the fillet, chamfer or boolean that raised ``error``, in the frame of the shape operated
+    on (``local``), or None when it was raised by none. It never raises: a diagnosis that fails is none."""
     try:
-        call = find_call(error)
+        call = find(error)
+        if isinstance(call, BooleanCall):
+            return booleans.diagnose(call, budget)
         return None if call is None else diagnose(call, budget)
     except Exception:
         return None

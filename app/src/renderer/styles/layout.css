@@ -202,6 +202,7 @@ button {
 .left,
 .dock {
   position: absolute;
+  z-index: 1; /* above the viewport, which comes after the left column in the DOM (reading order) */
   top: 0;
   bottom: var(--status-h);
   display: flex;
@@ -295,9 +296,11 @@ button {
 }
 
 /* Shows and hides the dock. It stays in the window's top right corner either
-   way, so it does not move when the dock goes. */
+   way, so it does not move when the dock goes. Over the page of projects, whose head is sticky and
+   stacked above the viewport (z-index 2), or the button could not be pressed with the dock away. */
 .dock-toggle {
   position: absolute;
+  z-index: 3;
   top: 6px;
   right: var(--space-2);
   display: grid;
@@ -329,4 +332,41 @@ button {
 .dock-toggle svg {
   width: 16px;
   height: 16px;
+}
+
+/* The right edge of the left column: a band of 9 px to take hold of, a hairline of the accent when it is hot. */
+.left-edge {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: -5px;
+  z-index: 2;
+  width: 9px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.left-edge::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 2px;
+  background: transparent;
+}
+
+.left-edge:hover::after,
+.left-edge:focus-visible::after,
+.shell[data-resizing-left] .left-edge::after {
+  background: var(--accent);
+}
+
+.left-edge:focus-visible {
+  outline: none;
+}
+
+.shell[data-resizing-left] {
+  cursor: col-resize;
+  user-select: none;
 }

@@ -1,0 +1,49 @@
+{
+  "next": 2,
+  "marks": [
+    {
+      "id": "M1",
+      "kind": "pin",
+      "status": "draft",
+      "author": "user",
+      "anchorState": "ok",
+      "layout": "assembly",
+      "revision": 1,
+      "camera": {
+        "position": [
+          120,
+          -90,
+          60
+        ],
+        "target": [
+          0,
+          0,
+          10
+        ],
+        "up": [
+          0,
+          0,
+          1
+        ],
+        "ortho": false,
+        "fov": 35,
+        "zoom": 1
+      },
+      "createdAt": "2026-11-01T10:00:00.000Z",
+      "note": "this hole 8 mm",
+      "anchor": {
+        "point": [
+          30,
+          0,
+          3
+        ],
+        "normal": [
+          0,
+          0,
+          1
+        ],
+        "part": "plate"
+      }
+    }
+  ]
+}

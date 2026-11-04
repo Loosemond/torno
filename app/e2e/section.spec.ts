@@ -59,7 +59,7 @@ const state = (p: Page = page): Promise<TornoState> => p.evaluate(() => window._
 const camera = (p: Page = page): Promise<Camera> => p.evaluate(() => window.__tornoTest!.camera())
 const section = async (p: Page = page): Promise<SectionPlane | null> => (await state(p)).section
 const bar = (p: Page = page) => p.locator('.sectionbar')
-const offset = (p: Page = page) => bar(p).getByRole('textbox', { name: 'Offset in millimetres' })
+const offset = (p: Page = page) => bar(p).getByRole('textbox', { name: 'Plane position in millimetres' })
 const readout = (p: Page = page) => p.locator('.pick-readout')
 const sceneFile = (object = 'bracket') => join(root, object, '.torno', 'scene.json')
 const saved = (object = 'bracket'): { section?: SectionPlane } => (existsSync(sceneFile(object)) ? JSON.parse(readFileSync(sceneFile(object), 'utf8')) : {})
@@ -73,7 +73,7 @@ async function open(name: string, p: Page = page): Promise<void> {
 /** Puts the plane across an axis at an offset from the middle of the parts, through the bar. */
 async function cutAt(axis: 'X' | 'Y' | 'Z', mm: number, p: Page = page): Promise<void> {
   await bar(p).getByRole('button', { name: `Cut across ${axis}` }).click()
-  await offset(p).fill(String(mm))
+  await offset(p).fill(String(mm + (axis === 'Z' ? 10 : 0)))
   await offset(p).press('Enter')
   // Out of the field: the keys are the view's again.
   await offset(p).blur()
@@ -167,7 +167,7 @@ test('the bar comes with the tool, and a plane across Z through the middle of th
   await bar().getByRole('button', { name: 'Cut across Z' }).click()
   expect(await section()).toEqual({ origin: [0, 0, 10], normal: [0, 0, 1] })
   await expect(bar().getByRole('button', { name: 'Cut across Z' })).toHaveAttribute('aria-pressed', 'true')
-  await expect(offset()).toHaveValue('0')
+  await expect(offset()).toHaveValue('10')
 })
 
 test('a picture from the top shows the post cut at half its height, in its own colour a step darker, and the base whole', async () => {
@@ -176,11 +176,11 @@ test('a picture from the top shows the post cut at half its height, in its own c
 
   await cutAt('Z', HALF_POST - 10)
   expect(await section()).toEqual({ origin: [0, 0, HALF_POST], normal: [0, 0, 1] })
-  await expect(offset()).toHaveValue('2.5')
+  await expect(offset()).toHaveValue('12.5')
 
   const cut = await look({ view: 'top', marks: false }, [CENTRE, ON_BASE])
   expect(cut.caption).toBe('view top · layout assembly · parts base, post · cut at z = 12.5, +Z side removed · orthographic · 1280×960')
-  // The cut face is flat colour, whatever the light: the post's, a step darker.
+  // The cut face is unlit, whatever the light: the post's colour a step darker, with a fine hatch the sample does not meet.
   expect(near(cut.at[0], POST_CUT), `the cut face is ${cut.at[0]}`).toBe(true)
   // The base is below the plane, and is drawn as it is without one.
   const uncut = await look({ view: 'top', marks: false, section: null }, [CENTRE, ON_BASE])
@@ -208,7 +208,7 @@ test('a picture can be cut by a plane of its own, which is not the one on screen
 test('flipping shows the other half', async () => {
   await bar().getByRole('button', { name: 'Flip' }).click()
   expect(await section()).toEqual({ origin: [0, 0, HALF_POST], normal: [0, 0, -1] })
-  await expect(offset()).toHaveValue('-2.5')
+  await expect(offset()).toHaveValue('12.5')
 
   // From the top, the upper half of the post is whole and the base is gone: where it was is the ground.
   const top = await look({ view: 'top', marks: false }, [CENTRE, ON_BASE])
@@ -269,7 +269,7 @@ test('a drag from the handle moves the plane along its normal; a drag from anywh
   await expect(readout()).toHaveText(/mm$/)
   // The bar's number follows the drag, as the readout at the pointer does: the plane as it is drawn, not as kept.
   const midway = (await readout().textContent())!.replace(/ mm$/, '')
-  expect(Number(midway)).toBeGreaterThan(1)
+  expect(Number(midway)).toBeGreaterThan(11)
   await expect(offset()).toHaveValue(midway)
   await page.mouse.move(x, toY - 10)
   await page.mouse.up()
@@ -314,7 +314,7 @@ test('a drag from the handle moves the plane along its normal; a drag from anywh
   expect((await section())!.origin[2]).toBe(13.5)
   await page.keyboard.press('Shift+ArrowDown')
   expect((await section())!.origin[2]).toBe(13.4)
-  await expect(offset()).toHaveValue('3.4')
+  await expect(offset()).toHaveValue('13.4')
   // Up and down again leaves no trace of the sum: the number is the number.
   await page.keyboard.press('Shift+ArrowDown')
   await page.keyboard.press('Shift+ArrowUp')
@@ -391,7 +391,7 @@ test('the slider moves the plane across the parts, and keeps it when it is let g
     el.dispatchEvent(new Event('input', { bubbles: true }))
   })
   // Moved in the view and in the number beside it, not kept yet.
-  await expect(offset()).toHaveValue('-6')
+  await expect(offset()).toHaveValue('4')
   expect((await section())!.origin[2]).toBe(13.4)
   await slider.evaluate((el: HTMLInputElement) => el.dispatchEvent(new Event('change', { bubbles: true })))
   expect(await section()).toEqual({ origin: [0, 0, 4], normal: [0, 0, 1] })
@@ -401,7 +401,7 @@ test('the slider moves the plane across the parts, and keeps it when it is let g
   await page.keyboard.press('Shift+ArrowLeft')
   expect(await section()).toEqual({ origin: [0, 0, 4.9], normal: [0, 0, 1] })
   await page.keyboard.press('Shift+ArrowLeft')
-  await expect(offset()).toHaveValue('-5.2')
+  await expect(offset()).toHaveValue('4.8')
   // The slider is no field to type in: with it still in focus, as after a drag, the keys of the tools are the tools'.
   await slider.focus()
   const inHand = (name: string) => page.getByRole('toolbar', { name: 'Tools' }).getByRole('button', { name, exact: true })
@@ -461,7 +461,7 @@ test('a plane that leaves nothing of the parts says so, with a way back to the m
   await expect(note).toHaveText('Everything is on the cut side')
   const empty = await look({ view: 'iso', marks: false }, [CENTRE])
   expect(near(empty.at[0], SURFACE, 30)).toBe(true)
-  await bar().getByRole('button', { name: 'Reset' }).click()
+  await bar().getByRole('button', { name: 'Middle' }).click()
   expect(await section()).toEqual({ origin: [0, 0, 10], normal: [0, 0, 1] })
   await expect(note).toHaveCount(0)
   await cutAt('Z', -6)
@@ -506,7 +506,7 @@ test('the section survives leaving the object and coming back: it is read from s
   await open('bracket')
   expect(await section()).toEqual({ origin: [0, 0, HALF_POST], normal: [0, 0, 1] })
   await expect(bar()).toBeVisible()
-  await expect(offset()).toHaveValue('2.5')
+  await expect(offset()).toHaveValue('12.5')
   const cut = await look({ view: 'top', marks: false }, [CENTRE])
   expect(near(cut.at[0], POST_CUT), `the cut face is ${cut.at[0]}`).toBe(true)
 })

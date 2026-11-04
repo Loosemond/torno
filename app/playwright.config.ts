@@ -7,6 +7,8 @@ process.env.TORNO_KEEP_BUILDS = '1'
 
 export default defineConfig({
   testDir: './e2e',
+  // The evals run the real Claude Code: never a test (`src/evals.test.ts`).
+  testIgnore: ['**/evals/**'],
   workers: 1,
   timeout: 30_000,
   reporter: 'list',
