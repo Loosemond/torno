@@ -86,6 +86,41 @@ def groups(p: Params):
 - Name the parts with the group as a prefix (`flat-centre`), so that a reader of the file sees it too.
 - Asked to group parts, edit `groups(p)` in the model: torno keeps no groups of its own.
 
+## Checks
+
+What must stay true when a size changes can be declared in the model, with an optional `checks(p)` beside `groups`.
+It is called with the same `Params()` and returns a list of declarations, which torno measures with the kernel after
+every build. A declaration is data, not a function: torno says whether each result is exact.
+
+```
+def checks(p: Params):
+    return [
+        {"name": "lid fits the tub", "kind": "clearance", "a": "lid", "b": "tub", "min": p.clearance - 0.05, "max": p.clearance + 0.05},
+        {"name": "tub is one body", "kind": "solids", "a": "tub", "equals": 1},
+        {"name": "walls", "kind": "thin", "a": "tub", "min": 1.2, "layout": "print"},
+        {"name": "fits the bed", "kind": "bed", "size": [256, 256, 256]},
+    ]
+```
+
+- `name` and `kind` are required. `a` and `b` are part names or group names (a group stands for its parts), never a
+  face or edge number, which changes with the model. `layout` is optional.
+- Kinds: `clearance` (the least distance between `a` and `b`), `overlap` (the volume they share: wants none
+  unless told), `solids` (how many solids `a` has), `volume` (mm³), `thin` (a wall under `min` mm), `overhang`
+  (faces facing down steeper than `angle`, 45 by default), `mesh` (the part's mesh is closed) and `bed` (the layout
+  fits `size`).
+- What is wanted: `min` and/or `max`, or `equals`, or `expected` with `tolerance` or `percent`. Read sizes from
+  `Params`, as everywhere else.
+- A declaration that is not one fails the build and says what is wrong. A check that does not pass never fails the
+  build: it is told to you after the build, after the user's dimensions, and listed in the window as the model's own
+  checks. It is not a stop sign: it holds nothing back.
+- Read a result for what it says. `thin` is found by sampling, so "none found" is not "none there"; a volume that is
+  not exact says so. A pass is what was measured, not proof that the part is right: do not tell the user that the
+  part is verified.
+- The user's dimensions stay the user's. A check never replaces one, and never silences one.
+- Do not make a check pass by weakening it. torno compares each build's checks with the build before and tells the
+  user when you removed one or made it easier to pass (`min` lowered, `max` raised, a larger bed). If a requirement
+  really changed, say so in your answer when you change the check.
+
 ## Params is the one source of sizes
 
 Every size, clearance and count is a field of `Params`, with a default; functions read `p.wall`, never a number
@@ -123,7 +158,9 @@ def make_lid(p: Params):
     plate = Box(p.width, p.depth, p.wall)
     lip_w = p.width - 2 * p.wall - 2 * p.clearance
     lip_d = p.depth - 2 * p.wall - 2 * p.clearance
-    lip = Pos(0, 0, -(p.lid_height - p.wall) / 2 - p.wall / 2) * Box(lip_w, lip_d, p.lid_height - p.wall)
+    lip = Box(lip_w, lip_d, p.lid_height - p.wall)
+    # Rounded as the tub's inside is, or its square corners would reach into the tub's rounded ones.
+    lip = Pos(0, 0, -(p.lid_height - p.wall) / 2 - p.wall / 2) * fillet(lip.edges().filter_by(Axis.Z), p.rounding)
     return plate + lip
 
 
@@ -141,6 +178,14 @@ def printables(p: Params):
         "tub": make_tub(p),
         "lid": Rot(180, 0, 0) * make_lid(p),
     }
+
+
+def checks(p: Params):
+    """What must stay true when a size changes; torno measures it at every build (see Checks)."""
+    return [
+        {"name": "lid does not overlap the tub", "kind": "overlap", "a": "lid", "b": "tub"},
+        {"name": "tub is one body", "kind": "solids", "a": "tub", "equals": 1},
+    ]
 
 
 # Parts that belong together, for the layers list and the tools (optional; see Groups):
