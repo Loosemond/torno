@@ -384,7 +384,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 - With no folder open the window is `ui/Welcome.tsx`. On a first run (no recent folder): a line of what torno is,
   a three-row tree of the folder of objects, an object and its model, "Open folder" with a note that an empty
   folder is fine, and, where torno runs from its repository, a quiet "Open the example". Coming back: the recent
-  folders first, no tree. One footer: torno writes only into `.torno`. Its head is the logo (`ui/Logo.tsx`) over the name: the vise in `--ink`, the part in `--accent`. The
+  folders first, no tree. One footer: torno writes only into `.torno`, and the new folder of a project you make. Its head is the logo (`ui/Logo.tsx`) over the name: the vise in `--ink`, the part in `--accent`. The
   same logo is in `--muted` over an empty view or page, and plain (one colour) where a picture is missing.
 - For as long as the example is the open folder, the note under the folder's name (`EXAMPLE_NOTE`) has a link-button,
   "Keep this as a folder…" (`KEEP` in `App.tsx`, through `leave`, so that it asks first as opening a folder does):
