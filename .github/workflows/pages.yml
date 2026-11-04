@@ -8,7 +8,7 @@ name: Pages
 on:
   push:
     branches: [main]
-    paths: [site/**, docs/**, app/scripts/build-manual.mjs, app/scripts/manual-page.mjs, app/scripts/build-site.mjs, .github/workflows/pages.yml]
+    paths: [site/**, docs/manual.md, docs/images/**, app/scripts/build-manual.mjs, app/scripts/build-site.mjs, app/scripts/manual-page.mjs, .github/workflows/pages.yml]
   workflow_dispatch:
 
 permissions:
