@@ -8,6 +8,7 @@ import type { ObjectInfo } from '../shared/workspace'
 import { Builds, NotBuilding, buildTimeout, watchFolder } from './builds'
 import { type KernelClient, KernelError, startKernel } from './kernel/client'
 import { probe } from '../test/diagnosisFixtures'
+import type { FilletDiagnosis } from '../shared/diagnosis'
 
 type BuildResult = { ok: true; scene: Scene; blob: Buffer } | { ok: false; error: BuildError }
 
@@ -545,7 +546,7 @@ describe('Builds', () => {
       builds.changed('bracket', ['/ws/bracket/bracket.py'])
       kernel.fail(1, failing())
       await flush()
-      const edges = builds.state('bracket')?.error?.diagnosis?.edges ?? []
+      const edges = (builds.state('bracket')?.error?.diagnosis as FilletDiagnosis | undefined)?.edges ?? []
       expect(edges.map((e) => e.sameAs)).toEqual([{ ref: 'plate/E12', layout: 'assembly', revision: 1 }, undefined, undefined, { ref: 'plate/E3', layout: 'assembly', revision: 1 }])
       const asked = kernel.queries.find((q) => q.name === 'match_edges')
       expect(asked).toMatchObject({ dir: '/ws/bracket', args: { edges: [{ type: 'line', start: [-6, -6, -2.5], end: [-6, -6, 2.5], length: 5 }, {}, {}, {}] } })
@@ -560,7 +561,7 @@ describe('Builds', () => {
       builds.changed('bracket', ['/ws/bracket/bracket.py'])
       kernel.fail(1, failing())
       await flush()
-      const edges = builds.state('bracket')?.error?.diagnosis?.edges ?? []
+      const edges = (builds.state('bracket')?.error?.diagnosis as FilletDiagnosis | undefined)?.edges ?? []
       expect(edges.map((e) => e.sameAs)).toEqual([undefined, { ref: 'lid/E2', layout: 'assembly', revision: 1 }, undefined, undefined])
     })
 

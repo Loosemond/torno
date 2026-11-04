@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import { dirname, join, relative, sep } from 'node:path'
 import { watch as chokidarWatch } from 'chokidar'
 import { type BuildError, type BuildState, REBUILD_KEY } from '../shared/build'
+import { isBoolean } from '../shared/diagnosis'
 import type { Scene } from '../shared/scene'
 import type { ObjectInfo } from '../shared/workspace'
 import { type BuildResult, type KernelClient, KernelError } from './kernel/client'
@@ -451,7 +452,9 @@ export class Builds {
    * edge two parts share is either's, and the agent is never handed the wrong part's. Waited for `MATCH_MS` at most; whatever goes wrong leaves it as it was.
    */
   private async withRefs(entry: Entry, result: BuildResult): Promise<BuildResult> {
-    const diagnosis = !result.ok ? result.error.diagnosis : undefined
+    const told = !result.ok ? result.error.diagnosis : undefined
+    // A boolean's operands are not edges of any build: only a fillet's or a chamfer's are looked for.
+    const diagnosis = told && !isBoolean(told) ? told : undefined
     const good = entry.lastGood
     if (result.ok || !diagnosis || diagnosis.edges.length === 0 || !good || entry.letGo) return result
     const edges = diagnosis.edges.map(({ type, start, end, length, samples }) => ({ type, start, end, length, samples }))

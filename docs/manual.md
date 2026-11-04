@@ -307,6 +307,18 @@ length and the points along it) is also named by that ref, as of that build. Not
 the result of its edit and in `scene`, and can try a fillet on the last good
 build with `try_fillet` before it edits the model again.
 
+**A failed boolean.** A cut, a fuse, an intersect or a split that fails (a `StdFail_NotDone`, or `Null TopoDS_Shape
+object`) is looked into the same way, within the same 5 s, by looking at its operands: nothing is run again. The error
+says which of these it found, such as `cut failed: tool is a face, not a solid`: an operand that is empty, one that is not a
+solid, one that is not valid (OpenCascade's check, and what its argument analyzer finds, such as a face that crosses
+itself), a tool that ends flush with the face it cuts instead of overshooting it (faces of the two that lie on one
+plane facing the same way), faces that lie on each other, shapes further apart than they should be, and shapes that
+only touch. Then a line for each operand (its type, whether it is valid, its faces and its box) and for each pair of
+faces that lie on each other, with the area they share. The operands are not parts on screen: their faces are numbered
+by their place in the operand, from 0 (`tool F5`), and their numbers are in the operand's own frame (`local`). A
+distance is OpenCascade's and is told with `≈`; a count of points of one lying inside the other is of points sampled
+on its vertices and the middles of its edges, so it can say that none was found, never that none is there.
+
 **The window.** On the left, the list of projects, then the layers, the parameters and the scans of the
 open project, then its marks. Projects, Layers, Parameters and Scans each fold by their title; folded, the
 title says what matters (`Layers 12 · 3 hidden`, `Scans 1 · unaligned`). Marks never folds:
@@ -917,7 +929,7 @@ them: `scene`, `look`, `marks`, `describe` and `measure`. The others are found b
 | `mcp__torno__scene` | The build status and error, what the model printed in the last build (`output`), the layouts, every part of one layout (the one you have on screen, or `layout`; the parts of the others are counted) with its size, bounding box, volume and whether it is visible, the model's groups of parts, your camera, section and explode, the saved views, the scans, and how many dimensions pass, fail and are not measured. It notes when the parts of the print layout were spread along X. Over 200 parts, or when the list would not fit, a part is its name, size and group only (`partsTruncated`); `describe` gives the rest. |
 | `mcp__torno__look` | A picture from the renderer you are looking at, with the marks drawn. With no arguments it is your view, cut by your section or drawn apart as you have it. It takes `view` (`iso`, `front`, `back`, `left`, `right`, `top`, `bottom`, the name of a saved view, or a camera), `layout`, `parts`, `size` (long edge, 1280 by default, 2000 at most), `marks` (false leaves them out), `section` (`'current'`, `null`, or a plane), `explode` (0 to 1, or `{amount, axis, scale}`; `null` together), `scans`, `scanColour` and `frame`. With `focus` (a ref such as `lid/F12` or `lid/E3`, a part, a group, a mark such as `M4`, or a box `{min, max}` in mm) and `margin` (a share of the box, 0.3 by default) it frames a detail up close: from the side `view` names (`front`, `iso`, …; without one, the way your camera looks), at the picture's whole resolution, with the parts drawn together. The caption says what was drawn, and, with a focus, what was framed and when the middle of it is hidden behind other parts. Also saved under `.torno/views/`. |
 | `mcp__torno__marks` | Your marks and the agent's as data, each with a line of text. It lists the marks that are not resolved, 50 at a time; `status` (`resolved` too), `ids` (`["M4"]`, any status), `limit` (200 at most) and `next` say which. A stroke is given as a summary of its points (count, first, last, box) unless `ids` names it. What was left out is said (`omitted`, `next`). |
-| `mcp__torno__describe` | The geometry of a part, a face or an edge (`lid`, `lid/F12`, `lid/E3`), or of a group of parts by its name: the box of its parts and their volume. |
+| `mcp__torno__describe` | The geometry of a part, a face or an edge (`lid`, `lid/F12`, `lid/E3`), or of a group of parts by its name: the box of its parts and their volume. Of a face or an edge it also gives a `selector`: a build123d expression on `part`, such as `part.faces().filter_by(Axis.Z).sort_by(Axis.Z)[-1]`, that the kernel evaluated on this build and that gave exactly that shape, as `robust` `by geometry` (a direction, an extreme, a radius, a place) or `by order` (an index into a sort, which the next edit may break), and `selectorFrame`, which says in whose frame it is. |
 | `mcp__torno__highlight` | Tints faces or edges in your viewport with a note, to ask "this one?", until you click or a minute passes. A group's name tints all of its parts. |
 | `mcp__torno__show` | Changes your camera, layout, visible parts (a group's name stands for its parts), section, explode and scans to show you something, or puts a saved view on screen by its name; with `focus` and `margin`, as `look` takes them, it puts your camera on a ref, a mark or a box. For now only: what `.torno/scene.json` keeps stays yours. Refused while you hold a button in the viewport. |
 | `mcp__torno__save_view` | Proposes a saved view: it appears in your strip marked "proposed" until you keep or discard it. Nothing on screen changes. |

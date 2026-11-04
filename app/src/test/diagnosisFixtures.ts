@@ -1,4 +1,31 @@
-import type { FilletDiagnosis } from '../shared/diagnosis'
+import type { BooleanDiagnosis, FilletDiagnosis } from '../shared/diagnosis'
+
+/** The kernel's diagnosis of a cut whose tool ends flush with the top of a 10 mm block (`kernel/tests/test_booleans.py`). */
+export function flushCut(): BooleanDiagnosis {
+  return {
+    operation: 'cut',
+    frame: 'local',
+    budget: 5,
+    operands: [
+      { name: 'base', type: 'solid', valid: true, solids: 1, faces: 6, box: { min: [-5, -5, -5], max: [5, 5, 5] } },
+      { name: 'tool', type: 'solid', valid: true, solids: 1, faces: 6, box: { min: [-2, -2, 0], max: [2, 2, 5] } }
+    ],
+    pairs: [
+      {
+        base: 'base',
+        tool: 'tool',
+        apart: 0,
+        apartExact: false,
+        touching: true,
+        inside: { tool: 4, base: 0, sampledOnTool: 20, sampledOnBase: 20 },
+        coincident: [{ base: 'F5', tool: 'F5', kind: 'plane', facing: 'same', gap: 0, normal: [0, 0, 1], center: [0, 0, 5], area: 16, areaExact: true }]
+      }
+    ],
+    causes: ['flush'],
+    complete: true,
+    seconds: 0.01
+  }
+}
 
 /** The kernel's diagnosis of the probe of issue #49: a plate with a 12 mm pocket, its eight vertical edges at R6. */
 export function probe(): FilletDiagnosis {
