@@ -832,9 +832,10 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   clicking it (`e2e/session.spec.ts`).
 - **The chat session** (Claude Code with `view` `chat`; `sessions/transport.ts`, `stream.ts`, `transcript.ts`,
   `chatlog.ts`, `permissions.ts`, `Sessions` in `manager.ts`). `Sessions` drives a chat through `AgentTransport`
-  (`transport.ts`: `prompt`, `control` for `initialize` and `set_model`, `interrupt`, `answer` to an ask, `end`, the
-  `pid` it signals, and the events `message`, `ask`, `note`, `stderr`, `exit`) and never through a class of its own:
-  the adapter makes it (`AgentAdapter.chat`), and `ClaudeStream` (`stream.ts`) is the one there is. Another
+  (`transport.ts`: `prompt`, `control` for `initialize` and `set_model`, `interrupt`, `answer` to an ask, `end`, and `terminate` and `kill` for
+  an agent that stays after `end` (`Sessions.stop` times them; the process group is the transport's, `signals.ts`), and the events `message`, `ask`, `note`, `stderr`, `exit`) and never through a class of its own:
+  the adapter makes it (`AgentAdapter.chat`), and `ClaudeStream` (`stream.ts`) is the one there is. `sessions/memory.itest.ts`
+  drives `Sessions` with a transport in memory. Another
   transport (the Agent SDK's) would be another `chat` of an adapter, with the messages in the CLI's shapes, the
   transcript unchanged. The adapter adds `HEADLESS` to the same arguments as a terminal
   session (`claude.ts`); the CLI is spawned on pipes, detached, in the object's folder, with the terminal
