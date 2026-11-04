@@ -54,7 +54,12 @@ mac:
   hardenedRuntime: false
   notarize: false
 
-# A stand-in for checking the packaging where macOS is not at hand (`pnpm pack:check`): the same files, asar and
-# resources as the Mac app, in a folder. It is no release and no way to install torno on Linux.
+# Linux (`pnpm dist:linux`): an AppImage and a tar.gz of the same folder, in `app/dist/`. Not signed, and not
+# installed by torno: `scripts/torno --install-desktop` is for a clone. `pnpm pack:check` builds the folder alone
+# (`--linux dir`), the files the tar.gz holds, to check the packaging with `e2e/packaged.spec.ts`. No Windows build.
 linux:
-  target: dir
+  target: [AppImage, tar.gz]
+  category: Development
+  icon: resources/icon.png
+  maintainer: luisg0nc
+  synopsis: A workbench for making CAD parts with an AI coding agent

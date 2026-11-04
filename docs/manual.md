@@ -150,8 +150,8 @@ paste, cut, select all and undo (`⌘C`, `⌘V`, `⌘X`, `⌘A`, `⌘Z`) come fr
 terminal. `⌘Q` asks first, as closing the window does ("Close torno?" while something would be cut short);
 the Dock's Quit and a logout do not ask. There is no Close item, no reload and no zoom. Run from the
 repository, the menu bar names the app "Electron" (the bundle of `node_modules/electron`); a packaged app is
-"torno". On a Mac torno asks your login shell for its `PATH` at start, so `uv` and `claude` are found when torno
-is started from the Finder or the Dock.
+"torno". On a Mac, and on Linux, torno asks your login shell for its `PATH` at start, so `uv` and `claude` are found when torno
+is started from the Finder, the Dock or a launcher.
 
 On macOS, `pnpm dist:mac` makes `torno.app` in `app/dist/`: `mac-arm64/torno.app` on Apple silicon (and a zip
 beside it), `mac/torno.app` on an Intel Mac (`pnpm dist:mac -- --x64`). Copy it to `/Applications` and open it from
@@ -161,9 +161,14 @@ a workspace with no `pyproject.toml` is made at the first build of one, in
 `~/Library/Application Support/torno/kernel-env`, and never inside the app. The app is signed ad hoc and not
 notarized: one built on your own Mac opens as it is; one that was downloaded (the zip a CI run uploads, say) is
 quarantined, so right-click it and choose Open, or run `xattr -dr com.apple.quarantine torno.app`. Updating means
-building again. (`pnpm pack:check` builds the same files as a folder on Linux, `app/dist/linux-unpacked`, to check
-the packaging with `TORNO_PACKAGED=… pnpm -C app exec playwright test e2e/packaged.spec.ts`; it is no way to install
-torno on Linux.)
+building again.
+
+On Linux, `pnpm dist:linux` makes `torno-<version>.AppImage` and `torno-app-<version>.tar.gz` in `app/dist/` (make the
+AppImage executable and run it, or unpack the tar.gz and run `torno-app`). They carry the same files as the Mac app,
+are not signed, and need `uv` and `claude` as well (found through your login shell's `PATH`); the kernel's Python
+environment is made in `~/.config/torno/kernel-env`, never inside the package. There is no Windows build.
+`pnpm pack:check` builds the unpacked folder alone, `app/dist/linux-unpacked`, to check the packaging with
+`TORNO_PACKAGED=… pnpm -C app exec playwright test e2e/packaged.spec.ts`.
 
 ## Five minutes with torno
 
@@ -1653,7 +1658,7 @@ build is not built again until a source changes.
 - **"New session" says the agent's command was not found on PATH.** Torno
   looks for `claude` on the `PATH` it was started with. Started from a desktop launcher, that may
   not be your shell's: start torno from a terminal, or set
-  `TORNO_AGENT_CMD`. On macOS torno asks your login shell for its `PATH` (and adds `~/.local/bin`,
+  `TORNO_AGENT_CMD`. On macOS and Linux torno asks your login shell for its `PATH` (and adds `~/.local/bin`,
   `/opt/homebrew/bin`, `/usr/local/bin` and `~/.claude/local` where they exist); if that fails it says so on stderr.
 - **The window does not come up, or stays blank.** Try
   `TORNO_OZONE=x11 scripts/torno`, then `TORNO_OZONE=wayland`. Torno draws

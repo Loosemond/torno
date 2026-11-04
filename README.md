@@ -132,7 +132,7 @@ server on `127.0.0.1`. See [Projects and builds](docs/manual.md#projects-and-bui
 
 ### Requirements
 
-- Linux or macOS
+- Linux or macOS (not Windows: the launcher, the terminal view and the login-shell `PATH` are for Unix; WSL2 is untried)
 - Node.js 22.12 or later, and pnpm 10
 - [uv](https://docs.astral.sh/uv/) (it fetches Python 3.11 or 3.12 if you have neither)
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`) on your `PATH`, logged in
@@ -161,8 +161,9 @@ The launcher rebuilds the app when the sources change, so `git pull` and run it 
 **Open the example** opens a few small projects in a temporary copy, so you can try everything without touching
 your own files.
 
-On Linux, `scripts/torno --install-desktop` adds torno to your application launcher. On macOS,
-`pnpm dist:mac` builds `torno.app` in `app/dist/` (signed ad hoc, not notarized). More in
+On Linux, `scripts/torno --install-desktop` adds torno to your application launcher, or `pnpm dist:linux` builds an
+AppImage and a tar.gz in `app/dist/`. On macOS, `pnpm dist:mac` builds `torno.app` in `app/dist/` (signed ad hoc, not
+notarized). More in
 [Run](docs/manual.md#run).
 
 ### Your first five minutes
