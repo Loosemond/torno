@@ -211,7 +211,7 @@ describe('scan_clash', () => {
     const doubt = 'the model is no longer under 2 of its 4 points (worst 6.2 mm off) on r12: check the alignment'
     expect(said.alignment.stale).toBe(doubt)
     expect(said.note).toBe(`S1's alignment may no longer hold: ${doubt}`)
-    expect(said.reading).toMatch(new RegExp(`^scan_clash tub vs S1 \\(assembly, r12\\): S1's alignment may no longer hold: ${doubt.replace(/[()]/g, '\\$&')}\\. ≈ 2,168 scan points inside`))
+    expect(said.reading).toMatch(new RegExp(`^scan_clash tub vs S1 \\(assembly, r12\\): S1's alignment may no longer hold: ${doubt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\. ≈ 2,168 scan points inside`))
     expect(said.inside.count).toBe(2168)
     const rough = data(await scanClashTool(fake([scan('S1', { assembly: ROUGH })]), 'box', { part: 'tub' }))
     expect(rough.alignment).toMatchObject({ state: 'aligned', basis: 'pairs', rough: ROUGH.rough })
