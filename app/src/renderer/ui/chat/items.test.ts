@@ -30,3 +30,24 @@ describe('what is drawn under an item', () => {
     expect(out).not.toContain('torno added')
   })
 })
+
+describe('a turn that has ended', () => {
+  const read = (n: number): ChatItem => ({ ...tool, id: `r${n}`, toolUseId: `tr${n}`, name: 'Read', input: { file_path: `/ws/${n}.py` } })
+  const turn: ChatItem = { kind: 'turn', id: 'end', ok: true, stopped: false, seconds: 2, pulled: {} }
+  const todo: ChatItem = { kind: 'tool', id: 'todo', toolUseId: 'tt', name: 'TodoWrite', torno: false, input: { todos: [{ content: 'Look', status: 'in_progress', activeForm: 'Looking' }] }, state: 'done', images: [] }
+
+  it('draws a run of finished tools as one line, and every line again while the turn goes on', () => {
+    const run = [user, read(1), read(2), read(3)]
+    const over = drawn([...run, turn])
+    expect(over.match(/data-kind="tool"/g)).toBeNull()
+    expect(over).toContain('Read 3 files')
+    expect(drawn(run).match(/data-kind="tool"/g)).toHaveLength(3)
+  })
+
+  it('draws the agent\'s list as a card of its own', () => {
+    const out = drawn([user, todo, turn])
+    expect(out).toContain('data-kind="tasks"')
+    expect(out.replace(/<[^>]*>/g, '')).toContain('Looking')
+    expect(out).not.toContain('data-kind="tool"')
+  })
+})

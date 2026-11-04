@@ -699,6 +699,16 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   moves the camera. A finished `highlight` has "Point again" (`pointAgain`) only for a card that was seen as it
   happened (`noteTool` in the chat's `onItem` keeps the object and build on show then: a ref names whatever that face is
   in the build it was read from), and only while the window shows that build. A refusal is a line under the card.
+- **A turn's tool lines fold, and the agent's list is kept in sight** (`ui/chat/fold.ts`, `tasks.ts`, `Tasks.tsx`; drawing
+  only: the items, `MAX_ITEMS` and the log are as main made them). `ChatItems` draws `foldRuns` of what it has: a run of
+  `FOLD_AT` (3) tools or more that are the agent's own, `done`, with no picture and nothing under them (no build line), and
+  not a task tool, which lies before the last `turn` item, is one line (`ToolFold`, `foldLabel`: `Read 3 files, Grep ×2,
+  Bash`, opening into the lines); thoughts that are over between its tools are part of it, any other item ends it, and a
+  turn still going on folds nothing. A card's `done` is not written (`data-state` has it); the other states keep their word.
+  The agent's list is read from the cards (`tasksNow`, `listsAt`): `TodoWrite` is the list whole, `TaskCreate` adds one
+  (numbered as its result says, else in order) and `TaskUpdate` changes or removes one; a call that did not end `done` writes
+  nothing. `TasksBar` is above the box while the session works and a task is left; `TasksCard` is the list as it stood at a
+  `TodoWrite`, or under the last of a run of task tools. Which of the two the real CLI uses is for a hand check.
 - **"Draw on view"** (`ui/drawing/`, `state/drawing.ts`). The ground is the agent's own picture of the view
   (`picture({ view: 'current', size: 1280 })`, the code of `look`), opened on `ui/board/Board.tsx` by `ViewBoard`, over
   the whole window as the export sheet is. The ink is `--drawing-ink` over a casing in `--panel` (`InkLook`), read once
