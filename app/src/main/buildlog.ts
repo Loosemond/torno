@@ -35,16 +35,36 @@ export interface BuildRecord extends BuildIdentity {
  * characters.
  */
 export async function sourcesHash(dir: string, uses: readonly string[] = []): Promise<string> {
+  return hashOf(await readSources(dir, uses))
+}
+
+/** A source file as read: by its path from the workspace, with `/`, and its bytes. */
+export interface SourceFile {
+  path: string
+  bytes: Uint8Array
+}
+
+/** The Python files `sourcesHash` goes by, absolute, in the order of their paths. */
+async function sourcePaths(dir: string, uses: readonly string[]): Promise<string[]> {
   const root = dirname(dir)
   const own = async (folder: string): Promise<string[]> => (await readdir(folder).catch(() => [] as string[])).filter((name) => name.endsWith('.py')).map((name) => join(folder, name))
   const outside = uses.map((file) => resolve(root, file)).filter((file) => file.endsWith('.py') && !relative(root, file).startsWith('..'))
-  const files = [...new Set([...(await own(dir)), ...(await own(join(root, 'common'))), ...outside])].sort()
+  return [...new Set([...(await own(dir)), ...(await own(join(root, 'common'))), ...outside])].sort()
+}
+
+/** The files a build is made from, read; one that cannot be read counts as absent. The history keeps copies of these. */
+export async function readSources(dir: string, uses: readonly string[] = []): Promise<SourceFile[]> {
+  const root = dirname(dir)
+  const read = await Promise.all((await sourcePaths(dir, uses)).map(async (file) => ({ path: relative(root, file).split(sep).join('/'), bytes: await readFile(file).catch(() => null) as Uint8Array | null })))
+  return read.flatMap((f) => (f.bytes === null ? [] : [{ path: f.path, bytes: f.bytes }]))
+}
+
+/** The hash of files as read (`sourcesHash`): twelve hex characters. */
+export function hashOf(files: readonly SourceFile[]): string {
   const hash = createHash('sha256')
   for (const file of files) {
-    const bytes = await readFile(file).catch(() => null)
-    if (bytes === null) continue
-    hash.update(`${relative(root, file).split(sep).join('/')}\0${bytes.length}\0`)
-    hash.update(bytes)
+    hash.update(`${file.path}\0${file.bytes.length}\0`)
+    hash.update(file.bytes)
   }
   return hash.digest('hex').slice(0, 12)
 }

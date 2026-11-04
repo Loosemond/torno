@@ -550,12 +550,18 @@ test('an object whose build the kernel let go says so in the status line', async
 })
 
 test('the workspace is written nowhere but under .torno/', async () => {
-  const added = () => readdirSync(root, { recursive: true, encoding: 'utf8' }).filter((path) => !existsSync(join(fixtures, path)) || path.includes('__pycache__'))
+  const all = () => readdirSync(root, { recursive: true, encoding: 'utf8' }).filter((path) => !existsSync(join(fixtures, path)) || path.includes('__pycache__'))
+  // The builds kept (`.torno/history/`) are many and numbered: held to their own folder, and looked at by what they hold.
+  const added = () => all().filter((path) => !path.includes('.torno/history/'))
   // Every object that was opened has its state file, built or not; it follows the last build by a second.
   // One that built has the picture of its card, what that is of, and the word to git to pass over the two.
   await expect
     .poll(() => added().sort())
-    .toEqual(['bracket/.torno', 'bracket/.torno/.gitignore', 'bracket/.torno/builds.jsonl', 'bracket/.torno/scene.json', 'bracket/.torno/state.md', 'bracket/.torno/thumb.json', 'bracket/.torno/thumb.png', 'noscene/.torno', 'noscene/.torno/.gitignore', 'noscene/.torno/state.md', 'two/.torno', 'two/.torno/.gitignore', 'two/.torno/state.md'])
+    .toEqual(['bracket/.torno', 'bracket/.torno/.gitignore', 'bracket/.torno/builds.jsonl', 'bracket/.torno/history', 'bracket/.torno/scene.json', 'bracket/.torno/state.md', 'bracket/.torno/thumb.json', 'bracket/.torno/thumb.png', 'noscene/.torno', 'noscene/.torno/.gitignore', 'noscene/.torno/state.md', 'two/.torno', 'two/.torno/.gitignore', 'two/.torno/state.md'].sort())
+  const kept = all().filter((path) => path.includes('.torno/history/'))
+  expect(kept.length).toBeGreaterThan(0)
+  expect(kept.every((path) => path.startsWith('bracket/.torno/history/'))).toBe(true)
+  expect(kept).toContain('bracket/.torno/history/index.json')
 })
 
 test.describe('the workspace is remembered', () => {

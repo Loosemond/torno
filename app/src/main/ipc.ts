@@ -16,6 +16,8 @@ import type { ViewState } from '../shared/view'
 import type { ObjectInfo, RecentFolder, WorkspaceInfo } from '../shared/workspace'
 import { Builds, buildTimeout, watchFolder } from './builds'
 import { BuildLog } from './buildlog'
+import { History } from './history'
+import type { Verdict } from '../shared/sanity'
 import { gitStateRecently } from './git'
 import { keepExample } from './example'
 import { type ExportDeps, exportFile, exportPlan, forgetExportScans } from './export/build'
@@ -107,6 +109,7 @@ interface OpenWorkspace {
   builtFrom: Map<string, { revision: number; startedMs: number | undefined }>
   /** What each successful build of this run was made from, and `.torno/builds.jsonl` (`main/buildlog.ts`). */
   buildLog: BuildLog
+  history: History
 }
 
 let current: OpenWorkspace | null = null
@@ -244,7 +247,7 @@ export async function openWorkspace(root: string, opts: { example?: boolean } = 
         })
       })
   })
-  const ws: OpenWorkspace = { info, scan: scanOrder(), kernel, builds, opened: new Set(), shown: null, started: new Map(), builtFrom: new Map(), buildLog: new BuildLog() }
+  const ws: OpenWorkspace = { info, scan: scanOrder(), kernel, builds, opened: new Set(), shown: null, started: new Map(), builtFrom: new Map(), buildLog: new BuildLog(), history: new History() }
   builds.on('build', (state) => {
     if (state.status === 'building' && state.startedAt !== undefined) ws.started.set(state.objectId, state.startedAt)
     broadcast('object:build', state)
@@ -256,7 +259,12 @@ export async function openWorkspace(root: string, opts: { example?: boolean } = 
     ws.builtFrom.set(objectId, { revision, startedMs: ws.started.get(objectId) })
     // What it was made from is found and kept (the sources hashed, git read), and a line is added to `builds.jsonl`.
     const obj = ws.info.objects.find((o) => o.id === objectId)
-    if (obj) void ws.buildLog.record(obj, revision, scene)
+    if (obj) {
+      const made = ws.buildLog.record(obj, revision, scene)
+      void made.catch(() => {})
+      // And the build is kept in the object's history (`.torno/history/`), in the order the builds landed.
+      void ws.history.keep(obj, made, scene)
+    }
     broadcast('object:scene', { objectId, revision, scene, blob: toArrayBuffer(blob) })
   })
   // Every successful build may have renumbered the faces, moved the surfaces or dropped the parts that
@@ -397,6 +405,15 @@ export function openObjectId(): string | null {
 /** Where the build of an object stands, once the object has been opened. */
 export function buildState(id: string): BuildState | undefined {
   return current?.builds.state(id)
+}
+
+/** What the person's dimensions said of build `revision` of an object when it was last checked: kept with its entry in the history. */
+export function keepDimensions(id: string, revision: number | undefined, verdicts: ReadonlyMap<string, Verdict> | undefined): void {
+  const obj = findObject(id)
+  if (!current || !obj || revision === undefined || !verdicts) return
+  const counts = { pass: 0, fail: 0, none: 0 }
+  for (const v of verdicts.values()) counts[v] += 1
+  void current.history.dimensions(obj, current.buildLog.run, revision, counts)
 }
 
 /** The last successful build of an object. */
@@ -1006,7 +1023,14 @@ export function registerIpc(
   })
   ipcMain.on('show:saveThumbnail', (_event, objectId: string, revision: number, png: Uint8Array, of: ThumbnailOf) => {
     keepThumbnail(keeping, String(objectId), revision, png, of).then(
-      (kept) => kept && cardsChanged(),
+      (kept) => {
+        if (!kept) return
+        cardsChanged()
+        // The picture of a build the window drew is kept with that build's entry in the history, when it has one.
+        const ws = current
+        const obj = findObject(String(objectId))
+        if (ws && obj) void ws.history.thumbnail(obj, ws.buildLog.run, revision, png)
+      },
       (e) => console.error(`cannot keep the picture of ${String(objectId)}: ${e instanceof Error ? e.message : String(e)}`)
     )
   })
