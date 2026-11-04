@@ -23,9 +23,10 @@ function Row({ row }: { row: DiffRow }) {
 
 /**
  * An edit of a file as lines removed (struck through, with a "−") and added (with a "+"), one block for each edit.
- * Text only, in the monospace face. Neither red nor green: those belong to marks and verdicts.
+ * Text only, in the monospace face. Neither red nor green: those belong to marks and verdicts. `ofEdit` false: the hunks
+ * are of a whole file (the sheet "See changes"), which the caption on an edit's lines would not be true of.
  */
-export function Diff({ hunks }: { hunks: Hunk[] }) {
+export function Diff({ hunks, ofEdit = true }: { hunks: Hunk[]; ofEdit?: boolean }) {
   return (
     <div className="diff selectable">
       {hunks.map((hunk, n) => (
@@ -43,7 +44,7 @@ export function Diff({ hunks }: { hunks: Hunk[] }) {
           )}
         </div>
       ))}
-      <p className="diff-note diff-caption">Lines of the edit, not of the file: where it lands is not shown</p>
+      {ofEdit && <p className="diff-note diff-caption">Lines of the edit, not of the file: where it lands is not shown</p>}
     </div>
   )
 }

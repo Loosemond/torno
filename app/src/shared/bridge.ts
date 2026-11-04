@@ -1,4 +1,5 @@
 import type { BuildState } from './build'
+import type { TurnChanges } from './changes'
 import type { AgentChoice, ChatAnswer, ChatHistory, ChatCommand, ChatItem, ChatMeta, ChatModel, Effort } from './chat'
 import type { ExportPlan, ExportRequest, ExportSaved } from './exportdata'
 import type { Described, MeasureProbe, MeasuredOnce } from './geometry'
@@ -279,6 +280,13 @@ export interface TornoBridge {
     lastConversation(objectId: string): Promise<{ items: ChatItem[]; at: string | null } | null>
     /** The bytes of a picture of the person's in the session's object, `reference/photo-1.jpg` (`ChatImage.file`), read again by main: none for a file that is not a plain file of a name torno gives there, or for a session that is not of the open workspace. Also for a session that has ended. */
     reference(sessionId: string, file: string): Promise<{ mediaType: string; bytes: Uint8Array } | null>
+    /**
+     * What a turn changed in the `.py` files directly in the project's folder, by the id of the turn's item: the text of
+     * each file that differs, as it was when the prompt was sent and when the turn ended. Held by main in memory for the
+     * last turns of the session only (never written, never in the chat's log): null for a turn it holds none of, which
+     * is also one that changed no file there, and for a session that is not of the open workspace.
+     */
+    changes(sessionId: string, turnId: string): Promise<TurnChanges | null>
     /** An item of the transcript was added or changed. One whose `seq` is not above the `seq` of the history asked for before holds nothing the history does not. */
     onItem(cb: (m: { sessionId: string; item: ChatItem; seq: number }) => void): () => void
     onMeta(cb: (m: { sessionId: string; meta: ChatMeta; seq: number }) => void): () => void
