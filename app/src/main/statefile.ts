@@ -5,6 +5,7 @@ import type { Mark } from '../shared/marks'
 import type { BuildDigest } from '../shared/sanity'
 import { type ScanInfo, importText } from '../shared/scans'
 import { groupsIn } from '../shared/groups'
+import { sourceOf, isSize } from '../shared/params'
 import type { Scene } from '../shared/scene'
 import { type SavedView, viewGone } from '../shared/views'
 import type { ObjectInfo } from '../shared/workspace'
@@ -59,6 +60,11 @@ export function stateText(obj: ObjectInfo, build: BuildState | undefined, last: 
     }
     // Exact only where the kernel says so.
     if (last.scene.parts.some((p) => p.bboxExact !== true)) lines.push('', 'A size with ≈ is approximate (the part has freeform or turned faces): measure it for a number to rely on.')
+  }
+  const sized = (last?.scene.params ?? []).filter(isSize)
+  if (sized.length > 0) {
+    lines.push('', '## Params', '', 'The model says where each size comes from (the first word of its comment); torno has not checked it.', '')
+    for (const param of sized) lines.push(`- ${param.name} = ${String(param.default)}: ${sourceOf(param.doc) === 'unsaid' ? 'no source' : (param.doc ?? '').split(':')[0]?.trim()}`)
   }
   if (views && views.length > 0) lines.push('', `Saved views: ${views.map((view) => viewSaid(view, last?.scene)).join(', ')}.`)
   if (scans && scans.length > 0) {
