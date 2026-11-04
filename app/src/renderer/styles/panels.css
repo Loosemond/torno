@@ -646,3 +646,63 @@ button.param-button:focus-visible {
   color: var(--muted);
   font-size: var(--text-small);
 }
+
+/* A field the person may try another value for: the control under its name, and, where the build is made with a value other than the file's, that and a Reset. */
+.param-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 var(--space-2) 3px var(--space-4);
+}
+
+.param-number {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.param-input {
+  min-width: 0;
+  width: 6.5em;
+  height: 24px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--field-edge);
+  border-radius: var(--radius-control);
+  background: var(--panel);
+  color: inherit;
+  font: inherit;
+  font-size: var(--text-small);
+}
+
+.param-slider {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.param-differs {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.param-row[data-tried] .param-name {
+  color: var(--accent);
+}
+
+.param-note,
+.params-problem {
+  margin: 0;
+  padding: 0 var(--space-2) 3px var(--space-4);
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.params-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+}

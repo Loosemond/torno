@@ -1,5 +1,5 @@
 import { number } from '../../shared/format'
-import type { Param } from '../../shared/scene'
+import type { Param, ParamKind, ParamValue } from '../../shared/scene'
 
 /** What the Parameters section draws for one field of the model's `Params`. */
 export interface ParamRow {
@@ -16,6 +16,18 @@ export interface ParamRow {
   doc: string | null
   /** The row's tooltip: the name, the type as written, the value whole and the comment. */
   title: string
+  /** What the person may try in its place (a number, a flag or a choice), else null: the row is text. */
+  editable: ParamKind | null
+  /** What the last build used: the default, or the value the person is trying. */
+  current: ParamValue | null
+  /** The values of a `Literal` field. */
+  choices: Array<string | number>
+  /** Its least, most and step, where the model's own `metadata` says. */
+  range: { min?: number; max?: number; step?: number }
+  /** The build was made with a value other than the file's: the file's default as read, else null. */
+  file: string | null
+  /** Why an override of it was let go of, as main noted it, else null. */
+  note: string | null
 }
 
 /** A value as Python writes it, numbers to four significant digits, or whole. */
@@ -29,8 +41,11 @@ function show(value: unknown, whole: boolean): string {
   return String(value)
 }
 
+/** Whether the last build was made with a value other than the file's default for this field. */
+export const tried = (param: Param): boolean => param.value !== undefined && param.value !== param.default
+
 /** The row of a field. No unit is taken from its comment: the comment is shown as it was written. */
-export function paramRow(param: Param): ParamRow {
+export function paramRow(param: Param, note: string | null = null): ParamRow {
   const worked = !param.literal
   const nothing = worked && param.default === null
   const value = nothing ? null : show(param.default, false)
@@ -44,6 +59,28 @@ export function paramRow(param: Param): ParamRow {
     full: whole !== null && whole !== value ? whole : null,
     worked,
     doc: param.doc,
-    title: param.doc ? `${said}. ${param.doc}` : said
+    title: param.doc ? `${said}. ${param.doc}` : said,
+    editable: param.editable ?? null,
+    current: ((): ParamValue | null => {
+      const used = param.value === undefined ? param.default : param.value
+      return typeof used === 'number' || typeof used === 'boolean' || typeof used === 'string' ? used : null
+    })(),
+    choices: param.choices ?? [],
+    range: param.metadata ?? {},
+    file: tried(param) ? show(param.default, false) : null,
+    note
   }
+}
+
+/**
+ * What "Ask the agent to bake it in" puts in the chat box: the model is the agent's to edit, so the values the
+ * person tried are asked for as defaults, each with what the file has.
+ */
+export function bakeText(params: readonly Param[]): string {
+  const asked = params.filter(tried)
+  if (asked.length === 0) return ''
+  const each = asked.map((p) => `Params.${p.name} to ${show(p.value, true)} (the file has ${show(p.default, true)})`)
+  const list = each.length === 1 ? each[0] : `${each.slice(0, -1).join(', ')} and ${each.at(-1)}`
+  const them = asked.length === 1 ? 'it' : 'them'
+  return `Make ${list} the default${asked.length === 1 ? '' : 's'} in the model: I tried ${them} in torno and want to keep ${them}.`
 }

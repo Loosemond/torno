@@ -381,8 +381,17 @@ its comment as the model has it, and, for a default the model works out (an expr
 number written in), that it is worked out in the model. The model's comments should begin with where a size
 comes from (`brief:`, `M3:`, `S1 ≈:`, `ref <file>:`, `object:`, `datasheet <name>:`, `person:`, `derived:` or
 `assumed:`), and under the title a line counts the sizes that say `assumed` and those that say nothing, their
-names on hover; it is what the model says, not something torno has checked. It is read only: torno never writes
-the model. With a session running, a click on a row puts `Params.wall` in its prompt at the
+names on hover; it is what the model says, not something torno has checked. torno never writes the model. A
+field whose default is a number or a flag written in the file (`wall: float = 2`, `lid: bool = True`), or a
+`Literal["round", "square"]`, has a control under its name: type a number and press Enter, or let go of a slider
+(the model gives one with `field(default=2.0, metadata={"min": 1, "max": 5, "step": 0.2})`), tick the box, or choose
+from the list. The project is built again with that value, and the row says `differs from the file` with a
+"Reset" beside it; "Reset all" and "Ask the agent to bake it in" (which puts a request in the session's prompt,
+never sent) are under the title while any value is tried. What you try is kept in `.torno/params.json` and the file
+always wins: if the model's default for that field changes, your value is let go of and the row says so, and a value
+the model no longer offers is let go of the same way. The agent is told, with every prompt, which values the build
+is made with. The model only sees a tried value where it is given `p`: a helper that makes `Params()` itself does not.
+With a session running, a click on a row puts `Params.wall` in its prompt at the
 cursor, never sent, so you can write "make Params.wall 2.4" around it; with no session the rows say
 to start one. Checks lists what the model declares in its `checks(p)` (see Projects and builds), under
 Parameters and folded at first to a title that says how many fail (`Checks 3 · 1 fails`; a model
@@ -1728,6 +1737,7 @@ place.
 | File | What | In git |
 |---|---|---|
 | `scene.json` | how you last looked at the project: the layout, the layer visibility, the section, the explode of each layout, how each scan is shown, and the saved views (`views`) | travels with the project |
+| `params.json` | the values you are trying in place of the model's `Params` defaults, with the default the file had; the model file is never written | ignored |
 | `marks.json` | the marks of the project: yours and the agent's, with their notes, anchors and status; of a dimension also what is expected of it and the value last measured | travels |
 | `scans.json` | the scans of the project: where each source file is and its hash, how it was imported, and its alignment in each layout | travels |
 | `scans/<id>/mesh.bin`, `<mark>.mask` | the scan as torno draws and checks it, and the triangles of each region | the meshes are ignored (`scans/.gitignore`): a clone has the record, and the row offers "Import again" |
@@ -2101,7 +2111,9 @@ On the screen:
   monospace face, the comment as written (cut to two lines, whole on hover), "worked out in the model" on the expression's.
   With a real session running, in the chat and then in the terminal view, a click on a row puts `Params.wall` at the
   cursor of the box (or the prompt) and sends nothing, with the dock hidden as well; with no session the rows are
-  not clickable. Legible in light and dark, and Marks keeps its five rows with the section open.
+  not clickable. Legible in light and dark, and Marks keeps its five rows with the section open. Try a value in a
+  number field and with a slider (the field with a `metadata` range), tick a flag and choose from a list: the build
+  runs once the slider is let go, not while it moves; the row says it differs from the file and Reset brings it back.
 - **The clipboard in the terminal.** Select text in a session and press `Ctrl+Shift+C`, then `Ctrl+Shift+V`: it is copied and pasted. No test touches the clipboard. "Copy" on the build error sheet likewise.
 - **By eye.** On a monitor, in dark and in light: text, marks, part edges and the terminal's colours are legible; the scrollbars are the thin grey ones, also in the list of projects and on the page of projects in the dark theme; a mark that has moved says so on a line under its note. `?` typed in a field on your own keyboard (with its dead keys) is a question mark.
 - **The doodle board with a mouse and a pen.** Draw with a mouse, a tablet pen and a touch screen: the line follows the pointer without lag, the eraser takes away what it crosses, `Ctrl+Z` takes the last stroke back, and the PNG Claude gets is dark on white in both themes. Tests drew with synthetic pointer events only. A photo dropped from the file manager on the new project's page is taken too; a test cannot drop a file with a path.
