@@ -213,8 +213,8 @@ that was not shown; step 7 with a stand-in for the agent.
    the arrow on the plane, or use the arrow keys, to move it. "Off" in the bar
    takes the cut away, and `Esc` puts the tool down.
 
-7. In the pane on the right, press "New session". With Claude Code, type
-   "what did I mark?" and press Enter: your two marks go with the prompt, as
+7. In the pane on the right, write "what did I mark?" in the box and press Enter
+   (it starts a session and sends the prompt; "New session" starts one without): your two marks go with the prompt, as
    text: the face, the point, your note, the measured value and whether it
    passes. From then on they show as sent. The agent can ask torno for a
    picture (`look`), a measurement (`measure`) and a cut (`section`), and it
@@ -458,7 +458,12 @@ posts no system notification. "New session"
 starts one, in place of the session running there, if any; torno asks first if
 that one is in the middle of its work. "End" ends the session and starts
 none, asking first in the same way. "Resume" continues the last
-conversation Claude Code had there. ``Ctrl+` `` moves between the session and
+conversation Claude Code had there. In the chat view the empty pane has the box already: write, press
+`Enter`, and a session starts with your prompt. Where a conversation is on file its last turns are shown above the box,
+under "Last conversation, 2 days ago", with "Continue" (the default) and "New conversation" beside "Send"; the
+buttons "New session" and "Resume" start one with no prompt and leave what you wrote in its box, unsent. If
+the folder has Claude Code settings of its own, the question is asked first and your prompt waits in the box. The empty
+pane has no "Attach view" or "Draw on view": those are of a session. ``Ctrl+` `` moves between the session and
 the viewport. In a terminal `Shift+Enter` is a new line, `Ctrl+Shift+C` and
 `Ctrl+Shift+V` copy and paste.
 

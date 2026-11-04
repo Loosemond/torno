@@ -10,6 +10,27 @@
 }
 
 /* Positioned, so that a picture shown large and the button that brings the reader down lie over the transcript only. */
+/* The pane with no session: the end of the last conversation and the buttons above, the box at the foot. */
+.chat-start {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.chat-start-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  user-select: text;
+}
+
+.chat-start .session-actions {
+  margin-top: var(--space-3);
+}
+
 .chat-scroll {
   position: relative;
   flex: 1;
