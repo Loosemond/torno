@@ -140,7 +140,7 @@ test('before an object has been built, scene and look say there is no build', as
     expect(result.text, name).toBe('no build yet: bracket has not been opened in the torno window')
   }
   // The marks are the object's, built or not: there are none yet.
-  expect(await call(bracket, 'marks')).toMatchObject({ isError: false, text: '{"revision":null,"marks":[]}' })
+  expect(await call(bracket, 'marks')).toMatchObject({ isError: false, text: '{"revision":null,"marks":[],"listed":"open marks; resolved ones with status resolved, or by ids"}' })
   const nothing = await call(await connect('no such object'), 'scene')
   expect(nothing).toMatchObject({ isError: true, text: 'unknown project: no such object' })
 })
@@ -161,7 +161,7 @@ test('scene reports the build, the parts and what the window shows', async () =>
     camera: { ortho: false }
   })
   expect(scene).not.toHaveProperty('note')
-  expect(scene.parts.map((p: { layout: string; name: string }) => `${p.layout}:${p.name}`)).toEqual(['assembly:base', 'assembly:post', 'print:base', 'print:post'])
+  expect(scene.parts.map((p: { layout: string; name: string }) => `${p.layout}:${p.name}`)).toEqual(['assembly:base', 'assembly:post'])
   expect(scene.parts[0]).toMatchObject({ name: 'base', visible: true, size: [40, 30, 5], bbox: { min: [-20, -15, -2.5], max: [20, 15, 2.5] }, volume: 6000, faces: 6, edges: 12, valid: true })
   expect(scene.parts[1]).toMatchObject({ name: 'post', visible: true, size: [8, 8, 20], volume: 1005.31 })
 })
@@ -595,7 +595,7 @@ test('for an object that is not the one open, look refuses and scene says what i
   const scene = JSON.parse((await call(bracket, 'scene')).text)
   expect(scene).toMatchObject({ object: 'bracket', build: { status: 'ok', revision: 1 }, layout: null, camera: null })
   expect(scene.note).toContain('not the project open in the torno window (open: plain)')
-  expect(scene.parts).toHaveLength(4)
+  expect(scene.parts).toHaveLength(2)
   expect(scene.parts[0]).not.toHaveProperty('visible')
 
   // The object that is open answers at its own address.
