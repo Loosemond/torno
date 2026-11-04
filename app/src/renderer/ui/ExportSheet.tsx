@@ -1,6 +1,6 @@
 import { hint, pressed } from '../../shared/keys'
 import { useEffect, useRef, useState } from 'react'
-import { type ExportChecked, type ExportFormat, type ExportPlan, type ExportRequest, type ExportSaved, EXPORT_FORMATS, FORMAT_NAMES, MESH_ANGLE, MESH_ANGLES, MESH_TOLERANCE, MESH_TOLERANCES, type ModelFormat, SCAN_WARNING, defaultLayout, megabytes } from '../../shared/exportdata'
+import { type ExportChecked, type ExportFormat, type ExportPlan, type ExportRequest, type ExportSaved, EXPORT_FORMATS, FORMAT_NAMES, MESH_ANGLE, MESH_ANGLES, MESH_TOLERANCE, MESH_TOLERANCES, type ModelFormat, NOT_BUILT, SCAN_WARNING, defaultLayout, megabytes } from '../../shared/exportdata'
 import { count, number } from '../../shared/format'
 import { typed } from './typed'
 import { setExporting } from '../closing'
@@ -69,13 +69,13 @@ function Checked({ checked }: { checked: ExportChecked }) {
  * scans are off until ticked: a note may be private, and a scan may show the real world. "Export" asks main,
  * which asks where to save; the window never names a path.
  */
-export function ExportSheet() {
+export function ExportSheet({ onOpen }: { onOpen: (id: string, ticked: string[]) => void }) {
   const of = useStore((s) => s.exportOf)
   if (of === null) return null
-  return <Sheet key={of === 'all' ? 'all' : of.join('\n')} of={of} />
+  return <Sheet key={of === 'all' ? 'all' : of.join('\n')} of={of} onOpen={onOpen} />
 }
 
-function Sheet({ of }: { of: string[] | 'all' }) {
+function Sheet({ of, onOpen }: { of: string[] | 'all'; onOpen: (id: string, ticked: string[]) => void }) {
   const names = useStore((s) => s.workspace?.objects ?? NONE)
   const [objects, setObjects] = useState<string[] | null>(of === 'all' ? null : of)
   const [marks, setMarks] = useState(false)
@@ -186,6 +186,15 @@ function Sheet({ of }: { of: string[] | 'all' }) {
     setBusy(null)
   }
 
+  /** "Show in folder" or "Open in browser" of the file just saved: main knows which; a refusal is told like any error. */
+  async function after(done: Promise<void>): Promise<void> {
+    try {
+      await done
+    } catch (e) {
+      setSaid((was) => ({ ...was, error: e instanceof Error ? e.message : String(e) }))
+    }
+  }
+
   const can = (plan?.objects ?? []).filter((object) => object.exportable)
   const cannot = (plan?.objects ?? []).filter((object) => !object.exportable)
   const chosen = can.filter((object) => ticked.includes(object.id))
@@ -292,11 +301,32 @@ function Sheet({ of }: { of: string[] | 'all' }) {
             {plan === null && <li className="export-what">Looking at what there is…</li>}
           </ul>
           {/* What cannot be exported, in a line for each reason: an object with no build of this run is not built for an export. */}
-          {[...new Set(cannot.map((object) => object.why))].map((why) => (
-            <p key={why} className="export-cannot">
-              {why}: {cannot.filter((object) => object.why === why).map((object) => nameOf(object.id)).join(', ')}
-            </p>
-          ))}
+          {[...new Set(cannot.map((object) => object.why))].map((why) => {
+            const left = cannot.filter((object) => object.why === why)
+            const unbuilt = why === NOT_BUILT
+            return (
+              <p key={why} className="export-cannot">
+                {why}:{' '}
+                {left.map((object, n) => (
+                  <span key={object.id}>
+                    {n > 0 && ', '}
+                    {unbuilt ? (
+                      <button type="button" className="link-button" disabled={busy === 'saving'} title={`Open ${nameOf(object.id)}, wait for its build, and come back here`} onClick={() => onOpen(object.id, objects ?? can.map((one) => one.id))}>
+                        {nameOf(object.id)}
+                      </button>
+                    ) : (
+                      nameOf(object.id)
+                    )}
+                  </span>
+                ))}
+                {unbuilt && (
+                  <>
+                    . <span className="num">{count(left.length)}</span> not built in this run.
+                  </>
+                )}
+              </p>
+            )
+          })}
 
           {model && modelEntry && (
             <ModelChoices
@@ -471,7 +501,17 @@ function Sheet({ of }: { of: string[] | 'all' }) {
             )}
             {said?.saved && (
               <p className="export-saved">
-                Saved to <span className="export-path">{said.saved.path}</span>
+                Saved to <span className="export-path">{said.saved.path}</span>{' '}
+                <span className="export-after">
+                  <button type="button" className="link-button" onClick={() => void after(window.torno.export.reveal())}>
+                    Show in folder
+                  </button>
+                  {(said.saved.checked?.format ?? 'html') === 'html' && (
+                    <button type="button" className="link-button" onClick={() => void after(window.torno.export.openSaved())}>
+                      Open in browser
+                    </button>
+                  )}
+                </span>
                 {said.saved.checked && (
                   <>
                     {' '}

@@ -1316,7 +1316,11 @@ A part costs about 10 bytes a triangle on top of 0.7 MB for the page itself:
 a project of one part and 12,000 triangles in two layouts is 1 MB. Over 12 MB
 the largest scan is reduced further, then left out, and the sheet says so;
 above 64 MB nothing is written. The file is written whole or not at all, and a
-name without `.html` gets it.
+name without `.html` gets it. Once it is saved, the sheet offers **Show in folder**
+and, for a page, **Open in browser**: they act on the file just written, which
+torno itself remembers. A project left out because it has no build of this run
+is a link in the sheet: it opens the project, and when its build lands the sheet
+comes back with it ticked beside the others.
 
 ### STEP, STL and 3MF
 

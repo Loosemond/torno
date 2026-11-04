@@ -89,6 +89,33 @@ function leavingReasons(): Reason[] {
 let opening = 0
 
 /** Show an object as its scene file left it, and have main watch and build it. */
+/**
+ * From the export sheet: a project left out because it has no build of this run is opened as any opening does, and
+ * when its build lands the sheet comes back with it ticked beside the rest. A build that fails, or the person going
+ * elsewhere, brings nothing back.
+ */
+async function openThenExport(id: string, ticked: string[]): Promise<void> {
+  actions.exportSheet(null)
+  await openObject(id)
+  const landed = (s: ReturnType<typeof store.getState>): boolean => s.objectId === id && s.scene !== null && s.revision > 0
+  if (!landed(store.getState())) {
+    const done = await new Promise<boolean>((resolve) => {
+      const stop = (ok: boolean): void => {
+        off()
+        clearTimeout(timer)
+        resolve(ok)
+      }
+      const off = store.subscribe((s) => {
+        if (landed(s)) stop(true)
+        else if (s.objectId !== id || s.build?.status === 'failed') stop(false)
+      })
+      const timer = setTimeout(() => stop(false), 120_000)
+    })
+    if (!done) return
+  }
+  actions.exportSheet(ticked.includes(id) ? ticked : [...ticked, id])
+}
+
 async function openObject(id: string): Promise<void> {
   const turn = ++opening
   // The one already open stays as it is: its selection, its camera, the note being written. From the page of objects it is gone back to.
@@ -359,7 +386,7 @@ export function App() {
         {page === 'objects' && <ShowPage onOpen={(id) => void openObject(id)} onExample={() => leave(EXAMPLE)} />}
         {page === 'new' && <NewObject onOpen={openObject} />}
         {/* Over either: what goes into an export, asked before anything is written. */}
-        <ExportSheet />
+        <ExportSheet onOpen={openThenExport} />
         {/* Over the view: a drawing on it for the chat, while its board is open. */}
         <ViewBoard />
       </main>

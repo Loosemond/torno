@@ -660,6 +660,10 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   handed to the system once it is named (`shell.openPath`; under test the path is put in
   `__tornoMain.openedFiles` and nothing is opened). The plan of such a file weighs nothing (`exportPlan`: each
   object's `layoutParts`, and `ONE_OBJECT` when several are ticked).
+- After a save the sheet offers `export:reveal` and `export:openSaved`. Neither takes an argument: they act on
+  `savedHere`, the path the last `export:save` wrote, kept in main until `export:done`, and refuse when the
+  file is gone. Under test they go through the `revealFile` and `openFile` hooks (`revealedFiles`,
+  `openedFiles`) and nothing is shown or opened.
 
 ## Agents
 

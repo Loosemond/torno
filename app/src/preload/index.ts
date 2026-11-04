@@ -122,6 +122,8 @@ const bridge: TornoBridge = {
   export: {
     plan: (req) => invokePlain('export:plan', req),
     save: (req) => invokePlain('export:save', req),
+    reveal: () => invokePlain('export:reveal'),
+    openSaved: () => invokePlain('export:openSaved'),
     done: () => ipcRenderer.send('export:done')
   },
   session: {

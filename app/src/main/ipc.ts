@@ -920,6 +920,8 @@ export function registerIpc(
     )
   })
 
+  /** The path `export:save` wrote last, for the sheet that is up: what "Show in folder" and "Open" act on. */
+  let savedHere: string | null = null
   // An export: one HTML file of the last build of this run of each object named, made in main from what it
   // holds, or a STEP, STL or 3MF file of one object, made by the kernel's worker of that build. Nothing is built
   // for it. A plan writes nothing. A save writes one file, to the path the save dialog answered with and no other:
@@ -1012,6 +1014,7 @@ export function registerIpc(
       const path = await askWhere(event, defaultPath, 'html')
       if (path === null) return null
       await writeExport(path, made.html)
+      savedHere = path
       return { path, bytes: made.bytes, dropped: made.dropped }
     })
   )
@@ -1029,6 +1032,7 @@ export function registerIpc(
     let checked: ExportSaved['checked']
     await writeExport(path, file.bytes, async (beside) => void (checked = await checkModelFile(deps, file, beside)))
     // A plate handed to the person's slicer, when they ticked it: the file that passed, at the path they chose.
+    savedHere = path
     let opened: string | undefined
     if (req.open === true && req.format === '3mf') {
       if (opts.openFile) await opts.openFile(path)
@@ -1037,8 +1041,32 @@ export function registerIpc(
     return { path, bytes: file.bytes.length, dropped: [], checked, revision: file.revision, ...(opened ? { notOpened: opened } : {}) }
   }
 
-  // The sheet was put away: what was reduced for it is let go.
-  ipcMain.on('export:done', () => forgetExportScans())
+  // The sheet was put away: what was reduced for it is let go, and the file it wrote is no longer its to show.
+  ipcMain.on('export:done', () => {
+    savedHere = null
+    forgetExportScans()
+  })
+  // The file the sheet wrote last, shown in its folder or handed to the system (a browser, for a page). The path is
+  // the one `export:save` wrote and main kept: the window names none, and no agent has a tool for it.
+  const savedFile = (): string => {
+    if (savedHere === null || !existsSync(savedHere)) throw new Refusal('That file is no longer there')
+    return savedHere
+  }
+  handle('export:reveal', () =>
+    plainly(async () => {
+      const path = savedFile()
+      if (opts.revealFile) opts.revealFile(path)
+      else shell.showItemInFolder(path)
+    })
+  )
+  handle('export:openSaved', () =>
+    plainly(async () => {
+      const path = savedFile()
+      if (opts.openFile) return void (await opts.openFile(path))
+      const failed = await shell.openPath(path)
+      if (failed) throw new Refusal(`It could not be opened: ${failed}`)
+    })
+  )
 
   ipcMain.on('view:report', (_event, view: ViewState) => {
     if (findObject(view?.objectId)) reportView(view)
