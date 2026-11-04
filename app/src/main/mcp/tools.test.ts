@@ -298,13 +298,32 @@ describe('scene', () => {
       parts: [
         { name: 'base', layout: 'assembly', visible: true, size: [40, 30, 5], sizeExact: true, bbox: { min: [-20, -15, -2.5], max: [20, 15, 2.5] }, volume: 6000, volumeExact: true, faces: 6, edges: 12, valid: true },
         { name: 'post', layout: 'assembly', visible: false, size: [8, 8, 20], sizeExact: true, bbox: { min: [-4, -4, 2.5], max: [4, 4, 22.5] }, volume: 1005.31, volumeExact: true, faces: 3, edges: 3, valid: false },
-        { name: 'base', layout: 'print', visible: true, size: [40, 30, 5], sizeExact: true, bbox: { min: [-20, -15, -2.5], max: [20, 15, 2.5] }, volume: 6000, volumeExact: true, faces: 6, edges: 12, valid: true },
-        { name: 'post', layout: 'print', visible: false, size: [8, 20, 8], sizeExact: true, bbox: { min: [56, -10, 0], max: [64, 10, 8] }, volume: 6000, volumeExact: true, faces: 6, edges: 12, valid: true }
       ],
+      partsLayout: 'assembly',
+      partsInOtherLayouts: { print: 2 },
+      partsNote: 'The parts of the other layouts are counted here, not listed: call scene with layout to list them.',
       camera: { position: [100.12, -80, 60], target: [0, 0, 10], up: [0, 0, 1], ortho: false, fov: 35, zoom: 1 },
       section: null,
       explode: null
     })
+  })
+
+  it('bounds a scene of 300 parts, lists one layout, and says what it left out', () => {
+    const many = Array.from({ length: 300 }, (_, i) => part('assembly', `part-${i}`, [i, 0, 0], [i + 1, 5, 5]))
+    const big: Scene = { ...SCENE, parts: [...many, part('print', 'tray', [0, 0, 0], [5, 5, 5])] }
+    const deps = fake({ scene: () => ({ revision: 3, scene: big }) })
+    const text = textOf(sceneTool(deps, 'bracket'))
+    expect(text.length).toBeLessThan(50_000)
+    const told = JSON.parse(text)
+    expect(told.parts).toHaveLength(300)
+    expect(told).toMatchObject({ partsTruncated: true, partsInOtherLayouts: { print: 1 } })
+    expect(told.parts[0]).not.toHaveProperty('volume')
+    expect(told.parts[0]).toMatchObject({ name: 'part-0', size: [1, 5, 5] })
+    const print = JSON.parse(textOf(sceneTool(deps, 'bracket', undefined, undefined, undefined, { layout: 'print' })))
+    expect(print.parts.map((p: { name: string }) => p.name)).toEqual(['tray'])
+    expect(print.parts[0]).toHaveProperty('volume')
+    expect(print).not.toHaveProperty('partsTruncated')
+    expect(textOf(sceneTool(deps, 'bracket', undefined, undefined, undefined, { layout: 'nope' }))).toBe("no layout 'nope'; layouts: assembly, print")
   })
 
   it('counts the unresolved dimensions that pass, fail and have no value of the build, when it is given the marks', () => {
@@ -336,7 +355,7 @@ describe('scene', () => {
       stale: true,
       error: { kind: 'exception', message: 'ValueError: no', traceback: Array.from({ length: 30 }, (_, i) => `line ${i + 16}`).join('\n') }
     })
-    expect(scene.parts).toHaveLength(4)
+    expect(scene.parts).toHaveLength(2)
   })
 
   it('gives why a fillet failed under build.error, as data with its reading', () => {
@@ -370,7 +389,7 @@ describe('scene', () => {
     it('is told of the build that ended last, the failed one too, with the parts of the last good one still shown', () => {
       const told = JSON.parse(textOf(sceneTool(fake({ state: failed('solids: 2'), ...printing('from r3') }), 'bracket')))
       expect(told.output).toBe('solids: 2')
-      expect(told.parts).toHaveLength(4)
+      expect(told.parts).toHaveLength(2)
       // A failed build that printed nothing does not leave the build before it in its place.
       expect(JSON.parse(textOf(sceneTool(fake({ state: failed(undefined), ...printing('from r3') }), 'bracket')))).not.toHaveProperty('output')
       // The output of a kernel that stopped is its stderr; that of a build process that was killed is the model's.
@@ -407,7 +426,7 @@ describe('scene', () => {
     expect(scene.camera).toBeNull()
     expect(scene.layout).toBeNull()
     expect(scene.note).toBe('bracket is not the project open in the torno window (open: helmet-stand), so what is visible, the camera and the section are not known.')
-    expect(scene.parts.map((p: { name: string }) => p.name)).toEqual(['base', 'post', 'base', 'post'])
+    expect(scene.parts.map((p: { name: string }) => p.name)).toEqual(['base', 'post'])
     for (const p of scene.parts) expect(p).not.toHaveProperty('visible')
     expect(scene.build.revision).toBe(3)
   })
@@ -417,8 +436,8 @@ describe('scene', () => {
       ...SCENE,
       parts: [...SCENE.parts.slice(0, 3), part('print', 'post', [30, -10, 0], [38, 10, 8], { arranged: [34.004, 0, 0] })]
     }
-    const scene = JSON.parse(textOf(sceneTool(fake({ scene: () => ({ revision: 3, scene: spread }) }), 'bracket')))
-    expect(scene.parts.map((p: { arranged?: number[] }) => p.arranged)).toEqual([undefined, undefined, undefined, [34, 0, 0]])
+    const scene = JSON.parse(textOf(sceneTool(fake({ scene: () => ({ revision: 3, scene: spread }) }), 'bracket', undefined, undefined, undefined, { layout: 'print' })))
+    expect(scene.parts.map((p: { arranged?: number[] }) => p.arranged)).toEqual([undefined, [34, 0, 0]])
     expect(scene.note).toBe('The parts of the print layout overlapped as the model placed them, so they were spread along X for display; arranged is how far each was moved.')
 
     // Said together with the other note, when there is one.
@@ -1989,7 +2008,7 @@ describe('groups of parts', () => {
       { name: 'flat', parts: ['flat-a', 'flat-b'], visible: 'some' },
       { name: 'tall', parts: ['tall-a'], visible: 'none' }
     ])
-    expect(told.parts.map((p: { name: string; group?: string }) => p.group ?? null)).toEqual(['flat', 'flat', 'tall', null, 'flat', null])
+    expect(told.parts.map((p: { name: string; group?: string }) => p.group ?? null)).toEqual(['flat', 'flat', 'tall', null])
     // Of a model without groups nothing is said of them.
     const plain = JSON.parse(textOf(sceneTool(fake(), 'bracket')))
     expect(plain.groups).toBeUndefined()

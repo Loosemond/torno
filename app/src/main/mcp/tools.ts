@@ -33,7 +33,7 @@ import { addMarkTool, checkRef, highlightTool, resolveMarkTool } from './markToo
 import { type DiffToolArgs, type MeasureToolArgs, type SectionToolArgs, type TryFilletToolArgs, checkTool, diffTool, measureTool, sectionTool, tryFilletTool } from './readTools'
 import { type ScanClashArgs, type ScanDeviationArgs, type ScansArgs, scanClashTool, scanDeviationTool, scansTool } from './scanTools'
 import { type AddMarkArgs, type DescribeArgs, type HighlightArgs, type LookArgs, type MarksArgs, type ResolveMarkArgs, type SaveViewArgs, type ShowArgs, DEFAULT_SIZE, MAX_SIZE, MIN_SIZE, NO_PLANE, TOOLS, refusedKeys } from './schemas'
-import { lookTool, saveViewTool, sceneTool, showTool } from './viewTools'
+import { type SceneArgs, lookTool, saveViewTool, sceneTool, showTool } from './viewTools'
 
 /** What the tools need of torno. All of it is about objects of the open workspace, by id. */
 export interface ToolDeps {
@@ -135,7 +135,7 @@ export function registerTools(server: McpServer, deps: ToolDeps, objectId: strin
       async (args: unknown) => refusedKeys(name, args) ?? run(args as A)
     )
   }
-  tool('scene', async () => sceneTool(deps, objectId, await deps.marks(objectId).catch(() => undefined), await deps.scans(objectId).catch(() => undefined), await deps.views(objectId).catch(() => undefined)))
+  tool<SceneArgs>('scene', async (args) => sceneTool(deps, objectId, await deps.marks(objectId).catch(() => undefined), await deps.scans(objectId).catch(() => undefined), await deps.views(objectId).catch(() => undefined), args))
   tool<LookArgs>('look', (args) => lookTool(deps, objectId, args))
   tool<MarksArgs>('marks', (args) => marksTool(deps, objectId, args))
   tool<DescribeArgs>('describe', (args) => describeTool(deps, objectId, args))
