@@ -28,22 +28,22 @@ const refusing = {
 
 describe('the left column as the person keeps it', () => {
   it('starts with Objects folded to its switcher, the rest unfolded, and the marks at their share', () => {
-    expect(COLUMN_DEFAULT).toEqual({ folded: { objects: true, layers: false, params: true, scans: false }, marks: null, width: null })
+    expect(COLUMN_DEFAULT).toEqual({ folded: { objects: true, layers: false, params: true, checks: true, scans: false }, marks: null, width: null })
     expect(readColumn(memory())).toEqual(COLUMN_DEFAULT)
     expect(readColumn(null)).toEqual(COLUMN_DEFAULT)
   })
 
   it('reads back what was written, and nothing but the window keeps it', () => {
     const storage = memory()
-    writeColumn(storage, { folded: { objects: false, layers: true, params: false, scans: true }, marks: 320, width: 400 })
+    writeColumn(storage, { folded: { objects: false, layers: true, params: false, checks: true, scans: true }, marks: 320, width: 400 })
     expect(Object.keys(storage.data)).toEqual([COLUMN_KEY])
-    expect(readColumn(storage)).toEqual({ folded: { objects: false, layers: true, params: false, scans: true }, marks: 320, width: 400 })
+    expect(readColumn(storage)).toEqual({ folded: { objects: false, layers: true, params: false, checks: true, scans: true }, marks: 320, width: 400 })
   })
 
   it('takes what it can of a value that is not its own, and the default for the rest', () => {
     expect(readColumn(memory({ [COLUMN_KEY]: 'not json' }))).toEqual(COLUMN_DEFAULT)
     expect(readColumn(memory({ [COLUMN_KEY]: '[1, 2]' }))).toEqual(COLUMN_DEFAULT)
-    expect(readColumn(memory({ [COLUMN_KEY]: JSON.stringify({ folded: { layers: true, scans: 'yes' }, marks: 'tall' }) }))).toEqual({ folded: { objects: true, layers: true, params: true, scans: false }, marks: null, width: null })
+    expect(readColumn(memory({ [COLUMN_KEY]: JSON.stringify({ folded: { layers: true, scans: 'yes' }, marks: 'tall' }) }))).toEqual({ folded: { objects: true, layers: true, params: true, checks: true, scans: false }, marks: null, width: null })
     // A height under the floor of the marks is no height they are given: the floor holds anyway.
     expect(readColumn(memory({ [COLUMN_KEY]: JSON.stringify({ marks: MARKS_FLOOR - 1 }) })).marks).toBeNull()
     expect(readColumn(memory({ [COLUMN_KEY]: JSON.stringify({ marks: Number.POSITIVE_INFINITY }) })).marks).toBeNull()

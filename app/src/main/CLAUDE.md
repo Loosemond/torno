@@ -137,6 +137,18 @@ is the detail of this folder, under the headings it has there. Paths are from `a
     (`src/main/context.ts`). A draft dimension is
     told with the drafts. The status line counts every unresolved dimension
     that fails, sent or not.
+- **The model's own checks** (`checks(p)`, kernel `modelchecks.py`) arrive in the scene as `checks`, measured by the
+  kernel, each with its `status`, `value`, `unit`, wanted `min`/`max`, the kernel's `exact` and `how`, and the
+  `declared` dict. They are the model's, never the person's: no check resolves, replaces or silences a dimension
+  (a mark). `shared/modelChecks.ts` is the one rule for the words (`checksLine`, `checkText`). `context.ts` tells
+  them in one line (at most `CHECKS_LIMIT`) after the dimensions, with every prompt and after an edit, saying
+  while a build runs that they are not of the last edit; `state.md` has a `## Checks` section; `scene` gives them
+  under `checks`. A failing check never holds the Stop back and never fails a build. The agent writes both the part
+  and its checks, so `Builds.succeeded` compares each new build's checks with the build before (`keepNotes`) and
+  keeps, as `Scene.checkNotes`, a note for each check removed, made easier to pass (`min` lowered, `max` raised or
+  dropped, a bed made larger, an angle widened) or aimed at other parts, with the build it was first seen on; it
+  stays while the check is weaker than it first was, in memory only. The window shows the notes; the agent is told
+  of them by `state.md` and `scene` (`checksEasier`).
 - The MCP tools (`src/main/mcp/schemas.ts` holds every input schema and
   description, and `TOOLS`; `mcp/tools.ts` registers them and holds what
   every tool shares, with `marks` and `describe`; `scene`, `look`, `show` and

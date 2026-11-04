@@ -1151,3 +1151,39 @@ describe('a failed fillet', () => {
     expect(textFor(deps({ build, scene: SCENE }), 'bracket')).toMatch(/\nand \d+ more edges\n/)
   })
 })
+
+// #53: the checks the model declares are told after the person's dimensions, never as "verified".
+describe('the checks the model declares', () => {
+  const build: BuildState = { objectId: 'bracket', status: 'ok', revision: 4, seconds: 0.5, stale: false }
+  const fits = { name: 'lid fits the tub', kind: 'clearance', status: 'fail' as const, value: 0.12, unit: 'mm', min: 0.15, max: 0.25, exact: true }
+  const walls = { name: 'walls', kind: 'thin', status: 'pass' as const, value: null, unit: 'mm', min: 1.2, max: null, exact: false }
+  const gap = { name: 'gap', kind: 'clearance', status: 'pass' as const, value: 0.2, unit: 'mm', min: 0.1, max: 0.3, exact: true }
+  const dimension = {
+    id: 'M8', kind: 'dimension', measure: 'diameter', author: 'user', note: '', status: 'sent', anchorState: 'ok', layout: 'assembly', revision: 4, camera: CAMERA, createdAt: '', checkedRevision: 4,
+    value: 7, expected: 8, tolerance: 0.05, measuredRevision: 4, anchor: { ref: 'base/F9' }
+  } as unknown as Mark
+
+  it('are told in a line under the build, with what did not pass named and a pass never called verified', () => {
+    const text = textFor(deps({ build, scene: { ...SCENE, checks: [fits, walls, gap] } }), 'bracket')
+    expect(text.split('\n').at(-1)).toBe("Checks (the model's own, on r4): 2 pass, 1 fails (1 of the passes by sampling or approximate): lid fits the tub (0.12 mm, wanted 0.15 to 0.25 mm)")
+    expect(text).not.toMatch(/verified/i)
+  })
+  it('come after the dimensions of the person, and the same after an edit', () => {
+    const scene = { ...SCENE, checks: [fits] }
+    const told = contextFor(deps({ build, scene }), 'bracket', [dimension]).text.split('\n')
+    expect(told.findIndex((l) => l.startsWith('Checks'))).toBeGreaterThan(told.findIndex((l) => l.startsWith('Dimensions')))
+    expect(buildContextFor(deps({ build, scene }), 'bracket', [dimension]).text).toContain('Checks (the model')
+  })
+  it('say while a build runs that they are not of the last edit', () => {
+    const running = { objectId: 'bracket', status: 'building', revision: 4, stale: false } as BuildState
+    expect(textFor(deps({ build: running, scene: { ...SCENE, checks: [fits] }, revision: 4 }), 'bracket')).toContain('[a build is running, so these are not of your last edit]')
+  })
+  it('are not mentioned when the model declares none', () => {
+    expect(textFor(deps({ build, scene: { ...SCENE, checks: [] } }), 'bracket')).not.toContain('Checks')
+    expect(textFor(deps({ build, scene: SCENE }), 'bracket')).not.toContain('Checks')
+  })
+  it('keep the context within its limit with many of them', () => {
+    const many = Array.from({ length: 60 }, (_, i) => ({ ...fits, name: `check number ${i} with a long name` }))
+    expect(textFor(deps({ build, scene: { ...SCENE, checks: many } }), 'bracket').length).toBeLessThanOrEqual(CONTEXT_LIMIT)
+  })
+})

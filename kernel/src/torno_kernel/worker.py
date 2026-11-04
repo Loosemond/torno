@@ -117,7 +117,7 @@ def _build(
     build's ``deadline`` leaves.
     """
     try:
-        layouts, params, groups = loader.load_model(Path(dir), model)
+        layouts, params, groups, declared = loader.load_model(Path(dir), model)
         kept: dict[Any, Any] = {}
         scene, blob, shapes = tess.build_scene(layouts, model, kept)
         # Read here, by the worker that loaded the model: the supervisor never does.
@@ -129,6 +129,7 @@ def _build(
         for part in scene.get("parts", []):
             if part.get("name") in group_of:
                 part["group"] = group_of[part["name"]]
+        scene["checks"] = _model_checks(declared, shapes, groups, kept)
         _flush_output()
         # Inside the try: a scene that cannot be written as JSON (a NaN volume)
         # is refused before a byte of it is sent, and is a failure like any other.
@@ -149,6 +150,17 @@ def _build(
         error["diagnosis"] = diagnosis
     write_frame(channel, {"ok": False, "error": error})
     return None
+
+
+def _model_checks(
+    declared: list[dict[str, Any]], shapes: dict[str, Any], groups: list[dict[str, Any]], kept: dict[Any, Any]
+) -> list[dict[str, Any]]:
+    """The results of the checks the model declares (``modelchecks.run``): none of them fails the build."""
+    if not declared:
+        return []
+    from . import modelchecks
+
+    return modelchecks.run(declared, shapes, groups, kept)
 
 
 def _diagnose(error: BaseException, told: dict[str, Any], deadline: float | None) -> dict[str, Any] | None:

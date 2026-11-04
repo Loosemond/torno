@@ -54,21 +54,22 @@ def load_scene(dir: Path, model: str) -> dict[str, dict[str, Any]]:
 
 def load_model(
     dir: Path, model: str
-) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
-    """Import ``dir/model``: its scene as layout → name → shape, its ``Params`` (``read_params``) and its
-    groups of parts (``_groups``)."""
+) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Import ``dir/model``: its scene as layout → name → shape, its ``Params`` (``read_params``), its
+    groups of parts (``_groups``) and the checks it declares (``_checks``)."""
     path = (Path(dir) / model).resolve()
     try:
         module = _import_model(path)
         scene = _collect_scene(module)
         groups = _groups(module, scene) if scene else []
+        checks = _checks(module, scene, groups) if scene else []
     except LoadError:
         raise
     except Exception as e:
         raise LoadError("exception", str(e), _model_traceback(e, path)) from e
     if not scene:
         raise LoadError("no_scene", _no_scene(module, model))
-    return scene, read_params(module, path), groups
+    return scene, read_params(module, path), groups, checks
 
 
 _NOT_USES = {".venv", "venv", "site-packages", "__pycache__", ".torno", "node_modules", ".git"}
@@ -147,6 +148,21 @@ def _groups(module: ModuleType, scene: dict[str, dict[str, Any]]) -> list[dict[s
             owner[member] = name
         groups.append({"name": name, "parts": list(dict.fromkeys(members))})
     return groups
+
+
+def _checks(module: ModuleType, scene: dict[str, dict[str, Any]], groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The model's ``checks(p)``: declarations in torno's vocabulary (``modelchecks``), read only under the
+    ``Params`` convention; ``[]`` without it. Only their shape and the names they use are checked here: a
+    malformed one fails the build, saying how. Measuring them is the worker's, once the build is tessellated."""
+    function = getattr(module, "checks", None)
+    if not callable(function) or not hasattr(module, "Params"):
+        return []
+    from . import modelchecks
+
+    try:
+        return modelchecks.validate(function(module.Params()), scene, groups)
+    except modelchecks.Malformed as e:
+        raise LoadError("exception", str(e)) from e
 
 
 def read_params(module: ModuleType, path: Path) -> list[dict[str, Any]]:

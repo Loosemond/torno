@@ -1,3 +1,5 @@
+import type { CheckNote, ModelCheck } from './modelChecks'
+
 export interface Buf { offset: number; length: number }        // bytes into the blob; offset % 4 === 0
 export interface PartMesh {
   vertices: Buf          // float32 xyz, part-local
@@ -62,6 +64,10 @@ export interface Scene {
   params?: Param[]
   /** The model's groups of parts (`groups(p)`), in its order; absent from a kernel that does not read them. */
   groups?: PartGroup[]
+  /** The checks the model declares (`checks(p)`), as the worker that built it measured them; absent from a kernel that does not read them, empty without any. */
+  checks?: ModelCheck[]
+  /** What main notes of those checks across builds: one removed or loosened since a build (`keepNotes`). Set by main, never by the kernel. */
+  checkNotes?: CheckNote[]
   /**
    * The Python files the model imported from the workspace outside its own folder (another project's, `common/`),
    * as the worker found them after the load: paths from the workspace, with `/`, in order. Never declared by torno.

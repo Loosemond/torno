@@ -6,7 +6,7 @@
  */
 
 /** The sections that fold. Marks never does. */
-export type ColumnSection = 'objects' | 'layers' | 'params' | 'scans'
+export type ColumnSection = 'objects' | 'layers' | 'params' | 'checks' | 'scans'
 
 export interface ColumnPrefs {
   folded: Record<ColumnSection, boolean>
@@ -16,8 +16,8 @@ export interface ColumnPrefs {
   width: number | null
 }
 
-/** Objects is a switcher of one row to begin with, and the parameters one row too: the room goes to the marks. */
-export const COLUMN_DEFAULT: ColumnPrefs = { folded: { objects: true, layers: false, params: true, scans: false }, marks: null, width: null }
+/** Objects is a switcher of one row to begin with, and the parameters and the model's checks one row too: the room goes to the marks. */
+export const COLUMN_DEFAULT: ColumnPrefs = { folded: { objects: true, layers: false, params: true, checks: true, scans: false }, marks: null, width: null }
 
 /** The column's width unless the person gave it more. The same as `--left-w` in `styles/tokens.css`. */
 export const LEFT_DEFAULT = 248
@@ -39,7 +39,7 @@ export const COLUMN_KEY = 'torno.column'
  */
 export const MARKS_FLOOR = 212
 
-const SECTIONS: readonly ColumnSection[] = ['objects', 'layers', 'params', 'scans']
+const SECTIONS: readonly ColumnSection[] = ['objects', 'layers', 'params', 'checks', 'scans']
 
 /** The window's storage, or null where there is none to be had. */
 export function windowStorage(): Storage | null {

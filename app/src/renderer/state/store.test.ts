@@ -1431,15 +1431,15 @@ describe('the session dock', () => {
 
 describe('the left column', () => {
   it('folds and unfolds a section, the window\'s and not an object\'s: another object or workspace leaves it as it is', () => {
-    expect(store.getState().column.folded).toEqual({ objects: true, layers: false, params: true, scans: false })
+    expect(store.getState().column.folded).toEqual({ objects: true, layers: false, params: true, checks: true, scans: false })
     actions.foldSection('layers', true)
     actions.foldSection('objects', false)
     actions.openObject('gear', { layers: {} })
     actions.setWorkspace({ root: '/ws', hasProject: true, objects: [] })
-    expect(store.getState().column.folded).toEqual({ objects: false, layers: true, params: true, scans: false })
+    expect(store.getState().column.folded).toEqual({ objects: false, layers: true, params: true, checks: true, scans: false })
     actions.foldSection('layers', false)
     actions.foldSection('objects', true)
-    expect(store.getState().column.folded).toEqual({ objects: true, layers: false, params: true, scans: false })
+    expect(store.getState().column.folded).toEqual({ objects: true, layers: false, params: true, checks: true, scans: false })
   })
 
   it('keeps the height the marks were given, or none for their share', () => {

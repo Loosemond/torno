@@ -30,6 +30,20 @@ def test_the_skill_templates_groups_build_once_uncommented(tmp_path):
     assert load_model(_written(tmp_path / "grouped", opened), "box_lid.py")[2] == [{"name": "box", "parts": ["tub", "lid"]}]
 
 
+def test_the_skill_templates_checks_are_declared_and_pass(tmp_path):
+    from torno_kernel import modelchecks
+    from torno_kernel.tess import build_scene
+
+    code = re.search(r"```python\n(.*?)```", SKILL.read_text(), re.S).group(1)
+    layouts, _, groups, declared = load_model(_written(tmp_path / "checked", code), "box_lid.py")
+    assert [d["name"] for d in declared] == ["lid does not overlap the tub", "tub is one body"]
+    _, _, shapes = build_scene(layouts, "box_lid.py", {})
+    assert [(r["name"], r["status"]) for r in modelchecks.run(declared, shapes, groups, {})] == [
+        ("lid does not overlap the tub", "pass"),
+        ("tub is one body", "pass"),
+    ]
+
+
 def _written(folder: Path, code: str) -> Path:
     folder.mkdir()
     (folder / "box_lid.py").write_text(code)

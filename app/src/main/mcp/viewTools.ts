@@ -4,6 +4,7 @@ import { letGoText } from '../../shared/build'
 import { diagnosisText } from '../../shared/diagnosis'
 import { type ExplodeState, EXPLODED_NOTE, NOT_EXPLODED_AND_CUT, explodeArg, explodeText, isExploded, nothingApart, nothingApartText } from '../../shared/explode'
 import type { ScanInfo } from '../../shared/scans'
+import { noteText } from '../../shared/modelChecks'
 import type { Scene } from '../../shared/scene'
 import { type Camera, type LookRequest, type LookResult, type SaveViewRequest, type SaveViewResult, type SectionPlane, type ShowRequest, type ShowResult, type ViewName, axisForm, planeText } from '../../shared/view'
 import { type SavedView, MAX_PROPOSALS, VIEW_NOT_BOTH, cleanViewName, findView, viewGone, viewNameRefusal, viewSummary } from '../../shared/views'
@@ -192,6 +193,9 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
     ...(expected ? { expect: { revision: expected.revision, met: expected.met, notMet: expected.missed, ...(expected.note ? { note: expected.note } : {}) } } : {}),
     // Of the last build that worked (`build.revision`): call marks for which, and why.
     ...(checks.length > 0 ? { dimensions: { pass: count('pass'), fail: count('fail'), notMeasured: count('unmeasured', 'unmeasurable') } } : {}),
+    // The checks the model declares in checks(p), as the kernel measured them on this build: a pass is what was measured, never "verified".
+    ...(scene.checks && scene.checks.length > 0 ? { checks: scene.checks.map(({ declared: _declared, ...c }) => c) } : {}),
+    ...(scene.checkNotes && scene.checkNotes.length > 0 ? { checksEasier: scene.checkNotes.map(noteText) } : {}),
     // How each alignment stands, not a bare yes: one that is rough, in doubt or was never checked against this build is not "aligned: true".
     ...(scans && scans.length > 0 ? { scans: scans.map((scan) => scanStanding(scan, scanLayout, revision)) } : {}),
     // The views saved by name: look and show take a name. One that is proposed is the agent's own, not yet kept by the user.

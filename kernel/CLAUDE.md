@@ -270,6 +270,19 @@ is the detail of this folder, under the headings it has there.
   `exception` that says what is wrong. The scene carries it as `groups` (`[]` without), and each part of a group
   names it (`group`); the supervisor passes the
   frame on and reads none of it.
+- **The model's own checks are declarations, measured by torno** (`modelchecks.py`). Under the `Params` convention an
+  optional `checks(p)` returns a list of dicts in torno's vocabulary, not predicates: `name`, `kind` (`clearance`,
+  `overlap`, `solids`, `volume`, `thin`, `overhang`, `mesh`, `bed`, and `interference`, which takes no part: it passes when no pair of the layout shares volume),
+  part or group refs `a` and `b` (a group stands for its parts; never `F12`), an optional `layout`, and what is
+  wanted (`min`/`max`, `equals`, or `expected` with `tolerance` or `percent`; `thin` takes `min` as its least wall,
+  the printing kinds want none found). `loader._checks` reads only their shape and names, inside the load's `try`:
+  a malformed one fails the build as an `exception` that says what is wrong, as a bad `groups(p)` does. The worker
+  measures them after tessellation (`worker._model_checks`, `modelchecks.run`), through `checks.check` and
+  `measure.measure` as they are, in `modelchecks.BUDGET` (10 s; the rest are `not run`), and the scene carries the
+  results as `checks`: `status` (`pass`, `fail`, `error` for one that could not be measured, `not run`), `value`,
+  `unit`, `min`, `max`, `exact` and `how` of the kernel, and the `declared` dict. A check that does not pass never
+  fails the build; a `thin` that finds none says so by sampling, never as a proof.
+
 - **The scene says what the model imported (`uses`).** After the load, the worker (`loader.used_files`, from
   `sys.modules`, never from a declaration) lists the Python files under the workspace (the folder above the
   model's) that it imported from outside its own folder, `common/` included, as paths from the workspace with `/`.

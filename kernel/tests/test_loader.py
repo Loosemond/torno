@@ -212,7 +212,7 @@ def test_choose_model_ignores_init_and_dotfiles(tmp_path):
 
 
 def test_groups_are_read_in_model_order(ws):
-    _, _, groups = load_model(ws / "grouped", "grouped.py")
+    _, _, groups, _ = load_model(ws / "grouped", "grouped.py")
     assert groups == [{"name": "flat", "parts": ["flat-a", "flat-b"]}, {"name": "tall", "parts": ["tall-a"]}]
 
 

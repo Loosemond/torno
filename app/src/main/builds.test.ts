@@ -12,8 +12,8 @@ import type { FilletDiagnosis } from '../shared/diagnosis'
 
 type BuildResult = { ok: true; scene: Scene; blob: Buffer } | { ok: false; error: BuildError }
 
-function sceneOf(model: string, seconds = 0.5): Scene {
-  return { model, layouts: ['assembly'], parts: [], seconds, output: '' }
+function sceneOf(model: string, seconds = 0.5, checks?: Scene['checks']): Scene {
+  return { model, layouts: ['assembly'], parts: [], seconds, output: '', ...(checks ? { checks } : {}) }
 }
 
 /** A kernel whose builds finish when the test says so. Like the real one, a new build cancels the one running. */
@@ -45,10 +45,10 @@ class FakeKernel implements KernelClient {
       opts?.onStarted?.({ retired: this.retiring })
     })
   }
-  succeed(index: number, seconds = 0.5, uses?: string[]): void {
+  succeed(index: number, seconds = 0.5, uses?: string[], checks?: Scene['checks']): void {
     const call = this.calls[index]
     this.retired.delete(call.dir)
-    call.settle({ ok: true, scene: uses ? { ...sceneOf(call.model, seconds), uses } : sceneOf(call.model, seconds), blob: Buffer.from([index]) })
+    call.settle({ ok: true, scene: { ...sceneOf(call.model, seconds, checks), ...(uses ? { uses } : {}) }, blob: Buffer.from([index]) })
   }
   fail(index: number, error: BuildError): void {
     this.calls[index].settle({ ok: false, error })
@@ -513,6 +513,27 @@ describe('Builds', () => {
     expect(scenes[0]).toMatchObject({ objectId: 'bracket', revision: 1, scene: { model: 'bracket.py' } })
     expect(builds.scene('bracket')).toEqual({ revision: 1, scene: scenes[0].scene, blob: scenes[0].blob })
     expect(builds.scenes('bracket')).toEqual([{ revision: 1, scene: scenes[0].scene }])
+  })
+
+  it('notes a check of the model that a later build makes easier to pass, or drops, and no other', async () => {
+    const { kernel, builds } = setup()
+    const walls = (min: number) => ({ name: 'walls', kind: 'thin', status: 'pass' as const, min, max: null, unit: 'mm', declared: { name: 'walls', kind: 'thin', a: 'tub', min } })
+    builds.open(bracket)
+    kernel.succeed(0, 0.5, undefined, [walls(1.2)])
+    await flush()
+    expect(builds.scene('bracket')?.scene.checkNotes).toBeUndefined()
+    builds.changed('bracket', ['/ws/bracket/bracket.py'])
+    kernel.succeed(1, 0.5, undefined, [walls(0.6)])
+    await flush()
+    expect(builds.scene('bracket')?.scene.checkNotes?.map((n) => [n.name, n.what, n.since, n.text])).toEqual([['walls', 'loosened', 2, 'walls: min 1.2 → 0.6 mm']])
+    builds.changed('bracket', ['/ws/bracket/bracket.py'])
+    kernel.succeed(2, 0.5, undefined, [])
+    await flush()
+    expect(builds.scene('bracket')?.scene.checkNotes?.map((n) => [n.what, n.since])).toEqual([['removed', 2]])
+    builds.changed('bracket', ['/ws/bracket/bracket.py'])
+    kernel.succeed(3, 0.5, undefined, [walls(1.2)])
+    await flush()
+    expect(builds.scene('bracket')?.scene.checkNotes).toEqual([])
   })
 
   it('keeps the last two successful scenes, oldest first, through a failure', async () => {

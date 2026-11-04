@@ -880,7 +880,7 @@ def test_scene_that_cannot_be_serialised_is_an_exception_reply(monkeypatch):
     from torno_kernel import loader, tess, worker
     from torno_kernel.frames import read_frame
 
-    monkeypatch.setattr(loader, "load_model", lambda dir, model: ({"main": {}}, [], []))
+    monkeypatch.setattr(loader, "load_model", lambda dir, model: ({"main": {}}, [], [], []))
     scene = {"model": "nan.py", "layouts": ["main"], "parts": [{"volume": float("nan")}]}
     monkeypatch.setattr(tess, "build_scene", lambda layouts, model, kept: (scene, b"blob", {"k": 1}))
     channel = io.BytesIO()

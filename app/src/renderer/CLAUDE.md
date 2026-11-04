@@ -214,6 +214,19 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   button, and the description says to start one (`e2e/params.spec.ts`, which writes its own `Params` into its copy of a
   fixture).
 
+## Checks
+
+- `ui/ChecksPanel.tsx` (its own component, beside the marks, not in them): the checks the model declares in its
+  `checks(p)` as the kernel measured them at the last build (`Scene.checks`, `Scene.checkNotes`), read only, under
+  Parameters, folded at first to a title that says how many fail (`2 · 1 fails`, `checksSaid`). A row
+  (`checkRow` in `ui/checkRows.ts`, pure, words from `shared/modelChecks.ts`) is the model's own name, how it stands
+  in a word (`pass`, `fails`, `not measured`, `not run`: never colour alone), what was measured and what was wanted in
+  the monospace face, and, for a thin wall or an approximate value, that it was found by sampling; its title is the
+  kernel's `how`. A bar in `--agent-mark` marks them as the model's own. They are not marks: no check resolves,
+  replaces or silences a person's dimension. Under the rows, what the agent made easier to pass or removed since it was
+  first declared (`checkNotes`, `since r7`). A model with no checks, or a kernel that does not read them, has no section
+  (`e2e/checks.spec.ts`).
+
 ## Section
 
 - Drawing is `viewport/section.ts`: the parts' materials are clipped, and each

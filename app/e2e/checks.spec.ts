@@ -1,0 +1,98 @@
+import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
+import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import type { TornoState } from '../src/renderer/state/store'
+import { openListed } from './objects'
+
+// The checks a model declares in its checks(p): measured by the kernel at every build, listed in the left column
+// under Parameters (folded to a title that says how many fail), and, when the agent makes one easier to pass, said
+// under the rows. The model is written into the test's own copy of the fixtures.
+const appDir = resolve(__dirname, '..')
+const fixtures = resolve(appDir, '../kernel/tests/fixtures/ws')
+
+test.describe.configure({ mode: 'serial' })
+
+const MODEL = (walls: number): string => `from dataclasses import dataclass
+from build123d import Box, Pos
+
+@dataclass(frozen=True)
+class Params:
+    gap: float = 0.1
+
+def assembly(p):
+    return {"tub": Box(20, 20, 10), "lid": Pos(20 + p.gap, 0, 0) * Box(20, 20, 10)}
+
+def checks(p):
+    return [
+        {"name": "lid fits the tub", "kind": "clearance", "a": "lid", "b": "tub", "min": 0.15, "max": 0.25},
+        {"name": "walls", "kind": "thin", "a": "tub", "min": ${walls}},
+    ]
+`
+
+let root: string
+let model: string
+let app: ElectronApplication
+let page: Page
+
+test.beforeAll(async () => {
+  root = mkdtempSync(join(realpathSync(tmpdir()), 'torno-e2e-checks-'))
+  cpSync(fixtures, root, { recursive: true, filter: (source) => !source.endsWith('__pycache__') })
+  mkdirSync(join(root, 'lidded'))
+  model = join(root, 'lidded', 'lidded.py')
+  writeFileSync(model, MODEL(1.2))
+  // TORNO_TEST=1 makes main create the window with show: false. Never launch without it.
+  app = await electron.launch({ args: ['.'], cwd: appDir, env: { ...process.env, TORNO_TEST: '1', TORNO_WORKSPACE: root } })
+  page = await app.firstWindow()
+  await page.waitForSelector('[data-region="left"]')
+})
+
+test.afterAll(async () => {
+  await app?.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
+const state = (): Promise<TornoState> => page.evaluate(() => window.__tornoTest!.state())
+const section = () => page.locator('.left .checks')
+const title = () => section().getByRole('button', { name: 'Checks', exact: true })
+
+async function open(name: string): Promise<void> {
+  await openListed(page, name)
+  await expect.poll(async () => { const s = await state(); return s.objectId === name && s.build?.status }, { timeout: 30_000 }).toBe('ok')
+}
+
+test('a model with no checks has no section', async () => {
+  await open('plain')
+  await expect(page.locator('.left .layers')).toBeVisible()
+  await expect(section()).toHaveCount(0)
+})
+
+test('a check that fails does not fail the build, and is told in the title', async () => {
+  await open('lidded')
+  await expect(section()).toBeVisible()
+  const order = await page.locator('.left > section').evaluateAll((els) => els.map((el) => el.getAttribute('aria-label')))
+  expect(order.indexOf('Checks')).toBe(order.indexOf('Parameters') + 1)
+  await expect(title()).toHaveAttribute('aria-expanded', 'false')
+  await expect(title().locator('.section-said')).toHaveText('2 · 1 fails')
+})
+
+test('it opens to a row for each check: how it stands in a word, what was measured and what was wanted', async () => {
+  await title().click()
+  await expect(section().locator('[data-check]')).toHaveCount(2)
+  const fits = section().locator('[data-check="lid fits the tub"]')
+  await expect(fits).toHaveAttribute('data-standing', 'fails')
+  await expect(fits.locator('.check-standing')).toHaveText('fails')
+  await expect(fits.locator('.check-detail')).toContainText('0.1 mm')
+  await expect(fits.locator('.check-detail')).toContainText('wanted 0.15 to 0.25 mm')
+  const walls = section().locator('[data-check="walls"]')
+  await expect(walls).toHaveAttribute('data-standing', 'pass')
+  // A thin wall is found by sampling, and the row says so.
+  await expect(walls.locator('.check-detail')).toContainText('found by sampling')
+  await expect(section().locator('.check-notes')).toHaveCount(0)
+})
+
+test('the agent making a check easier to pass is said under the rows', async () => {
+  writeFileSync(model, MODEL(0.6))
+  await expect(section().locator('.check-notes')).toBeVisible({ timeout: 30_000 })
+  await expect(section().locator('.check-notes li')).toHaveText(['walls: min 1.2 → 0.6 mm (since r2)'])
+})
