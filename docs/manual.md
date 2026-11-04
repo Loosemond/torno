@@ -359,8 +359,8 @@ by their place in the operand, from 0 (`tool F5`), and their numbers are in the 
 distance is OpenCascade's and is told with `≈`; a count of points of one lying inside the other is of points sampled
 on its vertices and the middles of its edges, so it can say that none was found, never that none is there.
 
-**The window.** On the left, the list of projects, then the layers, the parameters and the scans of the
-open project, then its marks. Projects, Layers, Parameters and Scans each fold by their title; folded, the
+**The window.** On the left, the list of projects, then the layers, the parameters, the print profile and the scans of the
+open project, then its marks. Projects, Layers, Parameters, Print profile and Scans each fold by their title; folded, the
 title says what matters (`Layers 12 · 3 hidden`, `Scans 1 · unaligned`). Marks never folds:
 it keeps room for five rows at least, and the sections above give way first. Drag the line
 above Marks up for more (`Up` and `Down` with it in focus), double click it for the shares
@@ -1282,7 +1282,7 @@ answer in one line.
 | `bbox` | a part, a face or an edge | `min`, `max`, `size` |
 | `area` | a part or a face | mm² |
 | `volume` | a part that is a solid | mm³ |
-| `mass` | a part that is a solid | grams, with the `density` used (g/cm³; 1.24, PLA, when none is given, and the reply says so) |
+| `mass` | a part that is a solid | grams, with the `density` used (g/cm³; the material's of the project's print profile when it has one, else 1.24, PLA, and the reply says which) |
 
 **`check`** takes `kind`, `a`, for two parts `b`, and `layout`; `a` and `b`
 are names of whole parts. `interference` and `bed` take neither. `overhang`, `thin` and `bed` ask whether it prints:
@@ -1291,12 +1291,23 @@ they are of the `print` layout when the model has one and no other is named.
 | `kind` | Reply |
 |---|---|
 | `overlap` | the `volume` two solid parts share, in mm³, and the box it lies in |
-| `clearance` | the least `distance` between two parts and the `points` it is between; 0 when they touch, and when they overlap, which `overlapping: true` then says |
+| `clearance` | the least `distance` between two parts and the `points` it is between; 0 when they touch, and when they overlap, which `overlapping: true` then says. With `fit` (`press`, `sliding` or `loose`) and a material in the print profile, the reply also says whether the gap is within that fit's band per side, how far outside it, and whose numbers they are |
 | `interference` | no part: every pair of the layout's solid parts at once. The pairs that share volume (`interfering`, each with its `volume` and the box it lies in, largest first), the pairs that only touch (`touching`) and how many are `clear`. Pairs whose boxes are apart are clear without a cut; the others are cut in order of how much their boxes overlap, for 20 s at most, and `sampling` says how many were measured when the time runs out. Not answered in a layout torno spread for display |
 | `mesh` | whether the mesh the part is drawn and exported with is closed (`watertight`), its `triangles`, the number of `openEdges` and where up to 20 of them are |
-| `overhang` | with `angle` (degrees from vertical, 45 when none is given): the `faces` of `a` that face down steeper than that, each a `ref` (`tray/F7`) with its `area` and `steepest` lean, and their whole `area`; faces on the bed are left out. Planes are exact; a curved face is judged by its normals at sampled points and is not |
-| `thin` | with `min` (mm): the `faces` of `a` where the wall, measured along the inward normal at sampled points of each face, is under `min`, with the `thinnest` of each and of the part; always approximate, and `sampling` says what was measured |
-| `bed` | with `size` ([x, y, z] mm), no part: whether the layout's box `fits` the bed, its `size`, and by how much it is `over` along each axis; exact only when every part's box is |
+| `overhang` | with `angle` (degrees from vertical; the profile's material's, else 45, when none is given): the `faces` of `a` that face down steeper than that, each a `ref` (`tray/F7`) with its `area` and `steepest` lean, and their whole `area`; faces on the bed are left out. Planes are exact; a curved face is judged by its normals at sampled points and is not |
+| `thin` | with `min` (mm; the profile's least wall when none is given): the `faces` of `a` where the wall, measured along the inward normal at sampled points of each face, is under `min`, with the `thinnest` of each and of the part; always approximate, and `sampling` says what was measured |
+| `bed` | with `size` ([x, y, z] mm; the profile's printer's bed when none is given), no part: whether the layout's box `fits` the bed, its `size`, and by how much it is `over` along each axis; exact only when every part's box is |
+
+**The print profile** is the printer (bed, nozzle, layer) and the material (density, shrink, the gap per side of a
+press, a sliding and a loose fit, least wall, overhang angle) a project is made for. Choose them under "Print profile" in the
+left column. The printers are yours, kept in torno's settings (`profiles.json`, next to `config.json`; "Add a printer…"
+makes one); PLA, PETG and ABS come with typical values, and a material of your own goes in that file (`materials`: `name`,
+`density`, and optionally `shrink`, `fits`, `minWall`, `overhang`). A choice is copied into `<project>/.torno/profile.json`,
+so the project travels with the numbers it was checked against. With a profile, `check` bed, thin and overhang and
+`measure` mass take their values from it when the call gives none, and the reading says "by your profile (Bambu X1C,
+PETG)"; a new conversation is told the profile in one line, `state.md` holds it, and the skill `printing` writes
+`Params` from it, not from memory. These are your numbers, not measured: a verdict against them is never a claim that
+the part prints.
 
 What is exact, what is approximate and what is refused is under
 [Limits and exactness](#limits-and-exactness).
@@ -1767,6 +1778,7 @@ place.
 | `marks.json` | the marks of the project: yours and the agent's, with their notes, anchors and status; of a dimension also what is expected of it and the value last measured | travels |
 | `scans.json` | the scans of the project: where each source file is and its hash, how it was imported, and its alignment in each layout | travels |
 | `scans/<id>/mesh.bin`, `<mark>.mask` | the scan as torno draws and checks it, and the triangles of each region | the meshes are ignored (`scans/.gitignore`): a clone has the record, and the row offers "Import again" |
+| `profile.json` | the printer and material the project is made for (a copy of your choice under "Print profile") | travels with the project |
 | `agent.json` | whether Claude Code is shown as a chat or a terminal; without it, in a chat | travels |
 | `chat/<conversation>.jsonl` | what a chat session said and did, as text (a turn's line holds the tokens it used, as numbers); no picture data, no address (a picture of `reference/` by its path) | ignored |
 | `session.json` | the conversation to resume | ignored |
@@ -1779,7 +1791,7 @@ place.
 "Ignored" is by `.torno/.gitignore` (or one inside the folder), which torno
 adds lines to and never rewrites; a line you negate there (`!state.md`) is
 yours, and is not added against. What travels with the project in git is what
-is the project's: `scene.json`, `marks.json`, `scans.json` and `agent.json`.
+is the project's: `scene.json`, `marks.json`, `scans.json`, `profile.json` and `agent.json`.
 What changes with every build or session, or is of this machine, is
 ignored: `state.md`, `session.json`, `chat/`, the thumbnail, `builds.jsonl`, `views/` and
 `exports/`. Add `.torno/` to the workspace's `.gitignore` if you
@@ -1789,7 +1801,7 @@ Outside the workspace:
 
 - `~/.config/torno/` (on macOS `~/Library/Application Support/torno/`): `config.json` holds the workspace last opened and the
   folders opened lately (eight at most); `models.json` the models Claude Code offered in the last chat, for the page
-  of a new project; the rest is Electron's own cache.
+  of a new project; `profiles.json` your printers and materials (see "Measuring and dimensions"); the rest is Electron's own cache.
 - `~/.config/torno/agent/<session>.mcp.json` (on macOS under `~/Library/Application Support/torno/`): the file
   `--mcp-config` names, which tells a session where torno's MCP server is. It holds the placeholder
   `${TORNO_SESSION}`, never the token, and is removed when the session ends (and at the next start after a crash).
@@ -2142,6 +2154,7 @@ On the screen:
 - **The clipboard in the terminal.** Select text in a session and press `Ctrl+Shift+C`, then `Ctrl+Shift+V`: it is copied and pasted. No test touches the clipboard. "Copy" on the build error sheet likewise.
 - **By eye.** On a monitor, in dark and in light: text, marks, part edges and the terminal's colours are legible; the scrollbars are the thin grey ones, also in the list of projects and on the page of projects in the dark theme; a mark that has moved says so on a line under its note. `?` typed in a field on your own keyboard (with its dead keys) is a question mark.
 - **The doodle board with a mouse and a pen.** Draw with a mouse, a tablet pen and a touch screen: the line follows the pointer without lag, the eraser takes away what it crosses, `Ctrl+Z` takes the last stroke back, and the PNG Claude gets is dark on white in both themes. Tests drew with synthetic pointer events only. A photo dropped from the file manager on the new project's page is taken too; a test cannot drop a file with a path.
+- **The Print profile panel.** Open it in the left column: the Printer and Material lists, "Add a printer…" with its three bed fields, the lines under them in the monospace face; legible in both themes, and the section folds to its title (`Print profile Bambu X1C, PETG`).
 - **The Scans panel.** Import a scan of your own: the sheet `How is S1 read?` is at the top of the Scans panel with the size it would have; "Later" leaves a dot on the row. The row is one line at the column's default width, the name cut with an ellipsis and whole in its tooltip, the word legible in both themes, the dot and a `check` or `rough` word told apart from the rest. Open its detail and another's: one is open at a time, and Frame, Align and Rename are on one line.
 - **Drawing on the view with the real Claude Code.** In a chat, "Draw on view", ring a face and draw an arrow to it with a mouse and with a tablet pen, "Done", then a prompt ("make this thicker"): the ink follows the pointer, the eraser takes ink and never the picture, the row above the box names the faces the ink lies over before anything is sent (and says so, in the warning colour, when it could not be worked out), "Attach view" shows a small picture of the view before it goes, the chat shows the picture and that line with the prompt, and Claude Code's reply speaks of the ringed place and names the face the caption gave. Tests drew with synthetic pointer events and the stand-in agent.
 - **Claude Code's own checkpoints for "Undo" (`Part of #131`).** "Undo" asks the agent in words. Claude Code can also

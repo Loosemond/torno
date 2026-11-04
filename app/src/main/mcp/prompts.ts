@@ -40,14 +40,14 @@ export const PROMPTS = {
           ? `4. Bed: call ${toolName('check')} with {"kind": "bed", "size": [${size.join(', ')}]} and say whether every part fits, and by how much it does not.`
           : bed !== undefined && bed.trim() !== ''
             ? `4. Bed: "${bed}" is not a bed size in mm such as 256x256x256. Ask the person for it, then call ${toolName('check')} with {"kind": "bed", "size": [x, y, z]}.`
-            : `4. Bed: no bed size was given. Give the size of the print layout from ${toolName('scene')}, and ask the person for their bed (such as 256x256x256) before saying it fits.`
+            : `4. Bed: no bed size was given. If the context names a print profile, call ${toolName('check')} with kind bed and no size: it takes the profile's bed. Otherwise give the size of the print layout from ${toolName('scene')}, and ask the person for their bed (such as 256x256x256) before saying it fits.`
       return [
         `Check whether this project is ready to 3D print, on its print layout (layout "print"; if there is none, say so and use the layout it has).`,
         `If you have the skill torno:printing, read it first.`,
         ``,
         `1. Call ${toolName('scene')} for the parts of the layout and their sizes.`,
-        `2. Walls: for each part call ${toolName('check')} with {"kind": "thin", "a": <part>, "min": 0.8} (or the least wall the person's nozzle can print); where that kind is not offered, ${toolName('measure')} the thickness of the thinnest-looking walls at a point of a face.`,
-        `3. Overhangs: for each part call ${toolName('check')} with {"kind": "overhang", "a": <part>, "angle": 45}, and say where support would be needed. Closed meshes: call ${toolName('check')} with {"kind": "mesh", "a": <part>} for each part; an open mesh will not slice.`,
+        `2. Walls: for each part call ${toolName('check')} with {"kind": "thin", "a": <part>, "min": 0.8} (or the least wall the person's nozzle can print; with a print profile leave min out and the tool takes the profile's); where that kind is not offered, ${toolName('measure')} the thickness of the thinnest-looking walls at a point of a face.`,
+        `3. Overhangs: for each part call ${toolName('check')} with {"kind": "overhang", "a": <part>, "angle": 45} (leave angle out when there is a print profile), and say where support would be needed. Closed meshes: call ${toolName('check')} with {"kind": "mesh", "a": <part>} for each part; an open mesh will not slice.`,
         bedStep,
         `5. ${toolName('look')} at the print layout to see how the parts sit on the bed.`,
         `6. Holes: for each part call ${toolName('features')} for the holes of the part (kinds hole) and say which holes are narrower than the nozzle can print (a hole under about 1 mm closes up) or blind and deep for their width, with the diameters it gave.`,

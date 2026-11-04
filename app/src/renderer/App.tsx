@@ -12,6 +12,7 @@ import { WorkspaceQuestion } from './ui/WorkspaceQuestion'
 import { openProblem } from './ui/openFolder'
 import { Layers } from './ui/Layers'
 import { ChecksPanel } from './ui/ChecksPanel'
+import { PrintProfile } from './ui/PrintProfile'
 import { ParamsPanel } from './ui/ParamsPanel'
 import { MarksPanel } from './ui/MarksPanel'
 import { ColumnSplit } from './ui/ColumnSplit'
@@ -473,6 +474,7 @@ export function App() {
         {page === 'object' && <Layers />}
         {page === 'object' && <ParamsPanel />}
         {page === 'object' && <ChecksPanel />}
+        {page === 'object' && <PrintProfile />}
         {page === 'object' && <ScansPanel />}
         {/* The line that gives the marks more room than their share, from the sections above. */}
         {page === 'object' && <ColumnSplit />}

@@ -3,6 +3,7 @@ import type { CheckedBed, CheckedClearance, CheckedMesh, CheckedOverhang, Checke
 import type { Part, Scene } from '../../shared/scene'
 import { type SectionDrawingResult, type SectionPlane, axisForm, cutText, planeText } from '../../shared/view'
 import type { ObjectInfo } from '../../shared/workspace'
+import { type Fit, FITS, type Profile, fitVerdict, leastWall, profileName } from '../../shared/profile'
 import { KernelError, isBusy } from '../kernel/client'
 import { scanNumber } from '../../shared/format'
 import { type FilletDiagnosis, WHY, diagnosisText, sizeText } from '../../shared/diagnosis'
@@ -29,6 +30,9 @@ export interface MeasureToolArgs {
   density?: number
   layout?: string
 }
+
+/** Said at the end of a reading whose numbers came from the person's profile and not from the call. */
+const byProfile = (profile: Profile, what: string): string => `${what} by your profile (${profileName(profile)}): the person's numbers, not measured`
 export interface SectionToolArgs {
   plane: 'current' | PlaneArg
   parts?: string[]
@@ -57,6 +61,8 @@ export interface CheckToolArgs {
   min?: number
   /** bed: the bed, [x, y, z] mm. */
   size?: number[]
+  /** clearance: the fit the gap is judged against, by the profile's material. */
+  fit?: string
 }
 
 /** The checks of whether it prints: asked of the print layout unless another is named. */
@@ -129,6 +135,10 @@ export async function measureTool(deps: ToolDeps, objectId: string, args: Measur
   if (!between && args.b !== undefined) return failure(`${args.kind} is of a alone: leave b out`)
   if (args.kind !== 'distance' && (isScanEnd(args.a) || isScanEnd(args.b))) return failure(SCAN_END_DISTANCE)
 
+  // Mass by the density of the profile's material, when the call gives none.
+  const profile = deps.profile?.(objectId)
+  const density = args.density ?? (args.kind === 'mass' ? profile?.material?.density : undefined)
+  const fromProfile = args.kind === 'mass' && args.density === undefined && profile?.material !== undefined
   const asked = await ofOneBuild(deps, objectId, async (found) => {
     const layout = layoutFor(deps, objectId, found.scene, args.layout)
     if (typeof layout !== 'string') return layout
@@ -154,7 +164,7 @@ export async function measureTool(deps: ToolDeps, objectId: string, args: Measur
         if (described.kind === 'face') a.point = described.center
       }
       const end = ({ ref, point }: End): { ref?: string; point?: Vec3 } => ({ ...(ref === undefined ? {} : { ref }), ...(point ? { point } : {}) })
-      const request = wire({ kind: args.kind, layout, a: end(a), ...(b ? { b: end(b) } : {}), ...(args.density === undefined ? {} : { density: args.density }) })
+      const request = wire({ kind: args.kind, layout, a: end(a), ...(b ? { b: end(b) } : {}), ...(density === undefined ? {} : { density }) })
       const measured = await deps.query<Measured>(objectId, 'measure', request)
       // What is said of a scan's alignment is read once the kernel has answered: a check of this build has been by then.
       for (const one of ends) if (one.scan) one.scan.aligned = await saidNow(deps, objectId, layout, found.revision, one.scan.id, one.scan.aligned)
@@ -172,7 +182,8 @@ export async function measureTool(deps: ToolDeps, objectId: string, args: Measur
   const because = scan ? (other ? `${scan.id} and ${other.id} are scans` : `${scan.id} is a scan`) : undefined
   const taken = scan ? measureReading({ ...measured, exact: false }, a, b, because) : measureReading(measured, a, b)
   if (taken === null) return failure('the kernel did not answer with a measurement')
-  const reading = scan ? `${scan.aligned.first}${other?.aligned.first ?? ''}${taken}. ${scan.aligned.last()}${other ? ` ${other.aligned.last()}` : ''}` : taken
+  const said = scan ? `${scan.aligned.first}${other?.aligned.first ?? ''}${taken}. ${scan.aligned.last()}${other ? ` ${other.aligned.last()}` : ''}` : taken
+  const reading = fromProfile && profile ? `${said}; ${byProfile(profile, `density ${number(density!)} g/cm³`)}` : said
   // Of one part (an end that is a bare point is of none): its points are where the part is shown, and that is said.
   // Of two, the points of an angle are apart as torno put the parts, and are left out where it moved one.
   const parts = [...new Map([a, ...(b ? [b] : [])].flatMap((end) => (end.part ? [[end.part.name, end.part] as const] : []))).values()]
@@ -180,7 +191,7 @@ export async function measureTool(deps: ToolDeps, objectId: string, args: Measur
   const told = parts.length === 2 && parts.some(isMoved) ? angleOnly : measured
   const ofOther = other ? { other: { scan: other.id, alignment: other.aligned.data, ...noteOf(other.aligned, '') } } : {}
   const ofScan = scan ? { exact: false, scan: scan.id, alignment: scan.aligned.data, ...ofOther, ...noteOf(scan.aligned, layout), approximate: SCAN_APPROXIMATE } : {}
-  return reply({ layout, ...ofBuild(deps, objectId), ...clean(told), ...(parts.length === 1 && !scan ? movedForDisplay(parts[0], layout, told) : {}), ...ofScan, reading })
+  return reply({ layout, ...ofBuild(deps, objectId), ...clean(told), ...(parts.length === 1 && !scan ? movedForDisplay(parts[0], layout, told) : {}), ...ofScan, ...(fromProfile && profile ? { profile: profileName(profile), density } : {}), reading })
 }
 
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
@@ -247,9 +258,22 @@ export async function checkTool(deps: ToolDeps, objectId: string, args: CheckToo
   if (!two && args.b !== undefined) return failure(`${args.kind} is of ${whole ? 'the whole layout' : 'the part a alone'}: leave b out`)
   if (whole && args.a !== undefined) return failure(`${args.kind} is of the whole layout: leave a out`)
   if (!whole && args.a === undefined) return failure(`${args.kind} is of the part a: give a`)
-  if (args.kind === 'thin' && args.min === undefined) return failure(`thin needs min, the least wall in mm: {"kind": "thin", "a": "${args.a}", "min": 0.8}`)
-  if (args.kind === 'bed' && args.size === undefined) return failure('bed needs size, the bed in mm: {"kind": "bed", "size": [256, 256, 256]}')
-  const extra = args.kind === 'overhang' ? { angle: args.angle ?? OVERHANG_ANGLE } : args.kind === 'thin' ? { min: args.min } : args.kind === 'bed' ? { size: args.size } : {}
+  // What the call leaves out is taken from the project's profile, when it has one, and the reading says so.
+  const profile = deps.profile?.(objectId)
+  const wall = leastWall(profile)
+  const taken: string[] = []
+  let min = args.min
+  let size = args.size
+  let angle = args.angle
+  if (args.kind === 'thin' && min === undefined && wall !== undefined) (min = wall), taken.push(`least wall ${number(wall)} mm`)
+  if (args.kind === 'bed' && size === undefined && profile?.printer) (size = profile.printer.bed), taken.push(`bed ${size.map(number).join(' × ')} mm`)
+  if (args.kind === 'overhang' && angle === undefined && profile?.material?.overhang !== undefined) (angle = profile.material.overhang), taken.push(`angle ${number(angle)}°`)
+  if (args.kind === 'thin' && min === undefined) return failure(`thin needs min, the least wall in mm: {"kind": "thin", "a": "${args.a}", "min": 0.8}; the project has no print profile to take it from`)
+  if (args.kind === 'bed' && size === undefined) return failure('bed needs size, the bed in mm: {"kind": "bed", "size": [256, 256, 256]}; the project has no printer in its profile to take it from')
+  if (args.fit !== undefined && args.kind !== 'clearance') return failure('fit is for clearance: the gap between a and b judged against the profile\'s band')
+  if (args.fit !== undefined && !(FITS as readonly string[]).includes(args.fit)) return failure(`fit is one of ${FITS.join(', ')}`)
+  if (args.fit !== undefined && !profile?.material) return failure('fit needs a material in the project\'s print profile, and it has none: ask the person to choose one (Print profile in the project menu), or leave fit out')
+  const extra = args.kind === 'overhang' ? { angle: angle ?? OVERHANG_ANGLE } : args.kind === 'thin' ? { min } : args.kind === 'bed' ? { size } : {}
 
   const asked = await ofOneBuild(deps, objectId, async (found) => {
     // Whether it prints is of the print layout, where the model has one and no other is asked for.
@@ -284,10 +308,26 @@ export async function checkTool(deps: ToolDeps, objectId: string, args: CheckToo
   })
   if ('content' in asked) return asked
   const { layout, part, checked } = asked.got
-  const reading = checkReading(args, checked)
-  if (reading === null) return failure('the kernel did not answer with a check')
+  const said = checkReading(args, checked)
+  if (said === null) return failure('the kernel did not answer with a check')
+  // A clearance judged against the band of a fit: the person's numbers, never a claim that it prints.
+  const judged = args.fit !== undefined && profile?.material ? fitJudged(args.fit as Fit, profile, checked) : null
+  const used = profile && taken.length > 0 ? `; ${byProfile(profile, taken.join(', '))}` : ''
+  const reading = `${said}${judged ? `; ${judged.text}` : ''}${used}`
   // Where the open edges of a mesh are is where its part is shown.
-  return reply({ layout, ...ofBuild(deps, objectId), kind: args.kind, ...clean(checked), ...(two || part === null ? {} : movedForDisplay(part, layout, checked)), reading })
+  return reply({ layout, ...ofBuild(deps, objectId), kind: args.kind, ...clean(checked), ...(two || part === null ? {} : movedForDisplay(part, layout, checked)), ...(judged ? { fit: judged.data } : {}), ...(profile && (taken.length > 0 || judged) ? { profile: profileName(profile) } : {}), reading })
+}
+
+/** A clearance against the band of a fit of the profile's material; null when the kernel gave no distance. */
+function fitJudged(fit: Fit, profile: Profile, checked: object): { text: string; data: object } | null {
+  const { distance, overlapping } = checked as Partial<CheckedClearance>
+  const band = profile.material!.fits[fit]
+  if (!finite(distance)) return null
+  const where = `the ${fit} fit of ${profileName(profile)} is ${number(band[0])} to ${number(band[1])} mm per side`
+  if (overlapping === true) return { text: `FAILS the ${fit} fit: the parts overlap (${where}), judged by the person's numbers, not a claim that it prints`, data: { name: fit, band, verdict: 'overlap' } }
+  const v = fitVerdict(distance, band)
+  const what = v.verdict === 'within' ? `within the ${fit} fit (${where})` : `${number(v.by)} mm ${v.verdict === 'tighter' ? 'under' : 'over'} the ${fit} fit (${where}): ${v.verdict === 'tighter' ? 'tighter than the band' : 'looser than the band'}`
+  return { text: `${v.verdict === 'within' ? 'passes' : 'FAILS'} ${what}; judged by the person's numbers, not a claim that it prints`, data: { name: fit, band, verdict: v.verdict, by: v.by } }
 }
 
 /** The most edges one trial takes: the kernel's `MOST_TRIAL_EDGES`. */

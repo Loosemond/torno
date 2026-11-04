@@ -9,6 +9,7 @@ import { instructionsLine } from '../shared/instructions'
 import type { ScanAlignment, ScanInfo } from '../shared/scans'
 import { probe } from '../test/diagnosisFixtures'
 import { buildContextFor, CONTEXT_LIMIT, contextFor, modelOutput, tellsInstructions, type ContextDeps } from './context'
+import { STARTER_MATERIALS, printerOf } from '../shared/profile'
 
 const BRACKET: ObjectInfo = { id: 'bracket', name: 'bracket', dir: '/ws/bracket', model: 'bracket.py' }
 
@@ -1185,5 +1186,21 @@ describe('the checks the model declares', () => {
   it('keep the context within its limit with many of them', () => {
     const many = Array.from({ length: 60 }, (_, i) => ({ ...fits, name: `check number ${i} with a long name` }))
     expect(textFor(deps({ build, scene: { ...SCENE, checks: many } }), 'bracket').length).toBeLessThanOrEqual(CONTEXT_LIMIT)
+  })
+})
+
+describe('the print profile of a new conversation', () => {
+  const OK: BuildState = { objectId: 'bracket', status: 'ok', revision: 1, seconds: 0.5, stale: false }
+  const profile = { printer: printerOf({ name: 'Bambu X1C', bed: [256, 256, 250], nozzle: 0.4 })!, material: STARTER_MATERIALS[1] }
+  it('is told in one line, in a new conversation only', () => {
+    const d = { ...deps({ build: OK, scene: SCENE }), profile: () => profile }
+    const fresh = contextFor(d, 'bracket', [], { fresh: true }).text.split('\n')
+    expect(fresh.filter((l) => l.startsWith('Print profile of this project')).length).toBe(1)
+    expect(fresh.join('\n')).toContain('Bambu X1C')
+    expect(contextFor(d, 'bracket').text).not.toContain('Print profile')
+    expect(contextFor(d, 'bracket', [], { newConversation: true, buildOnly: true } as never).text).not.toContain('Print profile')
+  })
+  it('is not told when the project has none', () => {
+    expect(contextFor(deps({ build: OK, scene: SCENE }), 'bracket', [], { fresh: true }).text).not.toContain('Print profile')
   })
 })

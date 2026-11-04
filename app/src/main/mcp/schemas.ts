@@ -237,7 +237,7 @@ const measureInput = {
   // Not required by the schema: left out, the tool says what an end is.
   a: endInput.optional().describe(`What is measured, or its first end. ${endText} A whole part (lid) where the kind takes one. ${scanEndText}`),
   b: endInput.optional().describe('The other end of a distance or an angle, given as a is.'),
-  density: z.number().optional().describe('For mass: g/cm³. Default 1.24, PLA, and the reply says so.'),
+  density: z.number().optional().describe('For mass: g/cm³. Default: the density of the material in the project\'s print profile when it has one, else 1.24, PLA; the reply says so.'),
   layout: z.string().optional().describe(layoutText)
 }
 
@@ -289,9 +289,10 @@ const checkInput = {
   a: z.string().optional().describe('The name of a part, as listed by scene. Not for interference or bed.'),
   b: z.string().optional().describe('The name of the other part, for overlap and clearance only.'),
   layout: z.string().optional().describe('The layout the parts are in, as listed by scene. Default: print for overhang, thin and bed when the model has it, else the one on screen.'),
-  angle: loose(z.number()).optional().describe('For overhang: how far from vertical a face may lean before it overhangs, in degrees, above 0 and below 90. Default 45.'),
-  min: loose(z.number()).optional().describe('For thin: the least wall, in mm.'),
-  size: loose(z.array(z.number())).optional().describe('For bed: the build volume of the printer, [x, y, z] in mm.')
+  angle: loose(z.number()).optional().describe('For overhang: how far from vertical a face may lean before it overhangs, in degrees, above 0 and below 90. Default: the material\'s in the project\'s print profile, else 45.'),
+  min: loose(z.number()).optional().describe('For thin: the least wall, in mm. Default: the print profile\'s (the material\'s, else two nozzle widths).'),
+  size: loose(z.array(z.number())).optional().describe('For bed: the build volume of the printer, [x, y, z] in mm. Default: the bed of the project\'s print profile.'),
+  fit: loose(z.enum(['press', 'sliding', 'loose'])).optional().describe('For clearance: judge the gap against that fit of the material in the project\'s print profile (per side); the reply says whose numbers they are.')
 }
 
 // Loose: what is not a list of refs or a number reaches the tool, which says what it takes (`tryFilletTool`).

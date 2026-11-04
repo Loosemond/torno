@@ -11,6 +11,7 @@ import type { BuildIdentity } from '../../shared/git'
 import { TOOLS } from './schemas'
 import { type ToolDeps, type ToolResult, describeTool } from './tools'
 import { lookTool, sceneTool, showTool } from './viewTools'
+import { STARTER_MATERIALS, type Profile, printerOf } from '../../shared/profile'
 
 // The tools the agent reads the part with, against stand-ins for the kernel,
 // the marks and the window: what is asked of each is kept, and what the
@@ -427,14 +428,14 @@ describe('check', () => {
     expect(data(await checkTool(thinAsked, 'box', { kind: 'thin', a: 'tub', min: 0.8 })).reading).toBe('walls of tub under 0.8 mm: 1 face, thinnest ≈ 0.6 mm at tub/F3 (tub/F3), approximate: sampled at points of each face')
     expect(thinAsked.queries[0].args).toEqual({ kind: 'thin', layout: 'print', a: 'tub', min: 0.8 })
     expect(data(await checkTool(fake(() => ({ part: 'tub', min: 0.8, faces: [], count: 0, thinnest: { value: 2, ref: 'tub/F1', points: [] }, exact: false, sampling: { complete: false } })), 'box', { kind: 'thin', a: 'tub', min: 0.8 })).reading).toBe('no wall of tub under 0.8 mm where sampled, thinnest ≈ 2 mm, approximate: sampled at points of each face; the time ran out before every face was')
-    expect(await checkTool(fake(), 'box', { kind: 'thin', a: 'tub' })).toEqual(refused('thin needs min, the least wall in mm: {"kind": "thin", "a": "tub", "min": 0.8}'))
+    expect(await checkTool(fake(), 'box', { kind: 'thin', a: 'tub' })).toEqual(refused('thin needs min, the least wall in mm: {"kind": "thin", "a": "tub", "min": 0.8}; the project has no print profile to take it from'))
 
     const bedAsked = fake(() => ({ layout: 'print', parts: ['tub', 'lid'], bed: [256, 256, 256], size: [120, 80, 40], fits: true, over: [0, 0, 0], exact: true }))
     expect(data(await checkTool(bedAsked, 'box', { kind: 'bed', size: [256, 256, 256] })).reading).toBe('print layout fits a bed of 256 × 256 × 256 mm: it is 120 × 80 × 40 mm')
     expect(bedAsked.queries[0].args).toEqual({ kind: 'bed', layout: 'print', size: [256, 256, 256] })
     expect(data(await checkTool(fake(() => ({ layout: 'print', bed: [100, 100, 100], size: [120, 80, 140.5], fits: false, over: [20, 0, 40.5], exact: false })), 'box', { kind: 'bed', size: [100, 100, 100] })).reading).toBe('print layout does NOT fit a bed of 100 × 100 × 100 mm: it is ≈ 120 × 80 × 140.5 mm, over by 20 mm along x and 40.5 mm along z, approximate')
     expect(await checkTool(fake(), 'box', { kind: 'bed', a: 'tub', size: [1, 1, 1] })).toEqual(refused('bed is of the whole layout: leave a out'))
-    expect(await checkTool(fake(), 'box', { kind: 'bed' })).toEqual(refused('bed needs size, the bed in mm: {"kind": "bed", "size": [256, 256, 256]}'))
+    expect(await checkTool(fake(), 'box', { kind: 'bed' })).toEqual(refused('bed needs size, the bed in mm: {"kind": "bed", "size": [256, 256, 256]}; the project has no printer in its profile to take it from'))
     expect(await checkTool(fake(), 'box', { kind: 'overhang' })).toEqual(refused('overhang is of the part a: give a'))
   })
 
@@ -1078,5 +1079,57 @@ describe('try_fillet', () => {
   it('says where a part torno moved for display is, as the other tools of one part do', async () => {
     const said = data(await tryFilletTool(spread(() => FAILS), 'box', { part: 'lid', edges: ['lid/E4'], radius: 3, layout: 'print' }))
     expect(said).toMatchObject({ arranged: [45, 0, 0], note: MOVED })
+  })
+})
+
+describe('the print profile of a project', () => {
+  const profile: Profile = { printer: printerOf({ name: 'Bambu X1C', bed: [256, 256, 250], nozzle: 0.4 })!, material: STARTER_MATERIALS[1] }
+  const withProfile = (says?: Parameters<typeof fake>[0]): Fake => fake(says, { profile: () => profile })
+  const BY = 'by your profile (Bambu X1C, PETG): the person\'s numbers, not measured'
+
+  it('gives check bed, thin and overhang their defaults, and the reading says whose they are', async () => {
+    const bed = withProfile(() => ({ layout: 'print', bed: [256, 256, 250], size: [120, 80, 40], fits: true, over: [0, 0, 0], exact: true }))
+    const result = data(await checkTool(bed, 'box', { kind: 'bed' }))
+    expect(bed.queries[0].args).toEqual({ kind: 'bed', layout: 'print', size: [256, 256, 250] })
+    expect(result.reading).toBe(`print layout fits a bed of 256 × 256 × 250 mm: it is 120 × 80 × 40 mm; bed 256 × 256 × 250 mm ${BY}`)
+    expect(result.profile).toBe('Bambu X1C, PETG')
+    const thin = withProfile(() => ({ part: 'tub', min: 0.8, faces: [], count: 0, exact: false }))
+    expect(data(await checkTool(thin, 'box', { kind: 'thin', a: 'tub' })).reading).toContain(`least wall 0.8 mm ${BY}`)
+    expect(thin.queries[0].args).toMatchObject({ min: 0.8 })
+    const over = withProfile(() => ({ angle: 40, faces: [], count: 0, area: 0, exact: true }))
+    await checkTool(over, 'box', { kind: 'overhang', a: 'tub' })
+    expect(over.queries[0].args).toMatchObject({ angle: 45 })
+  })
+  it('leaves a value the call gives alone', async () => {
+    const bed = withProfile(() => ({ layout: 'print', bed: [100, 100, 100], size: [120, 80, 40], fits: false, over: [20, 0, 0], exact: true }))
+    const result = data(await checkTool(bed, 'box', { kind: 'bed', size: [100, 100, 100] }))
+    expect(bed.queries[0].args).toMatchObject({ size: [100, 100, 100] })
+    expect(result.reading).not.toContain('by your profile')
+    expect(result.profile).toBeUndefined()
+  })
+  it('takes the density of the material for mass', async () => {
+    const mass = withProfile(() => ({ kind: 'mass', value: 12.7, unit: 'g', how: 'volume × density', exact: true, volume: 10000 }))
+    const result = data(await measureTool(mass, 'box', { kind: 'mass', a: 'tub' }))
+    expect(mass.queries[0].args).toMatchObject({ density: 1.27 })
+    expect(result.reading).toContain(`density 1.27 g/cm³ ${BY}`)
+    await measureTool(mass, 'box', { kind: 'mass', a: 'tub', density: 2.7 })
+    expect(mass.queries[1].args).toMatchObject({ density: 2.7 })
+  })
+  it('judges a clearance against the band of a fit, and says it is not a claim that it prints', async () => {
+    const gap = (distance: number, overlapping = false) => withProfile(() => ({ distance, points: [], how: 'minimum', overlapping, exact: true }))
+    const sliding = async (d: number, o?: boolean) => data(await checkTool(gap(d, o), 'box', { kind: 'clearance', a: 'lid', b: 'tub', fit: 'sliding' }))
+    const good = await sliding(0.35)
+    expect(good.reading).toContain('passes within the sliding fit')
+    expect(good.reading).toContain('0.3 to 0.4 mm per side')
+    expect(good.reading).toContain('not a claim that it prints')
+    expect(good.fit).toMatchObject({ verdict: 'within' })
+    expect((await sliding(0.1)).reading).toContain('FAILS 0.2 mm under the sliding fit')
+    expect((await sliding(0.7)).fit).toMatchObject({ verdict: 'looser' })
+    expect((await sliding(0, true)).reading).toContain('FAILS the sliding fit: the parts overlap')
+  })
+  it('refuses a fit without a material, or on another kind', async () => {
+    expect(await checkTool(fake(), 'box', { kind: 'clearance', a: 'lid', b: 'tub', fit: 'sliding' })).toMatchObject({ isError: true })
+    expect(await checkTool(withProfile(), 'box', { kind: 'clearance', a: 'lid', b: 'tub', fit: 'snug' })).toMatchObject({ isError: true })
+    expect(await checkTool(withProfile(), 'box', { kind: 'mesh', a: 'tub', fit: 'sliding' })).toMatchObject({ isError: true })
   })
 })

@@ -169,6 +169,13 @@ const bridge: TornoBridge = {
     setMode: (sessionId, mode) => invokePlain('chat:setMode', sessionId, mode),
     setEffort: (sessionId, effort) => invokePlain('chat:setEffort', sessionId, effort),
     models: () => invokePlain('chat:models')
+  },
+  profile: {
+    choices: () => invokePlain('profile:choices'),
+    savePrinter: (printer) => invokePlain('profile:savePrinter', printer),
+    saveMaterial: (material) => invokePlain('profile:saveMaterial', material),
+    get: (objectId) => invokePlain('profile:get', objectId),
+    set: (objectId, profile) => invokePlain('profile:set', objectId, profile)
   }
 }
 

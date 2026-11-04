@@ -227,6 +227,14 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   first declared (`checkNotes`, `since r7`). A model with no checks, or a kernel that does not read them, has no section
   (`e2e/checks.spec.ts`).
 
+## Print profile
+
+- `ui/PrintProfile.tsx`, under Checks: a section (`print` in `ColumnSection`, folded at first; its title says
+  `Bambu X1C, PETG` or `none`) with two lists, Printer and Material, and "Add a printer…" (name, bed X Y Z, nozzle),
+  through `window.torno.profile` (`profile:*` channels). A choice is copied into the object's `.torno/profile.json` by
+  main; the printers are the person's, in torno's settings. The numbers shown are the person's, set in the monospace
+  face, with the line that they are not measured. Materials of the person's own are added in `profiles.json` (no form).
+
 ## Section
 
 - Drawing is `viewport/section.ts`: the parts' materials are clipped, and each

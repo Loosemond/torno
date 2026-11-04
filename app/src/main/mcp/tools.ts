@@ -40,6 +40,7 @@ import { type DiffToolArgs, type MeasureToolArgs, type SectionToolArgs, type Try
 import { type ScanClashArgs, type ScanDeviationArgs, type ScansArgs, scanClashTool, scanDeviationTool, scansTool } from './scanTools'
 import { type AddMarkArgs, type AskArgs, type DescribeArgs, type HighlightArgs, type LookArgs, type MarksArgs, type ResolveMarkArgs, type SaveViewArgs, type ShowArgs, DEFAULT_SIZE, MAX_SIZE, MIN_SIZE, NO_PLANE, TOOLS, refusedKeys } from './schemas'
 import { type SceneArgs, lookTool, saveViewTool, sceneTool, showTool } from './viewTools'
+import type { Profile } from '../../shared/profile'
 
 /** What the tools need of torno. All of it is about objects of the open workspace, by id. */
 export interface ToolDeps {
@@ -50,6 +51,8 @@ export interface ToolDeps {
   /** Takes out of what the model printed what must not be told (the tokens of the sessions). */
   redact?(text: string): string
   object(objectId: string): ObjectInfo | undefined
+  /** The printer and material the project is made for (`.torno/profile.json`): the person's numbers, which `check` and `measure` take as defaults. None when it has none. */
+  profile?(objectId: string): Profile | undefined
   build(objectId: string): BuildState | undefined
   /** The last successful build. */
   scene(objectId: string): { revision: number; scene: Scene } | undefined

@@ -15,6 +15,7 @@ import type { HighlightRequest, HighlightResult, LookRequest, LookResult, SaveVi
 import type { RecentFolder, WorkspaceInfo } from './workspace'
 import type { ViewDrawing } from './drawing'
 import type { Ready } from './ready'
+import type { Material, Printer, Profile, Profiles } from './profile'
 
 /** What the onboarding page asks for when the person presses "Create": the new object and everything they gave. */
 export interface CreateRequest {
@@ -336,6 +337,18 @@ export interface TornoBridge {
     setEffort(sessionId: string, effort: Effort): Promise<void>
     /** The models a session can be started on before it has said its own: the list the last chat's CLI offered, or Claude Code's aliases. */
     models(): Promise<ChatModel[]>
+  }
+  /** The printer and material a project is made for (`<project>/.torno/profile.json`), and the person's own to choose from (torno's settings). */
+  profile: {
+    /** The person's printers, and their materials after the starter ones. */
+    choices(): Promise<Profiles>
+    /** Keeps a printer (or replaces the one of that name); rejects with why when it is not one. Answers with the choices. */
+    savePrinter(printer: Printer): Promise<Profiles>
+    saveMaterial(material: Material): Promise<Profiles>
+    /** The profile of a project; null when it has none. */
+    get(objectId: string): Promise<Profile | null>
+    /** Names the printer and material a project is made for (copied into it), or, with neither, takes them off. */
+    set(objectId: string, profile: Profile): Promise<Profile | null>
   }
 }
 /** How Claude Code's session is shown: as a chat torno draws, or as the CLI's own terminal. */

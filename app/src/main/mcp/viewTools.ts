@@ -195,6 +195,8 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
     ...(checks.length > 0 ? { dimensions: { pass: count('pass'), fail: count('fail'), notMeasured: count('unmeasured', 'unmeasurable') } } : {}),
     // The checks the model declares in checks(p), as the kernel measured them on this build: a pass is what was measured, never "verified".
     ...(scene.checks && scene.checks.length > 0 ? { checks: scene.checks.map(({ declared: _declared, ...c }) => c) } : {}),
+    // The printer and material the person chose for the project: their numbers, which check and measure default to.
+    ...(deps.profile?.(objectId) ? { printProfile: deps.profile(objectId) } : {}),
     ...(scene.checkNotes && scene.checkNotes.length > 0 ? { checksEasier: scene.checkNotes.map(noteText) } : {}),
     // How each alignment stands, not a bare yes: one that is rough, in doubt or was never checked against this build is not "aligned: true".
     ...(scans && scans.length > 0 ? { scans: scans.map((scan) => scanStanding(scan, scanLayout, revision)) } : {}),
