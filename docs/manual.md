@@ -380,7 +380,7 @@ hold, sizes you know, how it will be made), and then for what you have, each wit
   not read: set the phone to Most compatible, or export as JPEG. Claude gets each one attached to its first prompt, after a line naming it ("Picture 1: reference/photo-1.jpg"),
   scaled to 1280 px on its long edge; the original is copied to `reference/photo-<n>.<ext>` in the project.
 - **Doodles** ("Draw…"): up to 6, drawn on a board (below). Claude gets each as a PNG with dark ink on white,
-  whichever theme you drew it in, and `reference/` keeps it.
+  over a light grid (1 square = 40 px of the board, no scale, and the prompt says so), whichever theme you drew it in, and `reference/` keeps it.
 - **Scans** ("Add a scan…", or dropped): up to 4. They are imported into the project as "Import scan…" does, not
   copied and not aligned; Claude is told each scan's file name and id, and that it is not aligned (you align it in
   torno); `brief.md` keeps the path it came from, with `~` for your home folder.
@@ -423,8 +423,9 @@ and Discard do nothing.
 While the page is up the window is about the project being made: no project of the list is selected (folded, the
 list reads "New project"), the Marks
 section gives way, and the status line says "New project" with the build123d version alone. The session pane says
-what Claude Code will start with once you create the project (the name, whether you said what it is, and how many
-photos, doodles, scans and projects you gave), filled in as you go. A session of the project that was open that is
+the first prompt Claude Code will get once you create the project, as it will be sent and read-only, filled in as you go:
+your own words in ink and what torno adds in grey, and under it a thumbnail of each photo and doodle, with "attached"
+or "named only" (only the first 6 pictures go with the prompt). Change the words on the left; the prompt follows. A session of the project that was open that is
 still running stays as it is, a question waiting in it included, under a note saying whose it is: it goes on, and
 the new project gets its own. Cancel or `Esc` brings everything back as it was.
 
@@ -436,7 +437,8 @@ it for the next project you make in this window. The models are the ones Claude 
 Medium, High, Extra high, Max) are the ones the chosen model takes, and a model that takes none leaves the effort
 off. Both can be changed in the chat afterwards.
 
-The doodle board (the same board as the chat's "Draw on view") has a thin pen, a thick pen and an eraser, "Undo" and `Ctrl+Z`, "Clear", and "Done" and "Cancel".
+The doodle board (the same board as the chat's "Draw on view") has a thin pen, a thick pen and an eraser, "Undo" and `Ctrl+Z`, "Clear", and "Done" and "Cancel". The doodle board fills the window and has a light grid
+under the ink; hold `Shift` while drawing for a straight line from where the stroke began. (A drawing on the view has no grid: its ground is the picture.)
 `Esc` puts the board away; if strokes were drawn since it was opened it asks "Discard this doodle?" first. A
 doodle can be opened again from its card and changed.
 
@@ -1457,6 +1459,7 @@ until the camera is first moved; the window remembers that in its own storage, n
 | In a field, a menu or a sheet | `Up` `Down` | On the line above the marks: more room for them, or less |
 | In a field, a menu or a sheet | `Esc` | Sheet or question: put it away |
 | In a field, a menu or a sheet | `Ctrl+Z` | Drawing board (a doodle, or a drawing on the view): undo the last stroke |
+| In a field, a menu or a sheet | `Shift` | Drawing board: hold Shift while drawing for a straight line from where the stroke began |
 | For working on torno | `F12` `Ctrl+Shift+I` | Developer tools |
 <!-- keys: end -->
 

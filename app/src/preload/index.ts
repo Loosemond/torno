@@ -88,6 +88,7 @@ const bridge: TornoBridge = {
     readPhoto: (path) => invokePlain('objects:readPhoto', path),
     create: (req) => invokePlain('objects:create', req),
     onboard: (objectId, draft) => invokePlain('objects:onboard', objectId, draft),
+    previewPrompt: (name, draft) => invokePlain('objects:previewPrompt', name, draft),
     taken: () => invokePlain('objects:taken')
   },
   scans: {

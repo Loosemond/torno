@@ -484,8 +484,10 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 - `ui/onboard/NewObject.tsx` is a page in place of the viewport (`store.page`: `'new'`; the view is `covered` and
   inert under it as under the page of objects, and the layers, parameters, scans and marks are hidden). No row of the list is
   current (the "New project" button is pressed; folded, the switcher reads "New project", pressed), and the status line is "New project" and the build123d version alone:
-  no Rebuild, revision, parts or Export. The session pane shows `ui/onboard/DraftPane.tsx` (from `draftSummary`):
-  what Claude Code will start with, live; unless the open object's session is live, which stays whole (see Agents).
+  no Rebuild, revision, parts or Export. The session pane shows `ui/onboard/DraftPane.tsx` (#84):
+  the first prompt Claude Code will get, read-only, as main writes it (`objects.previewPrompt`, asked again 300 ms after a
+  change; the one `onboardPrompt` that `objects.onboard` sends), the person's own words in ink and torno's in the muted face,
+  and a thumbnail of each photo and doodle with "attached" or "named only"; unless the open object's session is live, which stays whole (see Agents).
   All of it reads `store.page`, and nothing under the page changes, so leaving it brings everything back as it was.
   The page is opened from "New project" at the foot of the list, in the head of the page of objects and in its empty
   state (`openNewObject`). It takes the focus (the name field) when it comes and gives it back to where it was when it goes. Leaving the workspace
@@ -510,7 +512,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   dialog offered; a dropped file is read by the window (`File.arrayBuffer`, at most 25 MB, checked before it is
   read) and its path comes from `objects.pathOf`. The copy in `reference/` is the original; the scaled picture is
   only the prompt's.
-- **The board** (`Doodle.tsx`, a wrapper over `ui/board/Board.tsx`, which the chat's "Draw on view" uses too) is a sheet over the page: a canvas of 1200 x 800 board pixels, scaled to fit, pointer
+- **The board** (`Doodle.tsx`, a wrapper over `ui/board/Board.tsx`, which the chat's "Draw on view" uses too) is a sheet over the whole window (#101): a canvas of 1200 x 800 board pixels, scaled to fit the room, with a grid (`grid`: a CSS background every 40 board pixels in `--hairline`, a doodle's only; the PNG has it too, at 15 % grey, and the first prompt says 1 square = 40 px) and Shift while drawing for a straight line (`board.straight`, `straighten` in `strokes.ts`: the stroke is its first point and the pointer), pointer
   events and canvas only (no React state per move). A thin and a thick pen and an eraser; Undo takes the last
   stroke, Clear all of them; Done gives back the strokes and the PNG, Cancel and Esc leave, asking "Discard this
   doodle?" when the strokes are other than it was opened with. Its keys (Esc is `sheet.close`, Ctrl+Z `board.undo`)

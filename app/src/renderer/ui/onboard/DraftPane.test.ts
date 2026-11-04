@@ -1,26 +1,34 @@
 import { describe, expect, it } from 'vitest'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { DraftPane } from './DraftPane'
+import { DraftPane, pictureState, promptPieces } from './DraftPane'
 
-const html = (summary: Parameters<typeof DraftPane>[0]['summary']): string => renderToStaticMarkup(createElement(DraftPane, { summary }))
+const preview = { text: 'This is a new project, clip.\n\nA small clip\n\nmore', attached: [1, null], pictured: [], objects: [] }
 
 describe('the session pane while a new object is made', () => {
-  it('says what Claude Code will start with', () => {
-    const out = html({ name: 'cable-clip', described: true, given: [[3, 'photos'], [1, 'doodle']] })
-    expect(out).toContain('Claude Code starts here once you create the project.')
-    expect(out).toContain('<span class="num">cable-clip</span>')
-    expect(out).toContain('<span class="num">3</span> photos')
-    expect(out).toContain('<span class="num">1</span> doodle')
-    expect(out).toContain('Said')
-    expect(out).not.toContain('New session')
-    expect(out).not.toContain('Resume')
+  it("shows the prompt, with the person's words apart from torno's", () => {
+    const thumbs = [
+      { file: 'reference/photo-1.jpg', url: 'blob:a', attached: 1, hasPicture: true },
+      { file: 'reference/photo-7.jpg', url: 'blob:b', attached: null, hasPicture: true }
+    ]
+    const out = renderToStaticMarkup(createElement(DraftPane, { preview, words: ['A small clip'], thumbs }))
+    expect(out).toContain('Claude Code starts with this once you create the project.')
+    expect(out).toContain('<span class="draft-pane-mine">A small clip</span>')
+    expect(out).toContain('attached: picture 1')
+    expect(out).toContain('named only: over 6')
   })
 
-  it('says what is not given yet', () => {
-    const out = html({ name: null, described: false, given: [] })
-    expect(out).toContain('No name yet')
-    expect(out).toContain('Not said yet')
-    expect(out).toContain('Nothing yet')
+  it('splits a text at the words, longest first, and at none when there are none', () => {
+    expect(promptPieces('a big clip here', ['clip', 'big clip'])).toEqual([
+      { text: 'a ', mine: false },
+      { text: 'big clip', mine: true },
+      { text: ' here', mine: false }
+    ])
+    expect(promptPieces('abc', [' '])).toEqual([{ text: 'abc', mine: false }])
+  })
+
+  it('says why a picture is only named', () => {
+    expect(pictureState(2, true)).toBe('attached: picture 2')
+    expect(pictureState(null, false)).toBe('named only')
   })
 })

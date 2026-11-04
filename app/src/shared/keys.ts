@@ -171,6 +171,7 @@ const ROWS = [
   row('column.resize', ['Up', 'Down'], 'On the line above the marks: more room for them, or less', 'In a field, a menu or a sheet', 'separator'),
   row('sheet.close', ['Esc'], 'Sheet or question: put it away', 'In a field, a menu or a sheet', 'sheet'),
   row('board.undo', ['Ctrl+Z'], 'Drawing board (a doodle, or a drawing on the view): undo the last stroke', 'In a field, a menu or a sheet', 'sheet'),
+  row('board.straight', ['Shift'], 'Drawing board: hold Shift while drawing for a straight line from where the stroke began', 'In a field, a menu or a sheet', 'sheet'),
   row('sheet.round', ['Tab'], 'Sheet: to its next control, and round', 'In a field, a menu or a sheet', 'sheet', true),
 
   row('devtools', ['F12', 'Ctrl+Shift+I'], 'Developer tools', 'For working on torno', 'global')
