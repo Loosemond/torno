@@ -2,7 +2,8 @@ import { existsSync, realpathSync, rmSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { app, BrowserWindow, ipcMain, Menu, nativeTheme } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme } from 'electron'
+import { type Door, openDoor, within } from './door'
 import type { Described } from '../shared/geometry'
 import type { SavedView } from '../shared/views'
 import { writeFileAtomic } from './atomic'
@@ -614,6 +615,44 @@ void app.whenReady().then(async () => {
   // Under test only: an object's MCP address and a token that opens it, as a session of that object has one.
   if (isTest) testHooks.mcpFor = (id) => ({ url: mcpUrlFor(id), token: http.grant([new URL(mcpUrlFor(id)).pathname]) })
   if (isTest) Object.assign(globalThis, { __tornoMain: testHooks })
+  // The second door (#54, a spike): off unless asked for. An agent torno did not start reaches one project's tools
+  // through a socket only this user may open, once the person allows it in the window.
+  if (process.env.TORNO_OUTSIDE_AGENTS === '1') {
+    void openDoor({
+      http,
+      objectFor: (folder) => {
+        const objects = openWorkspaceInfo()?.objects ?? []
+        const real = (dir: string): string => {
+          try {
+            return realpathSync(dir)
+          } catch {
+            return dir
+          }
+        }
+        // The deepest project the folder is, or is inside.
+        const found = objects.filter((o) => within(folder, real(o.dir))).sort((a, b) => b.dir.length - a.dir.length)[0]
+        return found ? { id: found.id, name: found.name } : undefined
+      },
+      approve: async ({ name, client, pid }) => {
+        const win = BrowserWindow.getAllWindows()[0]
+        if (!win || win.isDestroyed()) return false
+        const { response } = await dialog.showMessageBox(win, {
+          type: 'question',
+          buttons: ['Allow for this run', 'Deny'],
+          defaultId: 1,
+          cancelId: 1,
+          message: `An agent outside torno wants to use the tools of ${name}`,
+          detail: `It says it was started by ${client}${pid === null ? '' : ` (process ${pid})`}. Allow it only if you started it yourself. It may use the tools until it disconnects or torno quits.`
+        })
+        return response === 0
+      }
+    })
+      .then((door: Door) => {
+        app.on('will-quit', () => void door.close())
+        if (isDebug) console.error(`[torno] door for outside agents: ${door.path}`)
+      })
+      .catch((e: Error) => console.error(`torno: the door for outside agents is not open: ${e.message}`))
+  }
   // An address holds no secret: a request needs the token of a session as well.
   if (isDebug) console.error(`[torno] MCP server of a project: ${mcpUrlFor('<project id>')}`)
   // What a torno that crashed left in the temporary folder: only copies of the example its own marker names.
