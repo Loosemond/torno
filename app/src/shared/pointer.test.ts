@@ -9,7 +9,7 @@ it('says how the pointer moves the view: drag turns, right drag pans, scroll zoo
 })
 
 it('has its line for the hint in sentence case, from the three rows that move the view, and names no key', () => {
-  expect(pointerLine()).toBe('Drag to turn · right drag to pan · scroll to zoom')
+  expect(pointerLine()).toBe('Drag to turn about the pointer · right drag to pan · scroll to zoom')
 })
 
 it('names, in the drag that turns the view, the tools whose drag on the part is their own: Arrow and Draw, by the names of the palette', () => {

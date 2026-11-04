@@ -15,7 +15,7 @@ export interface PointerRow {
 }
 
 export const POINTER: readonly PointerRow[] = [
-  { id: 'turn', gesture: 'Drag', does: 'Turn the view; with Arrow or Draw in hand, a drag that starts on the part draws instead', line: 'drag to turn' },
+  { id: 'turn', gesture: 'Drag', does: 'Turn the view about the point under the pointer; with Arrow or Draw in hand, a drag that starts on the part draws instead', line: 'drag to turn about the pointer' },
   { id: 'pan', gesture: 'Right drag', does: 'Pan the view (a middle drag does too)', line: 'right drag to pan' },
   { id: 'zoom', gesture: 'Scroll', does: 'Zoom, towards the pointer', line: 'scroll to zoom' },
   { id: 'round', gesture: 'Double click', does: 'With Measure in hand: measure something round, its diameter or its radius', line: null }
@@ -24,7 +24,7 @@ export const POINTER: readonly PointerRow[] = [
 /** The group of the sheet that lists them, and when they apply. */
 export const POINTER_GROUP = { context: 'Pointer', when: 'In the view' } as const
 
-/** The pointer in a line, as the hint says it: `Drag to turn · right drag to pan · scroll to zoom`. The key that opens the sheet follows it, in the window. */
+/** The pointer in a line, as the hint says it: `Drag to turn about the pointer · right drag to pan · scroll to zoom`. The key that opens the sheet follows it, in the window. */
 export function pointerLine(): string {
   const line = POINTER.flatMap((row) => (row.line ? [row.line] : [])).join(' · ')
   return line.charAt(0).toUpperCase() + line.slice(1)
