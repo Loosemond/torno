@@ -45,6 +45,12 @@ introduces it and says how to run it; `docs/manual.md` says everything it does; 
   `main/kernel/client.ts`; not for a workspace with a `pyproject.toml`, whose `.venv` is its own). Signed ad hoc, not
   notarized. `app/e2e/packaged.spec.ts` runs against it when `TORNO_PACKAGED` names the executable.
 
+- The site, torno.luisg.me (`.github/workflows/pages.yml` deploys `site/`): the landing page at `/`
+  (`site/index.html`, `site/assets/`; its fonts and pictures copied in by `app/scripts/build-site.mjs`, never kept in
+  `site/`; nothing loaded from another host, `src/site.test.ts`), the exported bracket at `/demo/`
+  (`site/demo/index.html`, made by `app/e2e/site.spec.ts` with `TORNO_SITE_OUT=$PWD/site`) and the manual at
+  `/manual/` (`app/scripts/build-manual.mjs`).
+
 ## Tests
 
 Run from the repository root.

@@ -4,9 +4,9 @@ import { join, resolve } from 'node:path'
 import { _electron as electron, expect, test } from '@playwright/test'
 import { openListed } from './objects'
 
-// The exported page that GitHub Pages serves (site/index.html, .github/workflows/pages.yml): the repository's own
+// The exported page that GitHub Pages serves at /demo/ (site/demo/index.html, .github/workflows/pages.yml): the repository's own
 // `bracket` (kernel/tests/fixtures/ws), with two marks, exported by torno's own code, as a person would. Skipped
-// unless TORNO_SITE_OUT names a folder; it is not a test of anything:
+// unless TORNO_SITE_OUT names the site's folder; it is not a test of anything:
 //   TORNO_SITE_OUT=$PWD/site pnpm -C app exec playwright test e2e/site.spec.ts   (after `pnpm build`)
 // The window is hidden (TORNO_TEST=1) and the save goes where `__tornoMain.pickSave` says.
 const appDir = resolve(__dirname, '..')
@@ -53,10 +53,10 @@ test('the bracket is exported for the site', async () => {
     const html = readFileSync(out, 'utf8')
     expect(html).not.toContain(root)
     expect(html).not.toContain(process.env.HOME ?? '\0')
-    mkdirSync(target, { recursive: true })
-    copyFileSync(out, join(target, 'index.html'))
+    mkdirSync(join(target, 'demo'), { recursive: true })
+    copyFileSync(out, join(target, 'demo', 'index.html'))
     writeFileSync(join(target, '.nojekyll'), '')
-    console.log(`site/index.html: ${statSync(join(target, 'index.html')).size} bytes`)
+    console.log(`site/demo/index.html: ${statSync(join(target, 'demo', 'index.html')).size} bytes`)
   } finally {
     await app.close()
     rmSync(root, { recursive: true, force: true })
