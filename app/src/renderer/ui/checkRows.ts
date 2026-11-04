@@ -1,0 +1,37 @@
+import { type CheckNote, type ModelCheck, checksCount, noteText, readingText, wantedText } from '../../shared/modelChecks'
+
+/** A check of the model as a row of the window: its name (the model's own words), how it stands in a word, and what was measured against what was wanted. */
+export interface CheckRow {
+  name: string
+  /** How it stands, in a word: not colour alone. */
+  standing: 'pass' | 'fails' | 'not measured' | 'not run'
+  /** `0.12 mm`, or why it was not measured. */
+  reading: string
+  /** `wanted 0.15 to 0.25 mm`; empty when it could not be measured. */
+  wanted: string
+  /** Said where the number is not the kernel's exact one: found by sampling, or approximate. */
+  caution: string | null
+  /** The whole of it for hover: what the kernel says of how it was taken. */
+  title: string
+}
+
+export function checkRow(c: ModelCheck): CheckRow {
+  const measured = c.status === 'pass' || c.status === 'fail'
+  const standing = c.status === 'pass' ? 'pass' : c.status === 'fail' ? 'fails' : c.status === 'error' ? 'not measured' : 'not run'
+  const reading = measured ? readingText({ ...c, exact: undefined }) : (c.reason ?? '')
+  const wanted = measured ? `wanted ${wantedText(c)}` : ''
+  const caution = measured && c.exact === false ? (c.kind === 'thin' ? 'found by sampling' : 'approximate') : null
+  return { name: c.name, standing, reading, wanted, caution, title: [c.how, c.layout ? `layout ${c.layout}` : null].filter(Boolean).join('; ') || c.name }
+}
+
+/** What the title of the section says when it is folded: `3` or `3 · 1 fails`. */
+export function checksSaid(checks: readonly ModelCheck[]): string {
+  const n = checksCount(checks)
+  const unmet = n.error + n.notRun
+  if (n.fail === 0 && unmet === 0) return `${checks.length}`
+  const parts = [...(n.fail > 0 ? [`${n.fail} ${n.fail === 1 ? 'fails' : 'fail'}`] : []), ...(unmet > 0 ? [`${unmet} not measured`] : [])]
+  return `${checks.length} · ${parts.join(', ')}`
+}
+
+/** What was made easier to pass or taken out since it was first declared, one line each. */
+export const noteLines = (notes: readonly CheckNote[]): string[] => notes.map(noteText)

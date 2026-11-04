@@ -335,7 +335,13 @@ its comment as the model has it, and, for a default the model works out (an expr
 number written in), that it is worked out in the model. It is read only: torno never writes
 the model. With a session running, a click on a row puts `Params.wall` in its prompt at the
 cursor, never sent, so you can write "make Params.wall 2.4" around it; with no session the rows say
-to start one. A model that says which of its parts belong together (an optional
+to start one. Checks lists what the model declares in its `checks(p)` (see Projects and builds), under
+Parameters and folded at first to a title that says how many fail (`Checks 3 · 1 fails`; a model
+with none has no section): each check's own name, how it stands in a word (pass, fails, not
+measured, not run), what was measured and what was wanted, and, for a thin wall, that it
+was found by sampling. They are the model's, marked with the agent's colour; your dimensions
+are marks. A check the agent made easier to pass, or removed, since it was first declared is
+said under the rows (`walls: min 1.2 → 0.6 mm (since r7)`). A model that says which of its parts belong together (an optional
 `groups(p)` beside `assembly`, group name to part names) has them listed under a
 header each, which folds the group, hides or shows all of it, or, on "Show only",
 shows that group alone in the layout; ask the agent to group parts and it edits

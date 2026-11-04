@@ -10,6 +10,7 @@ import { paintings } from './tools/regionPainting'
 import { WorkspaceQuestion } from './ui/WorkspaceQuestion'
 import { openProblem } from './ui/openFolder'
 import { Layers } from './ui/Layers'
+import { ChecksPanel } from './ui/ChecksPanel'
 import { ParamsPanel } from './ui/ParamsPanel'
 import { MarksPanel } from './ui/MarksPanel'
 import { ColumnSplit } from './ui/ColumnSplit'
@@ -387,6 +388,7 @@ export function App() {
         {/* While the page of objects is up, the layers, the parameters and the scans act on a view that is not on screen: they give way. The marks stay: they say why a card has a failing chip. On the New object page the marks give way too: no tool works there. */}
         {page === 'object' && <Layers />}
         {page === 'object' && <ParamsPanel />}
+        {page === 'object' && <ChecksPanel />}
         {page === 'object' && <ScansPanel />}
         {/* The line that gives the marks more room than their share, from the sections above. */}
         {page === 'object' && <ColumnSplit />}

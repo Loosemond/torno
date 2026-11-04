@@ -56,6 +56,14 @@
   padding: var(--space-1) 0 var(--space-2);
 }
 
+.checks {
+  flex: 0 1 auto;
+  max-height: 30%;
+  min-height: var(--section-least);
+  border-top: var(--divider);
+  padding: var(--space-1) 0 var(--space-2);
+}
+
 .scans {
   flex: 0 1 auto;
   max-height: 32%;
@@ -67,6 +75,7 @@
 /* Folded, a section is its title row (and, for the scans, what is said of an import). */
 .layers[data-folded],
 .params[data-folded],
+.checks[data-folded],
 .scans[data-folded] {
   flex: none;
   max-height: none;
@@ -406,6 +415,68 @@ button.param-button:focus-visible {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow-wrap: anywhere;
+}
+
+/* A check of the model: its name and how it stands on a line, what was measured and wanted under. The model's own, so the agent's colour marks it; the word says how it stands. */
+.check-row {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 3px var(--space-2) 3px calc(var(--space-4) - 3px);
+  border-left: 3px solid var(--agent-mark);
+  font-size: var(--text-small);
+}
+
+.check-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.check-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.check-standing {
+  flex: none;
+  color: var(--ok);
+}
+
+.check-row[data-standing='fails'] .check-standing {
+  color: var(--fail);
+}
+
+.check-row[data-standing='not measured'] .check-standing,
+.check-row[data-standing='not run'] .check-standing {
+  color: var(--warn);
+}
+
+.check-detail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-2);
+  color: var(--muted);
+}
+
+.check-notes {
+  padding: var(--space-1) var(--space-2) 0 var(--space-4);
+  font-size: var(--text-small);
+  color: var(--muted);
+}
+
+.check-notes-head {
+  margin: 0;
+  color: var(--warn);
+}
+
+.check-notes ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .layer-row .row-name {
