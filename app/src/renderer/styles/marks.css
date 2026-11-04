@@ -563,6 +563,11 @@
   padding: 0 9px;
 }
 
+.marks-review-done {
+  margin: 0;
+  color: var(--muted);
+}
+
 .marks-review > .mark-rows {
   margin: 6px calc(-1 * var(--space-2)) 0;
 }

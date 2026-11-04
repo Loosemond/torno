@@ -9,6 +9,7 @@ import { endReplace, startReplace, useReplacing } from '../state/tools'
 import { editRegion } from '../tools/regionPainting'
 import { rowLabel } from '../viewport/marks/labels'
 import { spanningMarks } from '../viewport/marks/apart'
+import type { ReviewStep } from './ResolvedSummary'
 import { DimensionFields, VerdictIcon, Words } from './DimensionFields'
 import { hoverMark, unhoverMark } from './markHover'
 import { Confirm } from './Confirm'
@@ -83,7 +84,8 @@ export function MarkRow({
   partHidden = false,
   revision = 0,
   change,
-  remove
+  remove,
+  review
 }: {
   mark: Mark
   active: boolean
@@ -98,10 +100,14 @@ export function MarkRow({
   /** Resolves when main has made the change; rejects when it refuses. */
   change: (patch: MarkPatch) => Promise<unknown>
   remove: () => void
+  /** The row is the one being walked in "To review": what it does with the mark goes on to the next. */
+  review?: ReviewStep
 }) {
   // The note as it is being written; null while it is only shown.
   const [draft, setDraft] = useState<string | null>(null)
   const field = useRef<HTMLInputElement>(null)
+  // The note is being written as the reason for reopening a mark the agent resolved: it becomes a draft when the field is left.
+  const [reopening, setReopening] = useState(false)
   const resolved = mark.status === 'resolved'
   const label = rowLabel(mark)
   const replacing = useReplacing() === mark.id
@@ -130,8 +136,11 @@ export function MarkRow({
 
   const writing = draft !== null
   useEffect(() => {
-    if (writing) field.current?.select()
-  }, [writing])
+    if (!writing) return
+    // A reason is added to the note: the cursor goes to its end. Any other note is taken up selected.
+    if (reopening) field.current?.setSelectionRange(field.current.value.length, field.current.value.length)
+    else field.current?.select()
+  }, [writing, reopening])
 
   // The pointer on the row, or the focus in it, points at its mark in the view: its chip is ringed and the faces it
   // is on are lit. The keys reach a mark by its row's buttons, and see it so.
@@ -147,8 +156,12 @@ export function MarkRow({
 
   const save = () => {
     if (draft === null) return
-    if (draft !== mark.note) void change({ note: draft }).catch(() => {})
+    if (reopening) {
+      // Note and status in one change, so that the agent is told both at once.
+      void change({ note: draft, status: 'draft' }).then(() => review?.step('reopened'), () => {})
+    } else if (draft !== mark.note) void change({ note: draft }).catch(() => {})
     setDraft(null)
+    setReopening(false)
   }
   // A shape is edited where it can be seen: in its own layout, while it is the one being worked on.
   const fields = mark.kind === 'shape' && active && !resolved && !elsewhere
@@ -236,7 +249,10 @@ export function MarkRow({
           onBlur={save}
           onKeyDown={(e) => {
             if (pressed(e, 'field.keep')) save()
-            else if (pressed(e, 'field.leave')) setDraft(null)
+            else if (pressed(e, 'field.leave')) {
+              setDraft(null)
+              setReopening(false)
+            }
             else return
             e.preventDefault()
             e.stopPropagation()
@@ -369,12 +385,26 @@ export function MarkRow({
             <span className="mark-resolution-by">Resolved by the agent</span>
             {mark.resolvedNote ? `: ${mark.resolvedNote}` : ''}
           </p>
-          <button type="button" className="button" title="Seen: move it to the resolved marks" onClick={() => void change({ acknowledged: true }).catch(() => {})}>
+          <button type="button" className="button" title="Seen: move it to the resolved marks" onClick={() => void change({ acknowledged: true }).then(() => review?.step('ok'), () => {})}>
             OK
           </button>
-          <button type="button" className="button" title="Not done: make it a draft again, for the next prompt" onClick={() => void change({ status: 'draft' }).catch(() => {})}>
-            Reopen
+          <button
+            type="button"
+            className="button"
+            title="Not done: say why, and it is a draft again, for the next prompt"
+            onClick={() => {
+              actions.setActiveMark(mark.id)
+              setReopening(true)
+              setDraft(mark.note)
+            }}
+          >
+            Reopen…
           </button>
+          {review && (
+            <button type="button" className="button" title="Leave it to review" onClick={() => review.step('skipped')}>
+              Skip
+            </button>
+          )}
         </div>
       )}
     </li>

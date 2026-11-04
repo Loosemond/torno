@@ -3,7 +3,7 @@ import { type Mark, type MarkPatch, markAnchors } from '../../shared/marks'
 import { actions, layerOf, useStore } from '../state/store'
 import { MarkRow } from './MarkRow'
 import { groupMarks } from './markGroups'
-import { ResolvedSummary } from './ResolvedSummary'
+import { type ReviewStep, ResolvedSummary } from './ResolvedSummary'
 
 /** How long "Undo" is offered after a delete. */
 const UNDO_MS = 10_000
@@ -63,9 +63,10 @@ export function MarksPanel() {
     const ends = mark.kind === 'dimension' ? markAnchors(mark) : markAnchors(mark).slice(0, 1)
     return ends.length > 0 && ends.every((anchor) => off(anchor.part))
   }
-  const row = (mark: (typeof marks)[number]) => (
+  const row = (mark: (typeof marks)[number], review?: ReviewStep) => (
     <MarkRow
       key={mark.id}
+      review={review}
       mark={mark}
       active={mark.id === active}
       // A region is of its scan in every layout: it is never elsewhere, and its layout going takes nothing from it.
@@ -95,7 +96,7 @@ export function MarksPanel() {
           {hint && ` · ${hint}`}
         </h3>
         <ul className="mark-rows" aria-label={name}>
-          {of.map(row)}
+          {of.map((m) => row(m))}
         </ul>
       </>
     )
@@ -150,13 +151,11 @@ export function MarksPanel() {
         {group('To send', toSend, 'with your next prompt')}
         {group('From the agent', fromAgent)}
         {toReview.length > 0 && (
-          <>
-            <h3 className="marks-group">
-              To review <span className="num">{toReview.length}</span>
-            </h3>
-            <ResolvedSummary key={objectId} marks={toReview} row={row} acknowledgeAll={() => done(window.torno.marks.acknowledge(objectId, toReview.map((m) => m.id)))} />
-          </>
+          <h3 className="marks-group">
+            To review <span className="num">{toReview.length}</span>
+          </h3>
         )}
+        <ResolvedSummary key={objectId} marks={toReview} row={row} acknowledgeAll={() => done(window.torno.marks.acknowledge(objectId, toReview.map((m) => m.id)))} />
         {group('With the agent', withAgent)}
         {resolved.length > 0 && (
           <>
@@ -169,7 +168,7 @@ export function MarksPanel() {
             </button>
             {showResolved && (
               <ul className="mark-rows" aria-label="Resolved marks">
-                {resolved.map(row)}
+                {resolved.map((m) => row(m))}
               </ul>
             )}
           </>

@@ -549,7 +549,7 @@ test('resolve_mark resolves a mark, which the user sees as resolved by the agent
   await expect(awaiting).toHaveAttribute('data-awaiting', '')
   await expect(awaiting.locator('.mark-resolution-note')).toHaveText('Resolved by the agent: made the corner 2 mm thicker')
   await awaiting.getByRole('button', { name: 'OK', exact: true }).click()
-  await expect(marks.locator('.marks-review')).toHaveCount(0)
+  await expect(marks.locator('.marks-review')).toContainText('Reviewed 1: 1 OK')
   await expect(marks.locator('.mark-row[data-mark]')).toHaveCount(3)
   await marks.getByRole('button', { name: /Resolved/ }).click()
   const resolved = marks.getByRole('list', { name: 'Resolved marks' }).locator('[data-mark="M1"]')

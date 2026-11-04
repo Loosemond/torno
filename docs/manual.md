@@ -918,9 +918,14 @@ a chip turns the camera, as anywhere else.
   you have seen it), **To review**, **With the agent** (your sent marks), then
   **Resolved**, folded. The active row shows its note whole.
 - A mark the agent resolves does not vanish: "To review" says "The agent
-  resolved 2 marks." **Review** opens each, saying "Resolved by the agent"
-  with the agent's line, with **OK** (it goes under "Resolved") and
-  **Reopen** (it is a draft again); **OK all** says you have seen them all.
+  resolved 2 marks." **Review** walks them one at a time: the mark becomes the
+  active one and the camera goes to its view, the line reads "Reviewing 1 of 2
+  · M5", and its row says "Resolved by the agent" with the agent's line. **OK**
+  moves it under "Resolved"; **Reopen…** opens its note with the cursor at the
+  end, so that you can say why, and it is a draft again, with the note, when you
+  leave the field (Esc leaves it as it was); **Skip** leaves it to review. When
+  the last is done the line says how it went ("Reviewed 5: 4 OK, 1 reopened").
+  **OK all** says you have seen them all at once.
 - The tick on a row resolves the mark (**Resolve: done with it**); on a check
   with an expected value it first asks "Stop checking M3? It is no longer
   measured." (**Resolve** or **Keep checking**). **Delete** takes the mark at

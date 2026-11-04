@@ -127,8 +127,10 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   "From the agent" (its own open marks, for the person to read or answer: "Answer in chat" puts the id in the
   prompt), "To review", "With the agent" (the person's sent marks) and the fold "Resolved"; a heading only for a group that has marks, and the heading says
   the status, so a row has no status word but a pinned dimension's `pinned`, which is never cut. "To review" is
-  one summary (`ui/ResolvedSummary.tsx`): "The agent resolved N marks.", "Review" opening each row with its
-  resolution, OK and Reopen, and "OK all" (`marks.acknowledge`, no key).
+  one summary (`ui/ResolvedSummary.tsx`): "The agent resolved N marks.", "Review" walking them (an index held in the
+  component over the ids as they were: `Reviewing 1 of 5 · M5`, the mark active and `focusMark`ed, its row with OK,
+  `Reopen…` and Skip; Reopen opens the note at its end and writes note and `status: 'draft'` in one `update` when the
+  field is left; the end says `Reviewed 5: 4 OK, 1 reopened` for 10 s), and "OK all" (`marks.acknowledge`, no key).
 - A row's resolve is a tick in a box (`ResolveIcon`), never the bare tick of a passing check; on a dimension with an
   expected value it asks in the row first (`Confirm`). Delete is immediate and the panel offers `Deleted M3 · Undo` for
   10 s (`marks.restore`), no key.
