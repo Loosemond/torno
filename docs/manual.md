@@ -369,6 +369,19 @@ with the time it took and the revision (`r3`), or failed. A failed build keeps
 the last good parts on screen, and its status opens the error with the
 traceback.
 
+**History of builds.** Every build that worked is kept under `.torno/history/` (see Files torno writes): a copy of
+the Python files it was made from, its parts' numbers, and a small picture. A kept build has an id of its own, `h41`,
+which goes on counting across runs of torno; the revision (`r3`) is of one run and is told beside it. The latest 100
+are kept, and every one you star. A build that fails the model's own checks is kept too, marked: it is often the one
+to compare against. A rebuild of sources the newest kept build was made from is not kept again. **History** in the status line opens
+the builds in a strip, newest first: the picture, the id, how long ago, and what changed from the build before in a
+line (`tub changed, lid same`). Choose one for its facts, **Show the source** to read the Python it was made from,
+read only, **Star** to keep it, **Show over the current build** to see it drawn translucent, in grey, over the build on show (for looking only: nothing is measured from it, a picture for the agent does not show it, and a section, parts drawn apart or another layout put it away; the status line says it is there and has **Stop**), or **Ask the agent to go back to this build**, which puts a request in the message box of
+the session (or starts one) naming the copies, and sends nothing. torno never puts a file back: the agent edits the
+project's files, under your permission rules, and the copies are not to be edited. What a kept build had then (checks
+that failed, parts with a defect, how your dimensions stood when it was checked) is as of then, never how the project stands
+now. A build can be shown over the current one only if it was made in this run and its meshes are still held: they are kept in memory, never on disk, within a budget of 64 MB for the builds before the newest, the oldest let go first. The agent reads the same with `history`, and compares any two with `diff`.
+
 **A failed fillet or chamfer.** build123d and OpenCascade say only that a fillet
 or a chamfer could not be made, naming neither the edges nor the radius. When a
 build fails inside one, the kernel tries it again in parts before it reports the
@@ -1104,7 +1117,7 @@ build that worked, say which revision that is, and say so when a newer build
 is running or has failed. A tool given a key it does not take is refused,
 naming the keys it takes.
 
-The tools that only read (`scene`, `look`, `marks`, `describe`, `measure`, `section`, `check`, `diff`,
+The tools that only read (`scene`, `look`, `marks`, `describe`, `measure`, `section`, `check`, `diff`, `history`,
 `try_fillet`, `try_params`, `features`, `scans`, `scan_clash`, `scan_deviation`) say so, and Claude Code may call several at once. The server also tells Claude
 Code at the start, in a few lines, what each tool is for. Claude Code's tool search keeps an MCP server's tools out
 of the model's sight until it searches for them; five are loaded from the start because nearly every turn uses
@@ -1125,7 +1138,8 @@ them: `scene`, `look`, `marks`, `describe` and `measure`. The others are found b
 | `mcp__torno__measure` | An exact number from the geometry. See [Measuring and dimensions](#measuring-and-dimensions). |
 | `mcp__torno__section` | The outlines a plane cuts of the parts, with their areas, and a 2D drawing of the cut. See [Section](#section). |
 | `mcp__torno__check` | Whether two parts overlap, how far apart they are, whether a part's mesh is closed, and whether it prints: overhangs, thin walls, the fit on a bed. |
-| `mcp__torno__diff` | What changed between the last two successful builds (or the two revisions given as `from` and `to`): for each layout the parts added and removed, and for each part its volume (and its change in percent), box size and min corner before and after, with whether each is exact, and its face, edge and solid counts, a hint that refs may name other faces now. The answer to an edit gives the same of each part that changed. Only the last two builds are kept. `builds` says what each was made from (a hash of the sources, the commit, whether files differed from it), and a note says when the two were made from the same sources. |
+| `mcp__torno__diff` | What changed between the last two successful builds (or the two given as `from` and `to`: a revision of this run, or a build kept in the history by its id, `h41`): for each layout the parts added and removed, and for each part its volume (and its change in percent), box size and min corner before and after, with whether each is exact, and its face, edge and solid counts, a hint that refs may name other faces now. The answer to an edit gives the same of each part that changed. `builds` says what each was made from (a hash of the sources, the commit, whether files differed from it, and of a kept build its id and the checks, defects and dimensions it had then, which are as of then), and a note says when the two were made from the same sources. |
+| `mcp__torno__history` | The builds kept of the project (see Files torno writes, `history/`), newest first: each with its id (`h41`), when, its revision if it was made in this run, what changed from the build before it in a line, the checks of the model that failed and the parts with a defect (a build that fails its checks is kept all the same), how your dimensions stood when it was checked, and whether you starred it. With `id`, one build, with the paths of the copies of its Python files, to read when going back to it. torno never writes a file back. |
 | `mcp__torno__expect` | Called before an edit: what it should change, as checks (a part's `volume`, `faces`, `edges` or `size` as a `value` or a `change` with a `tolerance`; a `measure` with the number it `expected`; `unchanged` parts). The next successful build is held against it, and the answer to the edit says in a line how many checks were met and which were not, with the numbers (`≈` where the kernel's is not exact). Kept in memory for that one build, told once, no mark, and it never holds a turn back. A ref to a face of a part whose face count changed is told as moved and not measured. `scene` gives the last verdict. |
 | `mcp__torno__try_fillet` | Tries a fillet (or a chamfer, `kind: 'chamfer'`) of `radius` mm of some edges of a part (`part`, `edges` as refs such as `lid/E3`) on the last good build and throws it away: whether it works, and when it does not, the edges that fail alone or in pairs and the largest radius that works, as a failed build's error says it. It changes nothing. |
 | `mcp__torno__try_params` | Builds the model with other values of its `Params` (`set`, the fields `scene` lists under `params` as editable: `{"wall": 2.4}`) in a worker of its own and throws it away, then says whether it built (or the model's error), what changed against the last build part by part, and the measurements (`measure`: `bbox`, `volume`, `area`, `mass` or `distance` of whole parts by name) and checks (`check`: as the `check` tool, parts by name) asked for, all worded as those tools word them and said to be of the trial. It changes nothing: not the model, not the values you are trying in the window, not the build on screen; it is made on top of your values, and refused when there is no memory for a second build or while a build runs. To keep a value the agent edits the model. |
@@ -1842,6 +1856,7 @@ place.
 | `state.md` | the build, the parts, the checks of the model, the views, the scans and the open marks as text | ignored |
 | `thumb.png`, `thumb.json` | the card's picture, and what it is of | ignored |
 | `builds.jsonl` | a line for each build that worked: its revision, when, the run of torno it was made in (revisions count from 1 in every run), a hash of the sources it was made from, and the commit then checked out and whether files differed from it; the last 500 | ignored |
+| `history/` | the builds kept: for each build that worked (not again for sources the newest kept build was made from) a copy of the Python files it was made from, its scene without the meshes, a small picture, and an index of them with an id such as `h41`, which counts on across runs; the latest 100 and every one you star; never read back into your files | ignored |
 | `views/<n>.png` | the pictures and section drawings the agent asked for, the latest 20 | ignored (a picture of a scan may show the real world) |
 | `exports/` | where the save dialog of an export opens; empty unless you save there | ignored |
 
@@ -1850,7 +1865,7 @@ adds lines to and never rewrites; a line you negate there (`!state.md`) is
 yours, and is not added against. What travels with the project in git is what
 is the project's: `scene.json`, `marks.json`, `scans.json`, `profile.json` and `agent.json`.
 What changes with every build or session, or is of this machine, is
-ignored: `state.md`, `session.json`, `chat/`, the thumbnail, `builds.jsonl`, `views/` and
+ignored: `state.md`, `session.json`, `chat/`, the thumbnail, `builds.jsonl`, `history/`, `views/` and
 `exports/`. Add `.torno/` to the workspace's `.gitignore` if you
 want none of it in git.
 
@@ -2225,6 +2240,12 @@ On the screen:
   the running process? What does it do to the conversation, and to a file changed by `Bash` or a subagent, which it
   does not track? Write the answers in issue #131: if the files and the conversation both come out right, the button
   can use it and be exact; if not, the asked undo stays.
+- **The history sheet.** Build a project a few times with an edit between, then open **History** in the status line: a
+  card for each build, newest first, in a row that scrolls sideways, each with a picture of the project as it was, legible
+  in light and dark. The chosen card has the accent's edge; **Show the source** shows the Python in the monospace face and
+  cannot be typed in; **Show over the current build** draws that build in grey, translucent, over the one on show, and the
+  status line has **Stop**; **Ask the agent to go back** leaves the request in the box, unsent. Try it with a real Claude Code:
+  send the request, and check that it edits your files to match the copy and not the copy itself.
 - **A broken part in the layers.** Build a model with a cavity whose shell faces into it, or a part made of a shell
   with a face left out: its layer row says "not valid" (or "not closed") after its name in the colour of a failure,
   with what that means in its tooltip, and the line at the bottom says "1 part has a defect"; legible in light and

@@ -104,7 +104,7 @@ test('the page of objects shows a card each, builds nothing, and opens one with 
   expect(meta('hollow')).not.toHaveProperty('cut')
   // Git passes over the two: they change with every build.
   // And the state file, which changes with every build and every mark.
-  await expect.poll(() => readFileSync(thumb('hollow', '.gitignore'), 'utf8').split('\n').filter(Boolean).sort()).toEqual(['builds.jsonl', 'state.md', 'thumb.json', 'thumb.png'])
+  await expect.poll(() => readFileSync(thumb('hollow', '.gitignore'), 'utf8').split('\n').filter(Boolean).sort()).toEqual(['builds.jsonl', 'history/', 'state.md', 'thumb.json', 'thumb.png'])
   // Nothing of it outside .torno.
   expect(readdirSync(join(root, 'hollow')).sort()).toEqual(['.torno', 'hollow.py'])
   await page.getByRole('button', { name: 'All projects' }).click()

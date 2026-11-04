@@ -16,7 +16,7 @@ import { type Config, configOf, listed, recentWith, recentWithout } from './rece
 import { startHttp } from './http'
 import { buildContextFor, contextFor, tellsInstructions } from './context'
 import { listReferences } from './sessions/reference'
-import { buildIdentity, buildState, closeWorkspace, findObject, keptScenes, lastScene, letGoForTest, marksChecks, openObjectId, openWorkspace, openWorkspaceInfo, openedObjects, placedMark, queryObject, recheckAlignments, registerIpc, trialObject } from './ipc'
+import { buildIdentity, buildState, closeWorkspace, findObject, historyOf, historySceneOf, keepDimensions, keptScenes, lastScene, letGoForTest, marksChecks, openObjectId, openWorkspace, openWorkspaceInfo, openedObjects, placedMark, queryObject, recheckAlignments, registerIpc, trialObject } from './ipc'
 import { cannotStart, environmentCommand } from './kernel/client'
 import { ReadyKeeper } from './readiness'
 import { NoAnswer, latestView, requestHighlight, requestLook, requestSaveView, requestSectionDrawing, requestShow } from './look'
@@ -362,6 +362,8 @@ const toolDeps: ToolDeps = {
   scene: lastScene,
   scenes: keptScenes,
   identity: buildIdentity,
+  history: historyOf,
+  historyScene: historySceneOf,
   // A view reported for an object stays on record after the window has moved on to another.
   view: (id) => (openObjectId() === id ? latestView(id) : undefined),
   openObjectId,
@@ -585,7 +587,8 @@ void app.whenReady().then(async () => {
       void marks
         .list(objectId)
         .then((all) => verdicts.checkedOn(objectId, revision, all))
-        .catch(() => verdicts.checkedOn(objectId, revision)),
+        .catch(() => verdicts.checkedOn(objectId, revision))
+        .then(() => keepDimensions(objectId, revision, verdicts.of(objectId, revision))),
     // The saved views are named in the state file.
     onSceneFile: (objectId) => stateFiles.changed(objectId),
     // What was waiting to be written was of objects of the workspace that is left.

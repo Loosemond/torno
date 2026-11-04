@@ -17,6 +17,10 @@ import type { ViewState } from '../shared/view'
 import type { ObjectInfo, RecentFolder, WorkspaceInfo } from '../shared/workspace'
 import { Builds, buildTimeout, watchFolder } from './builds'
 import { BuildLog } from './buildlog'
+import { RecentMeshes } from './meshes'
+import { History, readHistory, readHistoryScene, readHistorySource, readHistoryThumb } from './history'
+import type { HistoryEntry, HistoryGhost, HistoryList } from '../shared/history'
+import type { Verdict } from '../shared/sanity'
 import { gitStateRecently } from './git'
 import { keepExample } from './example'
 import { type ExportDeps, exportFile, exportPlan, forgetExportScans } from './export/build'
@@ -73,6 +77,7 @@ function handle(channel: string, fn: (event: Electron.IpcMainInvokeEvent, ...arg
 
 // Channel names, repeated in src/preload/index.ts.
 //   invoke: workspace:current, workspace:pick, workspace:open, workspace:versions, ready:check, ready:make,
+//           history:list, history:thumbnail, history:source, history:ghost, history:star,
 //           workspace:recent, workspace:forget, workspace:hasExample, workspace:openExample, workspace:keepExample,
 //           object:open, object:rebuild, object:sceneFile,
 //           session:current, session:start, session:trust, session:instructions, session:revealInstruction, session:stop, session:chooseView,
@@ -88,7 +93,7 @@ function handle(channel: string, fn: (event: Electron.IpcMainInvokeEvent, ...arg
 //   to the renderer: object:build, object:scene, view:look, view:show, view:highlight, view:drawSection, view:saveView (sent by src/main/look.ts),
 //           session:data, session:status, chat:item, chat:meta, chat:capabilities, workspace:requested and window:closeAsked (sent by src/main/index.ts,
 //           which hears the answer, window:closeAnswer),
-//           ready:changed, marks:changed, marks:problem, scans:changed, scans:progress, scans:problem, show:changed, asks:changed (sent by src/main/index.ts)
+//           ready:changed, marks:changed, marks:problem, scans:changed, scans:progress, scans:problem, show:changed, asks:changed (sent by src/main/index.ts), history:changed
 
 /** The longest prompt the window may send. */
 const MAX_PROMPT_CHARS = 200_000
@@ -114,6 +119,9 @@ interface OpenWorkspace {
   builtFrom: Map<string, { revision: number; startedMs: number | undefined }>
   /** What each successful build of this run was made from, and `.torno/builds.jsonl` (`main/buildlog.ts`). */
   buildLog: BuildLog
+  history: History
+  /** The meshes of the builds of this run, for the ghost of a kept build (`main/meshes.ts`). */
+  meshes: RecentMeshes
 }
 
 let current: OpenWorkspace | null = null
@@ -252,7 +260,12 @@ export async function openWorkspace(root: string, opts: { example?: boolean } = 
         })
       })
   })
-  const ws: OpenWorkspace = { info, scan: scanOrder(), kernel, builds, opened: new Set(), shown: null, started: new Map(), builtFrom: new Map(), buildLog: new BuildLog() }
+  const ws: OpenWorkspace = { info, scan: scanOrder(), kernel, builds, opened: new Set(), shown: null, started: new Map(), builtFrom: new Map(), buildLog: new BuildLog(), history: new History(), meshes: new RecentMeshes() }
+  // The window is told when an object's history changed (a build kept, a picture or a star added).
+  ws.history.onChange((dir) => {
+    const obj = ws.info.objects.find((o) => o.dir === dir)
+    if (obj) broadcast('history:changed', obj.id)
+  })
   builds.on('build', (state) => {
     if (state.status === 'building' && state.startedAt !== undefined) ws.started.set(state.objectId, state.startedAt)
     broadcast('object:build', state)
@@ -260,11 +273,17 @@ export async function openWorkspace(root: string, opts: { example?: boolean } = 
     cardsChanged()
   })
   builds.on('scene', ({ objectId, revision, scene, blob }) => {
+    ws.meshes.keep(objectId, revision, { scene, blob })
     // Which build this scene came of: the one started last. A picture of it is no newer than the model was then.
     ws.builtFrom.set(objectId, { revision, startedMs: ws.started.get(objectId) })
     // What it was made from is found and kept (the sources hashed, git read), and a line is added to `builds.jsonl`.
     const obj = ws.info.objects.find((o) => o.id === objectId)
-    if (obj) void ws.buildLog.record(obj, revision, scene)
+    if (obj) {
+      const made = ws.buildLog.record(obj, revision, scene)
+      void made.catch(() => {})
+      // And the build is kept in the object's history (`.torno/history/`), in the order the builds landed.
+      void ws.history.keep(obj, made, scene)
+    }
     broadcast('object:scene', { objectId, revision, scene, blob: toArrayBuffer(blob) })
   })
   // Every successful build may have renumbered the faces, moved the surfaces or dropped the parts that
@@ -406,6 +425,38 @@ export function openObjectId(): string | null {
 /** Where the build of an object stands, once the object has been opened. */
 export function buildState(id: string): BuildState | undefined {
   return current?.builds.state(id)
+}
+
+/** How long a tool waits for the builds that just landed to be written into the history. */
+const HISTORY_WAIT_MS = 2000
+
+/** The builds kept of an object (`.torno/history/`), oldest first, once the ones that just landed are written, with the run of this torno. */
+export async function historyOf(id: string): Promise<{ run: string; entries: HistoryEntry[] } | null> {
+  const ws = current
+  const obj = findObject(id)
+  if (!ws || !obj) return null
+  let timer: NodeJS.Timeout | undefined
+  const late = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, HISTORY_WAIT_MS)
+  })
+  await Promise.race([ws.history.settled(), late])
+  clearTimeout(timer)
+  return { run: ws.buildLog.run, entries: await readHistory(obj.dir) }
+}
+
+/** The scene a kept build left (without its mesh). */
+export async function historySceneOf(id: string, historyId: string): Promise<Scene | null> {
+  const obj = findObject(id)
+  return obj ? readHistoryScene(obj.dir, historyId) : null
+}
+
+/** What the person's dimensions said of build `revision` of an object when it was last checked: kept with its entry in the history. */
+export function keepDimensions(id: string, revision: number | undefined, verdicts: ReadonlyMap<string, Verdict> | undefined): void {
+  const obj = findObject(id)
+  if (!current || !obj || revision === undefined || !verdicts) return
+  const counts = { pass: 0, fail: 0, none: 0 }
+  for (const v of verdicts.values()) counts[v] += 1
+  void current.history.dimensions(obj, current.buildLog.run, revision, counts)
 }
 
 /** The last successful build of an object. */
@@ -1065,6 +1116,37 @@ export function registerIpc(
     const obj = findObject(String(objectId))
     return obj && obj.model !== null ? gitStateRecently(obj.dir) : Promise.resolve(null)
   })
+  // The builds kept of an object (`main/history.ts`): read, and starred; nothing is ever restored from them.
+  handle('history:list', async (_event, objectId: string): Promise<HistoryList | null> => {
+    const obj = findObject(String(objectId))
+    const kept = obj ? await historyOf(obj.id) : null
+    const held = current && obj ? current.meshes.revisions(obj.id) : []
+    const ghosts = kept ? kept.entries.filter((e) => e.run === kept.run && held.includes(e.revision)).map((e) => e.id) : []
+    return obj && kept ? { run: kept.run, base: join(obj.dir, '.torno', 'history'), entries: kept.entries, ghosts } : null
+  })
+  handle('history:thumbnail', async (_event, objectId: string, id: string) => {
+    const obj = findObject(String(objectId))
+    const png = obj ? await readHistoryThumb(obj.dir, String(id)) : null
+    return png && toArrayBuffer(png)
+  })
+  handle('history:source', async (_event, objectId: string, id: string, file: string) => {
+    const obj = findObject(String(objectId))
+    if (!obj) return null
+    const entry = (await readHistory(obj.dir)).find((e) => e.id === String(id))
+    return entry ? readHistorySource(obj.dir, entry, String(file)) : null
+  })
+  handle('history:ghost', async (_event, objectId: string, id: string): Promise<HistoryGhost | null> => {
+    const obj = findObject(String(objectId))
+    const ws = current
+    if (!obj || !ws) return null
+    const entry = (await readHistory(obj.dir)).find((e) => e.id === String(id))
+    const held = entry && entry.run === ws.buildLog.run ? ws.meshes.get(obj.id, entry.revision) : undefined
+    return held ? { scene: held.scene, blob: toArrayBuffer(held.blob) } : null
+  })
+  handle('history:star', (_event, objectId: string, id: string, starred: boolean) => {
+    const obj = findObject(String(objectId))
+    return obj && current ? current.history.star(obj, String(id), starred === true) : false
+  })
   handle('show:thumbnail', async (_event, objectId: string) => {
     const obj = findObject(String(objectId))
     const png = obj ? await thumbnailOnFile(obj.dir) : null
@@ -1072,7 +1154,14 @@ export function registerIpc(
   })
   ipcMain.on('show:saveThumbnail', (_event, objectId: string, revision: number, png: Uint8Array, of: ThumbnailOf) => {
     keepThumbnail(keeping, String(objectId), revision, png, of).then(
-      (kept) => kept && cardsChanged(),
+      (kept) => {
+        if (!kept) return
+        cardsChanged()
+        // The picture of a build the window drew is kept with that build's entry in the history, when it has one.
+        const ws = current
+        const obj = findObject(String(objectId))
+        if (ws && obj) void ws.history.thumbnail(obj, ws.buildLog.run, revision, png)
+      },
       (e) => console.error(`cannot keep the picture of ${String(objectId)}: ${e instanceof Error ? e.message : String(e)}`)
     )
   })

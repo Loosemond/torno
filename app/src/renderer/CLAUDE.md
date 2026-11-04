@@ -171,6 +171,29 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 - The parts fade for a build only once it has run `FADE_AFTER_MS` (`fadeIn` of `shared/build.ts`, applied by
   `ViewportPane`); a failed build fades them at once; the pick lock does not wait.
 
+## History of builds
+
+- `ui/HistorySheet.tsx` (#56), opened by **History** in the status line (`ui/BuildStatus.tsx`, `status-history`), has the error
+  sheet's shape (`.sheet`, `data-sheet='history'`, `sheet.close`): a strip of cards (`ol.history-strip`, `button.history-card`,
+  `data-build`), newest first, each with the picture kept with the build (`history.thumbnail`, an object URL revoked when
+  the card goes), `nameOf` (`h41`, and `· r3` beside it only for a build of this run: a revision is of one run), `ago`, the
+  change line and what it had then (`marksOf`: checks that failed, defects, dimensions that failed; all as of then). The chosen
+  card's facts, **Show the source** (`history.source`, one copied file at a time, read only in a `pre`), **Star**
+  (`history.star`, main's) and **Ask the agent to go back to this build**: the request is `goBackPrompt` (`ui/historyBits.ts`:
+  the copies by their paths, "Change the files of … to match them", "Do not edit the copies"), put in the box of the session by
+  `insertIntoSession`, or kept for a session the pane starts (`setFixRequest`), and never sent. The window reads the list
+  (`useHistory`, `history.list`, again at `history:changed`) and writes nothing; nothing here restores a file or puts a build on
+  screen. A build with no copies (too large, or changed while read) has both buttons off, with `NO_COPY` in the title.
+- **An earlier build over the current one** (`viewport/earlier.ts` `Earlier`, `Viewport.setEarlier`): the sheet's "Show over the
+  current build" sets `store.compare` (`actions.compareWith`), and `ViewportPane` asks main for that build's scene and meshes
+  (`history.ghost`; only a build of this run whose meshes main still holds, `HistoryList.ghosts`) and draws its parts of the layout
+  shown translucent (`EARLIER_SURFACE_OPACITY`) with their edges, in `--muted` (the colour of the old edges of the ghosts of a build that
+  just landed, and no mark's; it follows the theme), at the places that build had them. For display only: no bounds tree, a
+  ray finds nothing, it is hidden for a picture (`hideGizmo`), and nothing is measured, marked or written from it. It stays until
+  put away ("Stop" in the status line, `.status-compare`) and is put away by another object, another layout, a section or an
+  explode (the sheet's button is off while one is on, with the reason in its title). It is not the ghosts of a build that landed
+  (`ghosts.ts`, a moment, edges only). `__tornoTest.earlier()` is for tests.
+
 ## Layers
 
 - `ui/Layers.tsx`: a reference (`Part.role`, a bought part) has the neutral swatch (`colorsOfParts`) and the tag "bought"

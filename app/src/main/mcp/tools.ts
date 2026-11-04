@@ -23,6 +23,7 @@ import {
   planeOf
 } from '../../shared/view'
 import type { SavedView } from '../../shared/views'
+import type { HistoryEntry } from '../../shared/history'
 import type { TrialResult } from '../kernel/client'
 import type { ObjectInfo } from '../../shared/workspace'
 import { describeMark, markData, sizes } from '../marks/describe'
@@ -37,7 +38,7 @@ import { askTool } from './askTool'
 import type { AskAnswer, AskEnd, AskRequest } from '../../shared/ask'
 import { addMarkTool, checkRef, highlightTool, resolveMarkTool } from './markTools'
 import { type FeaturesToolArgs, featuresTool } from './featureTools'
-import { type DiffToolArgs, type MeasureToolArgs, type SectionToolArgs, type TryFilletToolArgs, type TryParamsToolArgs, checkTool, diffTool, measureTool, sectionTool, tryFilletTool, tryParamsTool } from './readTools'
+import { type DiffToolArgs, type HistoryToolArgs, type MeasureToolArgs, type SectionToolArgs, type TryFilletToolArgs, type TryParamsToolArgs, checkTool, diffTool, historyTool, measureTool, sectionTool, tryFilletTool, tryParamsTool } from './readTools'
 import { type ScanClashArgs, type ScanDeviationArgs, type ScansArgs, scanClashTool, scanDeviationTool, scansTool } from './scanTools'
 import { type AddMarkArgs, type AskArgs, type DescribeArgs, type HighlightArgs, type LookArgs, type MarksArgs, type ResolveMarkArgs, type SaveViewArgs, type ShowArgs, DEFAULT_SIZE, MAX_SIZE, MIN_SIZE, NO_PLANE, TOOLS, refusedKeys } from './schemas'
 import { type SceneArgs, lookTool, saveViewTool, sceneTool, showTool } from './viewTools'
@@ -61,6 +62,10 @@ export interface ToolDeps {
   scenes?(objectId: string): Array<{ revision: number; scene: Scene }>
   /** What the build of this run with this revision was made from (`main/buildlog.ts`); undefined when it is not known. `diff` tells it. */
   identity?(objectId: string, revision: number): BuildIdentity | undefined
+  /** The builds kept in the project's history (`.torno/history/`, oldest first) and the run of this torno; null when there is no history. `diff` and `history` read it. */
+  history?(objectId: string): Promise<{ run: string; entries: HistoryEntry[] } | null>
+  /** The scene a kept build left, without its meshes (`diff` compares it); null when it is gone. */
+  historyScene?(objectId: string, historyId: string): Promise<Scene | null>
   /** The camera, layout and visible parts of an object as the window last showed it. */
   view(objectId: string): ViewState | undefined
   /** The object the window shows now: the only one it can make a picture of. */
@@ -204,6 +209,7 @@ export function registerTools(server: McpServer, deps: ToolDeps, objectId: strin
   tool<SectionToolArgs>('section', (args) => sectionTool(deps, objectId, args))
   tool<Parameters<typeof checkTool>[2]>('check', (args) => checkTool(deps, objectId, args))
   tool<DiffToolArgs>('diff', (args) => diffTool(deps, objectId, args))
+  tool<HistoryToolArgs>('history', (args) => historyTool(deps, objectId, args))
   tool<ExpectArgs>('expect', (args) => expectTool(deps, objectId, args))
   tool<TryFilletToolArgs>('try_fillet', (args) => tryFilletTool(deps, objectId, args))
   tool<FeaturesToolArgs>('features', (args) => featuresTool(deps, objectId, args))

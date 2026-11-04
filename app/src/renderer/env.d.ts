@@ -32,6 +32,8 @@ declare global {
       faded(): boolean
       /** The keys (`layout:name`) of the parts the old edges and the new are drawn for after a build landed; empty once they are gone. */
       ghosts(): string[]
+      /** The keys of the parts of the earlier build drawn over the current one (the history sheet); empty when there is none. */
+      earlier(): string[]
       /** Keeps the ghosts of the builds that land after this until a key or a click (for a capture of the window). */
       holdGhosts(held: boolean): void
       /** Where the label of a mark is drawn, as such fractions, and whether it is in view; null for a mark that is not drawn. */

@@ -9,6 +9,8 @@ import { scanNumber } from '../../shared/format'
 import { type FilletDiagnosis, WHY, diagnosisText, sizeText } from '../../shared/diagnosis'
 import { number, sizes, vector } from '../marks/describe'
 import { clean, sceneDiff } from '../../shared/diff'
+import { type HistoryEntry, parseBuildRef } from '../../shared/history'
+import { join } from 'node:path'
 import { plain, wire } from '../marks/measure'
 import { isMoved, movedForDisplay, spreadApart, spreadLayout } from '../marks/spread'
 import { type End, type EndArg, checkRef, endsOf } from './markTools'
@@ -931,37 +933,153 @@ export function thinned(loop: Pick<SectionLoop, 'points' | 'closed' | 'deflectio
 export const DIFF_SAME_SOURCES = 'Both builds were made from the same sources (the .py files of the project and common/ hash alike), so the model did not change between them.'
 
 export interface DiffToolArgs {
-  from?: number
-  to?: number
+  from?: number | string
+  to?: number | string
 }
 
 type Kept = { revision: number; scene: Scene }
 
+/** Said when a build of the history is told with its checks or dimensions. */
+export const DIFF_AS_OF_THEN = 'The checks, defects and dimensions told of a build kept in the history are as of that build, never how the project stands now.'
+
+/** One side of a `diff`: a build of this run in memory, or one kept in the history, or both. */
+interface Side {
+  /** How the reply names it: the revision for a build asked for by revision, the id for a kept one. */
+  label: number | string
+  scene: Scene
+  /** Set for a build of this run. */
+  revision?: number
+  entry?: HistoryEntry
+}
+
 /**
- * What changed between two successful builds that main keeps (`Builds.scenes`: the last two), from what the
- * kernel said of each part as it built it: no query. Nothing is said to be exact that either build does not say is.
+ * What changed between two successful builds, from what the kernel said of each part as it built it: no query.
+ * Those of this run that main holds in memory (`Builds.scenes`: the last two), and any build kept in the history
+ * (`.torno/history/`, by id, `h41`; one of this run also by revision). Nothing is said to be exact that either build
+ * does not say is.
  */
-export function diffTool(deps: ToolDeps, objectId: string, args: DiffToolArgs): ToolResult {
+export async function diffTool(deps: ToolDeps, objectId: string, args: DiffToolArgs): Promise<ToolResult> {
   const found = built(deps, objectId)
   if ('content' in found) return found
   const kept: Kept[] = deps.scenes?.(objectId) ?? [{ revision: found.revision, scene: found.scene }]
+  const history = await deps.history?.(objectId).catch(() => null)
+  const entries = history?.entries ?? []
+  const entryOf = (revision: number): HistoryEntry | undefined => entries.findLast((e) => e.run === history?.run && e.revision === revision)
   const revisions = kept.map((k) => k.revision)
-  if (kept.length < 2) return failure(`only one successful build so far (revision ${revisions.join(', ')}): there is nothing to compare it with yet`)
   const listed = `revisions ${revisions.slice(0, -1).join(', ')} and ${revisions.at(-1)} are`
-  const pick = (revision: number | undefined, fallback: Kept): Kept | ToolResult => {
-    if (revision === undefined) return fallback
-    return kept.find((k) => k.revision === revision) ?? failure(`revision ${revision} is not kept: ${listed}`)
+  const keptIds = entries.length > 0 ? `; the history keeps ${entries.length > 6 ? `${entries.length} builds, ${entries.at(0)!.id} to ${entries.at(-1)!.id}` : entries.map((e) => e.id).join(', ')} (the history tool lists them)` : ''
+  const asked = (value: unknown, which: string): ReturnType<typeof parseBuildRef> | ToolResult => {
+    if (value === undefined) return null
+    return parseBuildRef(value) ?? failure(`${which} is a revision of this run (3) or a build kept in the history (h41), not ${JSON.stringify(value)}`)
   }
-  const from = pick(args.from, kept.at(-2)!)
+  const [wantFrom, wantTo] = [asked(args.from, 'from'), asked(args.to, 'to')]
+  if (wantFrom && 'content' in wantFrom) return wantFrom
+  if (wantTo && 'content' in wantTo) return wantTo
+
+  const side = async (ref: NonNullable<ReturnType<typeof parseBuildRef>>): Promise<Side | ToolResult> => {
+    if ('revision' in ref) {
+      const inMemory = kept.find((k) => k.revision === ref.revision)
+      if (inMemory) return { label: ref.revision, scene: inMemory.scene, revision: ref.revision, entry: entryOf(ref.revision) }
+      const entry = entryOf(ref.revision)
+      const scene = entry ? await deps.historyScene?.(objectId, entry.id).catch(() => null) : null
+      if (entry && scene) return { label: ref.revision, scene, revision: ref.revision, entry }
+      return failure(`revision ${ref.revision} is not kept: ${listed}${keptIds}`)
+    }
+    const entry = entries.find((e) => e.id === ref.id)
+    const scene = entry ? await deps.historyScene?.(objectId, ref.id).catch(() => null) : null
+    if (!entry || !scene) return failure(`${ref.id} is not kept${entries.length > 0 ? keptIds.replace(/^;/, ':') : ': the history of this project holds no build yet'}`)
+    const thisRun = entry.run === history?.run
+    const inMemory = thisRun ? kept.find((k) => k.revision === entry.revision) : undefined
+    return { label: ref.id, scene: inMemory?.scene ?? scene, ...(thisRun ? { revision: entry.revision } : {}), entry }
+  }
+
+  // Without a build asked for: the last two of this run; or, with only the last, it and the newest kept build of other sources.
+  const last = kept.at(-1)!
+  const lastSide: Side = { label: last.revision, scene: last.scene, revision: last.revision, entry: entryOf(last.revision) }
+  let before: Side | ToolResult | null = null
+  const fallbackFrom = async (): Promise<Side | ToolResult> => {
+    if (before) return before
+    if (kept.length >= 2) {
+      const k = kept.at(-2)!
+      return (before = { label: k.revision, scene: k.scene, revision: k.revision, entry: entryOf(k.revision) })
+    }
+    const sources = deps.identity?.(objectId, last.revision)?.sources
+    const prior = entries.findLast((e) => !(e.run === history?.run && e.revision === last.revision) && (sources === undefined || e.sources !== sources))
+    if (prior) return (before = await side({ id: prior.id }))
+    return failure(`only one successful build so far (revision ${revisions.join(', ')}): there is nothing to compare it with yet`)
+  }
+  const from = wantFrom ? await side(wantFrom) : await fallbackFrom()
   if ('content' in from) return from
-  const to = pick(args.to, kept.at(-1)!)
+  const to = wantTo ? await side(wantTo) : lastSide
   if ('content' in to) return to
 
   const diffed = sceneDiff(from.scene, to.scene)
   // What each build was made from, so that a difference that is none of the model's (the same sources) is not taken for one.
-  const was = deps.identity?.(objectId, from.revision)
-  const now = deps.identity?.(objectId, to.revision)
-  const builds = was || now ? { from: { revision: from.revision, ...(was ?? {}) }, to: { revision: to.revision, ...(now ?? {}) } } : undefined
-  const notes = [...diffed.notes, ...(was && now && was.sources === now.sources ? [DIFF_SAME_SOURCES] : [])]
-  return reply(clean({ object: found.obj.id, from: from.revision, to: to.revision, ...(builds ? { builds } : {}), layouts: diffed.layouts, ...(notes.length > 0 ? { notes } : {}) }))
+  const told = (s: Side): Record<string, unknown> | undefined => {
+    const made = s.revision === undefined ? undefined : deps.identity?.(objectId, s.revision)
+    const entry = s.entry
+    if (!made && !entry) return undefined
+    return {
+      ...(s.revision === undefined ? {} : { revision: s.revision }),
+      ...(entry ? { id: entry.id, at: entry.at, ...(entry.starred ? { starred: true } : {}) } : {}),
+      ...(made ?? (entry ? { sources: entry.sources, ...(entry.head ? { head: entry.head } : {}), ...(entry.dirty ? { dirty: true } : {}) } : {})),
+      ...(entry?.failing ? { failingChecks: entry.failing } : {}),
+      ...(entry?.defects ? { defects: entry.defects } : {}),
+      ...(entry?.dimensions ? { dimensions: entry.dimensions } : {})
+    }
+  }
+  const [was, now] = [told(from), told(to)]
+  const builds = was || now ? { from: was ?? { revision: from.revision }, to: now ?? { revision: to.revision } } : undefined
+  const verdicts = [from, to].some((s) => s.entry && (s.entry.failing || s.entry.defects || s.entry.dimensions))
+  const notes = [...diffed.notes, ...(was && now && was.sources === now.sources ? [DIFF_SAME_SOURCES] : []), ...(verdicts ? [DIFF_AS_OF_THEN] : [])]
+  return reply(clean({ object: found.obj.id, from: from.label, to: to.label, ...(builds ? { builds } : {}), layouts: diffed.layouts, ...(notes.length > 0 ? { notes } : {}) }))
+}
+
+export interface HistoryToolArgs {
+  id?: string
+  limit?: number
+}
+
+/** The most builds `history` lists at once, and how many it does when it is not told. */
+export const HISTORY_MOST = 100
+export const HISTORY_DEFAULT = 20
+
+/**
+ * The builds kept in the project's history, newest first, each with its id, when it was made, what changed from the
+ * build kept before it in a line, and the checks and dimensions it had then; or one of them (`id`), with where its
+ * copies of the sources are, which the agent may read to go back to that build (torno never restores a file).
+ */
+export async function historyTool(deps: ToolDeps, objectId: string, args: HistoryToolArgs): Promise<ToolResult> {
+  const obj = deps.object(objectId)
+  if (!obj) return failure(`unknown project: ${objectId}`)
+  const history = await deps.history?.(objectId).catch(() => null)
+  if (!history) return failure('the history of this project cannot be read now')
+  const base = join(obj.dir, '.torno', 'history')
+  const summary = (e: HistoryEntry) => ({
+    id: e.id,
+    at: e.at,
+    ...(e.run === history.run ? { revision: e.revision } : { earlierRun: true }),
+    ...(e.starred ? { starred: true } : {}),
+    changed: e.line,
+    parts: e.parts,
+    ...(e.failing ? { failingChecks: e.failing } : {}),
+    ...(e.defects ? { defects: e.defects } : {}),
+    ...(e.dimensions ? { dimensions: e.dimensions } : {}),
+    sources: e.sources,
+    ...(e.head ? { head: e.head } : {}),
+    ...(e.dirty ? { dirty: true } : {})
+  })
+  const note = `${DIFF_AS_OF_THEN} A revision is of one run of torno; an id is for ever. Compare any two with diff.`
+  if (args.id !== undefined) {
+    const id = String(args.id).trim().toLowerCase()
+    const entry = history.entries.find((e) => e.id === id)
+    if (!entry) return failure(`${JSON.stringify(args.id)} is not kept: ${history.entries.length === 0 ? 'the history holds no build yet' : `${history.entries.at(0)!.id} to ${history.entries.at(-1)!.id} are (not every number between them)`}`)
+    const copies = entry.files.map((file) => ({ file, path: join(base, entry.id, 'source', ...file.split('/')) }))
+    const source = copies.length > 0 ? 'These are copies of the files the build was made from. To go back, read them and edit the project\'s own files to match; torno never restores a file itself.' : 'No copy of the sources was kept for this build (too large, or changed while it was read).'
+    return reply({ object: obj.id, ...summary(entry), model: entry.model, seconds: entry.seconds, ...(entry.params ? { params: entry.params } : {}), copies, notes: [source, note] })
+  }
+  const limit = args.limit === undefined ? HISTORY_DEFAULT : args.limit
+  if (!Number.isInteger(limit) || limit < 1 || limit > HISTORY_MOST) return failure(`limit is a whole number from 1 to ${HISTORY_MOST} (default ${HISTORY_DEFAULT})`)
+  const newest = history.entries.slice(-limit).reverse()
+  return reply({ object: obj.id, kept: history.entries.length, shown: newest.length, builds: newest.map(summary), notes: [note] })
 }
