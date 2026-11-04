@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme } from 'electron'
-import { type Door, openDoor, within } from './door'
+import { type Door, openDoor, projectFor } from './door'
 import type { Described } from '../shared/geometry'
 import type { SavedView } from '../shared/views'
 import { writeFileAtomic } from './atomic'
@@ -665,16 +665,7 @@ void app.whenReady().then(async () => {
     void openDoor({
       http,
       objectFor: (folder) => {
-        const objects = openWorkspaceInfo()?.objects ?? []
-        const real = (dir: string): string => {
-          try {
-            return realpathSync(dir)
-          } catch {
-            return dir
-          }
-        }
-        // The deepest project the folder is, or is inside.
-        const found = objects.filter((o) => within(folder, real(o.dir))).sort((a, b) => b.dir.length - a.dir.length)[0]
+        const found = projectFor(openWorkspaceInfo()?.objects ?? [], folder)
         return found ? { id: found.id, name: found.name } : undefined
       },
       approve: async ({ name, client, pid }) => {
