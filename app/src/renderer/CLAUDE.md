@@ -184,6 +184,15 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `insertIntoSession`, or kept for a session the pane starts (`setFixRequest`), and never sent. The window reads the list
   (`useHistory`, `history.list`, again at `history:changed`) and writes nothing; nothing here restores a file or puts a build on
   screen. A build with no copies (too large, or changed while read) has both buttons off, with `NO_COPY` in the title.
+- **An earlier build over the current one** (`viewport/earlier.ts` `Earlier`, `Viewport.setEarlier`): the sheet's "Show over the
+  current build" sets `store.compare` (`actions.compareWith`), and `ViewportPane` asks main for that build's scene and meshes
+  (`history.ghost`; only a build of this run whose meshes main still holds, `HistoryList.ghosts`) and draws its parts of the layout
+  shown translucent (`EARLIER_SURFACE_OPACITY`) with their edges, in `--muted` (the colour of the old edges of the ghosts of a build that
+  just landed, and no mark's; it follows the theme), at the places that build had them. For display only: no bounds tree, a
+  ray finds nothing, it is hidden for a picture (`hideGizmo`), and nothing is measured, marked or written from it. It stays until
+  put away ("Stop" in the status line, `.status-compare`) and is put away by another object, another layout, a section or an
+  explode (the sheet's button is off while one is on, with the reason in its title). It is not the ghosts of a build that landed
+  (`ghosts.ts`, a moment, edges only). `__tornoTest.earlier()` is for tests.
 
 ## Layers
 

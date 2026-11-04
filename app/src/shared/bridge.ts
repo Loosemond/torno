@@ -3,7 +3,7 @@ import type { BuildState } from './build'
 import type { TurnChanges } from './changes'
 import type { AgentChoice, ChatAnswer, ChatHistory, ChatCommand, ChatItem, ChatMeta, ChatModel, Effort, Mode } from './chat'
 import type { GitState } from './git'
-import type { HistoryList } from './history'
+import type { HistoryGhost, HistoryList } from './history'
 import type { ExportPlan, ExportRequest, ExportSaved } from './exportdata'
 import type { Described, MeasureProbe, MeasuredOnce } from './geometry'
 import type { InstructionFile } from './instructions'
@@ -253,6 +253,8 @@ export interface TornoBridge {
     thumbnail(objectId: string, id: string): Promise<ArrayBuffer | null>
     /** The text of one copied source file of a build (`file` is one of its `files`), or null. */
     source(objectId: string, id: string, file: string): Promise<string | null>
+    /** A build made in this run, with its meshes, to be drawn over the current one for display only; null when its meshes are not held (see `HistoryList.ghosts`). */
+    ghost(objectId: string, id: string): Promise<HistoryGhost | null>
     /** Stars a build, or takes the star away: a starred build is not let go. False for a build that is not kept. */
     star(objectId: string, id: string, starred: boolean): Promise<boolean>
     /** Told, with the object, when its history changed. */

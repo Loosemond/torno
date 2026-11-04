@@ -113,6 +113,7 @@ export function BuildStatus({ onOpen }: { onOpen: (id: string) => void }) {
 
   // The builds kept of the project, in a sheet of their own (`HistorySheet`).
   const [historyOpen, setHistoryOpen] = useState(false)
+  const compare = useStore((st) => st.compare)
   useEffect(() => setHistoryOpen(false), [objectId])
 
   // The sheet shows the failure of the build it was opened for, no longer.
@@ -171,6 +172,11 @@ export function BuildStatus({ onOpen }: { onOpen: (id: string) => void }) {
               {build.stale && 'showing '}
               <span className="num">r{build.revision}</span>
             </span>
+          )}
+          {compare !== null && (
+            <button type="button" className="status-compare" title="An earlier build is drawn over the current one, for looking only. Put it away" onClick={() => actions.compareWith(null)}>
+              Showing <span className="num">{compare}</span> over this build · Stop
+            </button>
           )}
           {hasScene && (
             <button type="button" className="status-history" aria-expanded={historyOpen} title="The builds kept of this project: compare, read their source, ask the agent to go back" onClick={() => setHistoryOpen(!historyOpen)}>

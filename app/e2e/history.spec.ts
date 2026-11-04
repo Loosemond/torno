@@ -96,3 +96,23 @@ test('a star keeps a build, and the sheet says so', async () => {
   const index = JSON.parse(readFileSync(join(root, 'hollow', '.torno', 'history', 'index.json'), 'utf8'))
   expect(index.entries.filter((e: { starred?: boolean }) => e.starred)).toHaveLength(1)
 })
+
+test('an earlier build of this run is drawn over the current one, for looking only, and goes when it is put away', async () => {
+  const keys = () => page.evaluate(() => window.__tornoTest!.earlier())
+  expect(await keys()).toEqual([])
+  const card = sheet().locator('.history-card').nth(2)
+  await card.click()
+  const show = sheet().getByRole('button', { name: 'Show over the current build' })
+  await expect(show).toBeEnabled()
+  const before = readFileSync(model(), 'utf8')
+  await show.click()
+  await expect.poll(keys).toEqual(['assembly:tub', 'assembly:lid'])
+  await expect(page.locator('.status-compare')).toContainText('Showing h')
+  // Looking changes nothing: not the model, not the build.
+  expect(readFileSync(model(), 'utf8')).toBe(before)
+  expect((await state()).build?.revision).toBe(3)
+  await sheet().getByRole('button', { name: 'Close' }).click()
+  await page.locator('.status-compare').click()
+  await expect.poll(keys).toEqual([])
+  await expect(page.locator('.status-compare')).toHaveCount(0)
+})

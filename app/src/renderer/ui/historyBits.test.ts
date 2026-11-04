@@ -3,7 +3,7 @@ import type { HistoryEntry, HistoryList } from '../../shared/history'
 import { copyPathOf, goBackPrompt, marksOf, nameOf } from './historyBits'
 
 const entry = (id: string, more: Partial<HistoryEntry> = {}): HistoryEntry => ({ id, at: '2026-11-04T10:00:00.000Z', run: 'old', revision: 3, sources: 'aaaaaaaaaaaa', model: 'box.py', files: ['box/box.py', 'common/util.py'], parts: 2, seconds: 1, line: 'tub changed, lid same', ...more })
-const list = (entries: HistoryEntry[]): HistoryList => ({ run: 'now', base: '/ws/box/.torno/history', entries })
+const list = (entries: HistoryEntry[]): HistoryList => ({ run: 'now', base: '/ws/box/.torno/history', entries, ghosts: [] })
 
 describe('nameOf', () => {
   it('gives the revision of a build made in this run, beside its id, and the id alone of an earlier one', () => {

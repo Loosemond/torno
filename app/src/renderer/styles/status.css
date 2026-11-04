@@ -345,3 +345,12 @@
   border: 0;
   background: transparent;
 }
+
+/* An earlier build is drawn over the current one: said in the line, with the way to put it away. */
+.status-compare {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--ink);
+  font-weight: 500;
+}

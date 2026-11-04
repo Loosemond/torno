@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { hint, pressed } from '../../shared/keys'
 import type { HistoryEntry, HistoryList } from '../../shared/history'
-import { actions, runningSession, useStore } from '../state/store'
+import { actions, explodeNow, runningSession, useStore } from '../state/store'
 import { ago } from './chat/ago'
 import { NO_COPY, goBackPrompt, marksOf, nameOf } from './historyBits'
 import { insertIntoSession } from './insertIntoSession'
@@ -83,6 +83,9 @@ export function HistorySheet({ objectName, onClose }: { objectName: string; onCl
   const objectId = useStore((s) => s.objectId)
   const list = useHistory(true)
   const session = useStore(runningSession)
+  const comparing = useStore((s) => s.compare)
+  // The earlier build is drawn uncut and together: it cannot be laid over a section or parts drawn apart.
+  const blocked = useStore((s) => (s.section !== null ? 'Take the section away first: an earlier build is not drawn cut.' : explodeNow(s) !== null ? 'Put the parts together first: an earlier build is not drawn apart.' : null))
   const [chosen, setChosen] = useState<string | null>(null)
   const [source, setSource] = useState(false)
   const [said, setSaid] = useState<string | null>(null)
@@ -179,6 +182,23 @@ export function HistorySheet({ objectName, onClose }: { objectName: string; onCl
                   </p>
                 )}
                 <div className="history-actions">
+                  <button
+                    type="button"
+                    className="button"
+                    data-part="compare"
+                    aria-pressed={comparing === entry.id}
+                    disabled={!list.ghosts.includes(entry.id) || (blocked !== null && comparing !== entry.id)}
+                    title={
+                      !list.ghosts.includes(entry.id)
+                        ? 'Only a build of this run, still held in memory, can be drawn over the current one'
+                        : blocked !== null
+                          ? blocked
+                          : 'Draw this build over the current one, translucent, for looking only; nothing is changed'
+                    }
+                    onClick={() => actions.compareWith(comparing === entry.id ? null : entry.id)}
+                  >
+                    {comparing === entry.id ? 'Stop showing it over the current' : 'Show over the current build'}
+                  </button>
                   <button type="button" className="button" aria-pressed={source} disabled={entry.files.length === 0} title={entry.files.length === 0 ? NO_COPY : 'Read the Python files this build was made from, as they were'} onClick={() => setSource(!source)}>
                     {source ? 'Hide the source' : 'Show the source'}
                   </button>

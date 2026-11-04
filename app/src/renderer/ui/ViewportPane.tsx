@@ -346,12 +346,26 @@ function connect(viewport: Viewport, readout: Readout): () => void {
   // The gizmo on the active mark while it is a shape, and the keys that say what it does.
   const offShape = connectShapeEdit(viewport)
 
+  const showEarlier = (objectId: string | null, id: string | null): void => {
+    if (id === null || objectId === null) return viewport.clearEarlier()
+    window.torno.history.ghost(objectId, id).then(
+      (ghost) => {
+        const now = store.getState()
+        if (now.compare !== id || now.objectId !== objectId) return
+        if (!ghost || !viewport.setEarlier(ghost.scene, ghost.blob)) actions.compareWith(null)
+      },
+      () => actions.compareWith(null)
+    )
+  }
   const offStore = store.subscribe((s, prev) => {
     // A mark that can no longer be put somewhere else here (it is gone, resolved, or of another layout or object) is left be.
     if (toolStore.getState().replacing && replacingIn(s) === null) endReplace()
     if (s.selection !== prev.selection) viewport.setSelection(s.selection)
     const apart = explodeNow(s)
     const wasApart = explodeNow(prev)
+    // A kept build drawn over this one (the history sheet): asked of main for its meshes; put away by anything that would cut or move it.
+    if (s.compare !== prev.compare) showEarlier(s.objectId, s.compare)
+    else if (s.compare !== null && (s.layout !== prev.layout || s.section !== null || apart !== null)) actions.compareWith(null)
     // Together before a cut is made, by order and not by what a frame happens to see: a section is never drawn across parts that are apart.
     if (apart === null && wasApart !== null && s.section !== null) viewport.setExplode(null)
     // The cut is of the object: another object has its own, or none.
@@ -472,6 +486,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
       exploded: () => viewport.exploded(),
       faded: () => viewport.faded(),
       ghosts: () => viewport.ghostKeys(),
+      earlier: () => viewport.earlierKeys(),
       holdGhosts: (held) => viewport.holdGhosts(held),
       // What a pointer move costs: the same call, at points spread over the canvas in a grid.
       timePicks: (count = 200, opts) => timed(count, (x, y) => viewport.pick(x, y, opts) !== null),

@@ -102,6 +102,14 @@ export interface HistoryList {
   base: string
   /** Oldest first. */
   entries: HistoryEntry[]
+  /** The ids of the builds that can be drawn over the current one: made in this run, with their meshes still held (a budget of bytes, the oldest let go first). */
+  ghosts: string[]
+}
+
+/** A kept build's parts as the window draws them over the current build: its scene and the bytes of its meshes. */
+export interface HistoryGhost {
+  scene: Scene
+  blob: ArrayBuffer
 }
 
 /** The builds of the list an entry is among those made in this run. */

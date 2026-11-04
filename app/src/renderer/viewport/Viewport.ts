@@ -16,6 +16,7 @@ import { MarkLayer, type Draft } from './marks/MarkLayer'
 import { overlayFonts, type LabelStyle } from './overlay'
 import { OverlayPass } from './overlayPass'
 import { partChanged } from '../../shared/diff'
+import { Earlier } from './earlier'
 import { Ghosts, type GhostItem } from './ghosts'
 import { STALE_FADE, colorFor, colorsByName, edgeTint, mix } from '../../shared/palette'
 import { aimKeyLight, makeLights } from './lights'
@@ -84,6 +85,8 @@ export class Viewport {
   private stale = false
   /** The old edges and the new of the parts the last build changed, for a moment (`ghosts.ts`). */
   private readonly ghosts = new Ghosts(() => this.invalidate())
+  /** An earlier build drawn over the current one, for display only, until it is cleared (`earlier.ts`). */
+  private readonly earlier = new Earlier()
   /** False until a scene with parts has been framed; after that the camera is the user's. */
   private framed = false
   /** Everything drawn in the current layout, for the clip planes: the parts and the grid (`groundExtent`), and the marks. */
@@ -164,7 +167,7 @@ export class Viewport {
     this.ground.material.depthWrite = false
     this.ground.renderOrder = -1
     this.ground.frustumCulled = false
-    this.scene.add(this.ground, this.scans.group, this.marks.group, this.section.decor, this.ghosts.group)
+    this.scene.add(this.ground, this.scans.group, this.marks.group, this.section.decor, this.ghosts.group, this.earlier.group)
 
     this.overlay = new OverlayPass({ canvas, marks: this.marks, camera: () => this.camera, layout: () => this.layout, style: () => ({ ...this.labelStyle(), accent: this.theme.accent }), frame: () => ({ muted: this.theme.muted, axes: [this.theme.axisX, this.theme.axisY, this.theme.axisZ] as const, gridStep: this.gridStepMm }), project: (p) => this.project(p), syncMatrices: () => this.syncMatrices(), exploded: () => this.apart.any })
     // A label drawn before its face has loaded is in the fallback face: draw again once it is there.
@@ -237,9 +240,11 @@ export class Viewport {
       hideGizmo: () => {
         const gizmoBack = this.gizmo.hide()
         const ghostsBack = this.ghosts.hide()
+        const earlierBack = this.earlier.hide()
         return () => {
           gizmoBack()
           ghostsBack()
+          earlierBack()
         }
       },
       section: () => this.section.get(),
@@ -325,6 +330,32 @@ export class Viewport {
     const still = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
     this.ghosts.begin(items, { old: toHex(this.theme.muted), fresh: toHex(this.theme.accent) }, performance.now(), still)
     if (this.ghosts.on) this.invalidate()
+  }
+
+  /**
+   * Draws an earlier build of the model over the current one, translucent, for display only (#56): its parts of the
+   * layout shown, where that build had them. Not with a section or the parts drawn apart (it would have to be cut or moved
+   * the same way): false then, and nothing is drawn. It stays until `clearEarlier`; a layout, a section or an explode put away
+   * by the caller. True when it is drawn.
+   */
+  setEarlier(scene: Scene, blob: ArrayBuffer): boolean {
+    this.earlier.clear()
+    if (this.section.get() !== null || this.apart.any) return false
+    const parts = scene.parts.filter((p) => p.layout === this.layout)
+    if (parts.length === 0) return false
+    this.earlier.show(parts, blob, toHex(this.theme.muted))
+    this.invalidate()
+    return true
+  }
+
+  /** Puts the earlier build away. */
+  clearEarlier(): void {
+    if (this.earlier.clear()) this.invalidate()
+  }
+
+  /** The keys of the parts of the earlier build drawn; empty when there is none. */
+  earlierKeys(): string[] {
+    return this.earlier.keys()
   }
 
   /** Puts the ghosts of the last build away at once (a key, a click). */
@@ -1105,6 +1136,7 @@ export class Viewport {
     this.gizmo.dispose()
     this.section.dispose()
     this.ghosts.end(false)
+    this.earlier.clear()
     this.scans.dispose()
     for (const entry of this.entries.values()) this.discard(entry)
     this.entries.clear()
@@ -1240,6 +1272,7 @@ export class Viewport {
     this.highlights.setColors(this.theme)
     this.marks.setColours(markColours(this.theme))
     this.section.setColours(toHex(this.theme.muted), toHex(this.theme.accent))
+    this.earlier.tint(toHex(this.theme.muted))
     this.lookOfScans()
     this.showMarks()
     this.scene.background = new THREE.Color(this.theme.surface)
