@@ -447,7 +447,7 @@ app.on('second-instance', (_event, _argv, _cwd, data) => {
 
 void app.whenReady().then(async () => {
   if (!isFirst) return
-  // A start from the Finder or the Dock has launchd's PATH, without `uv` or `claude`: ask the login shell (macOS only).
+  // A start from the Finder or the Dock has launchd's PATH, without `uv` or `claude`: ask the login shell (macOS and Linux; a desktop entry's PATH is the session's).
   await applyLoginPath()
   // In development the Dock shows Electron's icon; a packaged app takes its own from its bundle.
   if (process.platform === 'darwin' && !app.isPackaged) app.dock?.setIcon(windowIcon())

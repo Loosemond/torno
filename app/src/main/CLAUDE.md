@@ -336,7 +336,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 - **What torno needs** (`main/ready.ts`, `main/readiness.ts` `ReadyKeeper`, `shared/ready.ts` `Ready`; the channels `ready:check`,
   `ready:make`, `ready:changed`) is found before anything fails, for the first screen, the empty workspace, the page of a
   new object and the sheet of the folder menu. `checkTools` looks for the agent's command (`AgentAdapter.probe`: with
-  `TORNO_AGENT_CMD`, the stand-in's) and for `uv` on `process.env.PATH` (the login shell's, on a Mac, after
+  `TORNO_AGENT_CMD`, the stand-in's) and for `uv` on `process.env.PATH` (the login shell's, on a Mac or Linux, after
   `applyLoginPath`) with the `findCommand` a session uses, and runs nothing for it. Outside tests (`askCli`, false under
   `TORNO_TEST=1`) it also asks the CLI `--version` and `auth status`, once per run and again only for "Check again" (`get(true)`), each
   within `ASK_MS` (3 s, then the process is killed: a runner that never answers is given up on as well), nothing
