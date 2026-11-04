@@ -996,6 +996,14 @@ export class Viewport {
   }
 
   /**
+   * Keeps the camera still for the press under way (it is the pointer's again when the button is let go), or, with
+   * false, gives it back to a press no tool has taken since.
+   */
+  holdCamera(on: boolean): void {
+    this.pointer.holdOrbit(on)
+  }
+
+  /**
    * Where the pointer is over the canvas, in client pixels, or null when it
    * is not over it: for a tool that acts on a key and must know what is
    * under the pointer now (`pick`), whatever the last move it was told of.

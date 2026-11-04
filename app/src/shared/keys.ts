@@ -23,7 +23,7 @@ export type KeyContext = 'Everywhere' | 'Viewport' | 'With a tool in hand' | 'Wi
  * - `field`, `menu`, `sheet`: in a field, an open menu, a sheet or a question.
  * - `dev`: under the dev server only.
  */
-export type KeyScope = 'global' | 'window' | 'viewport' | 'measure' | 'section' | 'align' | 'region' | 'shape' | 'page' | 'filter' | 'newobject' | 'session' | 'composer' | 'ask' | 'picture' | 'separator' | 'field' | 'menu' | 'sheet' | 'dev'
+export type KeyScope = 'global' | 'window' | 'viewport' | 'measure' | 'section' | 'align' | 'region' | 'shape' | 'page' | 'filter' | 'newobject' | 'session' | 'composer' | 'ask' | 'picture' | 'separator' | 'leftedge' | 'field' | 'menu' | 'sheet' | 'dev'
 
 /**
  * The palette's tools, in the order of their groups (`TOOL_GROUPS` in `renderer/state/tools.ts`): those that inspect
@@ -162,6 +162,8 @@ const ROWS = [
   row('chat.allow', ['Enter'], 'Chat: allow what the card in focus asks (in its reason field, Enter denies)', 'Session', 'ask'),
   row('chat.close', ['Esc'], 'Chat: put away a picture shown large', 'Session', 'picture'),
   row('dock.resize', ['Left', 'Right'], 'On the edge of the session pane: wider or narrower', 'Session', 'separator'),
+
+  row('left.resize', ['Left', 'Right'], 'On the edge of the left column: narrower or wider', 'Session', 'leftedge'),
 
   row('field.keep', ['Enter'], 'Field: keep what was typed', 'In a field, a menu or a sheet', 'field'),
   row('field.leave', ['Esc'], 'Field: leave it as it was', 'In a field, a menu or a sheet', 'field'),

@@ -168,6 +168,45 @@ test('the session dock is resized by dragging its edge, within limits', async ()
   expect(await width()).toBe(520)
 })
 
+test('the left column is made wider by dragging its edge, within limits, and kept by the window', async () => {
+  const left = page.locator('[data-region="left"]')
+  const handle = page.getByRole('separator', { name: 'Resize left column' })
+  const width = async () => (await left.boundingBox())!.width
+  const dragEdgeBy = async (dx: number) => {
+    const edge = (await handle.boundingBox())!
+    const x = edge.x + edge.width / 2
+    const y = edge.y + edge.height / 2
+    await page.mouse.move(x, y)
+    await page.mouse.down()
+    await page.mouse.move(x + dx, y, { steps: 4 })
+    await page.mouse.up()
+  }
+  expect(await width()).toBe(248)
+
+  await dragEdgeBy(100)
+  expect(await width()).toBe(348)
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('torno.column') ?? '{}').width)).toBe(348)
+
+  // Never narrower than the default, and never wider than leaves 240 px of viewport beside the dock.
+  await dragEdgeBy(-900)
+  expect(await width()).toBe(248)
+  await dragEdgeBy(3000)
+  const dockWidth = (await page.locator('[data-region="session"]').boundingBox())!.width
+  expect(await width()).toBe((await page.evaluate(() => window.innerWidth)) - dockWidth - 240)
+
+  // Keys: 16 px a press; a double click puts the default back.
+  await dragEdgeBy(-3000)
+  await handle.focus()
+  await page.keyboard.press('ArrowRight')
+  await expect.poll(width).toBe(264)
+  await page.keyboard.press('ArrowLeft')
+  await expect.poll(width).toBe(248)
+  await dragEdgeBy(60)
+  await handle.dblclick()
+  await expect.poll(width).toBe(248)
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('torno.column') ?? '{}').width)).toBeNull()
+})
+
 test('the session dock collapses and comes back at the same width', async () => {
   const dock = page.locator('[data-region="session"]')
   const before = (await dock.boundingBox())!.width

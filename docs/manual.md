@@ -312,7 +312,10 @@ open project, then its marks. Projects, Layers, Parameters and Scans each fold b
 title says what matters (`Layers 12 · 3 hidden`, `Scans 1 · unaligned`). Marks never folds:
 it keeps room for five rows at least, and the sections above give way first. Drag the line
 above Marks up for more (`Up` and `Down` with it in focus), double click it for the shares
-again. What is folded and where the line is are kept by the window, not in the folder. The
+again. Drag the right edge of the column to make it wider (`Left` and `Right` with it in focus),
+double click it for the default width; the column is never narrower than that, and leaves the view
+its room beside the session pane. What is folded, where the line is and how wide the column is are
+kept by the window, not in the folder. The
 layers (parts) of the open project each have a visibility switch. Parameters lists the fields of
 the model's `Params` (folded to its title at first; a model with none has no section): each
 field's name, its default in the monospace face (four digits at most, the whole value on hover) and
@@ -961,7 +964,9 @@ the mark's row lights, and its note is read out beside the pointer on one line
 its row into view, opened, without moving the camera; for a mark of yours not
 yet sent, its note opens beside it to be written. A click on a chip is the
 chip's whatever tool is in hand: no pin is left under it. A drag that starts on
-a chip turns the camera, as anywhere else.
+a chip turns the camera with Select in hand, as anywhere else; with Draw, Arrow, Shape, Region or another
+tool that drags, it goes to the tool once it has moved past a click, so a stroke may begin under a chip (and
+the camera stays still).
 
 - A mark you change after it was sent (its note, or a shape's place, size,
   kind or intent) is a draft again, and is told once more as `(changed)`.
@@ -1490,6 +1495,7 @@ until the camera is first moved; the window remembers that in its own storage, n
 | Session | `Enter` | Chat: allow what the card in focus asks (in its reason field, Enter denies) |
 | Session | `Esc` | Chat: put away a picture shown large |
 | Session | `Left` `Right` | On the edge of the session pane: wider or narrower |
+| Session | `Left` `Right` | On the edge of the left column: narrower or wider |
 | In a field, a menu or a sheet | `Enter` | Field: keep what was typed |
 | In a field, a menu or a sheet | `Esc` | Field: leave it as it was |
 | In a field, a menu or a sheet | `Shift+Enter` | Note: a new line |

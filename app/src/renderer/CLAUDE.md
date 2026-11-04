@@ -119,7 +119,11 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `chipSays` (a note in the face of the UI, `Readout.note`, one line cut to its width; a dimension's numbers as a
   ref's). A click opens it whatever tool is in hand (the head ruling of #74): `goToRow` (active, row in view, the
   camera stays as it is in view) and, for a draft of the person's, `actions.openNote`. A drag that starts on a chip
-  is the orbit's; a press that began beside one is the tool's to the end. A failing dimension's chip says by how
+  is the orbit's with Select in hand. With a tool that takes presses (`ChipHost.tool`: not Select, not with the parts stale
+  or apart, not with Alt) the camera is held (`Viewport.holdCamera`) from the press; past the click threshold (4 px) the
+  tool is handed the press as it was made and every event after it (a tool that does not drag, as Pin, gives the camera
+  back at that point), and a click still opens the row. Moves over a chip with no button held are handed to the tool too,
+  with no hit, so its preview does not freeze. A press that began beside a chip is the tool's to the end. A failing dimension's chip says by how
   much it misses after its cross, in `--fail` (`40 mm ✗ 2 under`: `labelValue`'s `off`, from `offBy`), on screen
   and in a picture for the agent alike. A spec that hands a tool a press at a point checks first that no chip is
   drawn there (`__tornoTest.chipAt`, `clearOfChips` in `e2e/tools.spec.ts` and `e2e/measure.spec.ts`).
@@ -463,8 +467,8 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   its least), at the drag and whenever the column or a section in it is resized, comes or goes (a `ResizeObserver` and
   a `MutationObserver`): `--marks-h` is the height kept cut to that room, so a shorter window or Parameters coming
   above never push Marks under the status line, `aria-valuenow` is that height, and what is kept is not touched. What is
-  folded and the splitter's height are the window's (`store.column`, in `localStorage` under `torno.column`, read
-  and written in try/catch), never the workspace's.
+  folded, the splitter's height and the column's width are the window's (`store.column`, in `localStorage` under `torno.column`, read
+  and written in try/catch), never the workspace's. The column's right edge (`ui/LeftEdge.tsx`, `role="separator"`, `left.resize` Left/Right) makes it wider than its default 248 px (`LEFT_DEFAULT`), up to what leaves the viewport `VIEWPORT_MIN` beside the dock (`clampLeft`); its drag writes `--left-w` on the shell, a double click puts the default back, and the dock's own limit reads the column's width now.
 - **Objects folds to a switcher by default** (`switcherShown`): folded, with an object open or a new one being
   made, in a workspace of more than one object, the list is one row, the open object's name in ink
   (`ObjectSwitcher`; "New project", pressed, on the page of a new object). Its accessible name is the object's

@@ -860,6 +860,62 @@ test('on a free view a stroke across the top of the base lies on the surface', a
   await page.keyboard.press('v')
 })
 
+test('a stroke that starts on a mark’s chip is drawn, the camera stays, and a click on a chip still opens its row', async () => {
+  await page.keyboard.press('1')
+  await atRest()
+  await page.keyboard.press('d')
+  await expect(tool('Draw')).toHaveAttribute('aria-pressed', 'true')
+  // A chip drawn over a part, with part to draw on a little further along.
+  const found = await page.evaluate(() => {
+    const t = window.__tornoTest!
+    for (const mark of t.state().marks) {
+      const at = t.markScreen(mark.id)
+      if (!at?.visible || t.chipAt(at.x, at.y) !== mark.id || !t.pickAt(at.x, at.y)) continue
+      for (const dx of [0.04, -0.04]) if (t.pickAt(at.x + dx, at.y)) return { x: at.x, y: at.y, dx }
+    }
+    return null
+  })
+  expect(found, 'a chip over a part').not.toBeNull()
+  const { x, y, dx } = found!
+  const box = (await canvas().boundingBox())!
+  const [px, py] = [box.x + x * box.width, box.y + y * box.height]
+  const view = await camera()
+  const before = marksOnDisk().marks.length
+
+  await page.mouse.move(px, py)
+  await page.mouse.down()
+  for (let i = 1; i <= 8; i++) await page.mouse.move(px + (dx * box.width * i) / 8, py)
+  await page.mouse.up()
+  await expect(card()).toBeVisible()
+  expect(marksOnDisk().marks).toHaveLength(before + 1)
+  expect(marksOnDisk().marks.at(-1)).toMatchObject({ kind: 'stroke', author: 'user' })
+  expect(await camera()).toEqual(view)
+  await page.keyboard.press('Escape')
+  await expect(card()).toHaveCount(0)
+
+  // A click on a chip is still the chip's (found again: the stroke just drawn has put its own chip about).
+  const again = await page.evaluate(() => {
+    const t = window.__tornoTest!
+    for (const mark of t.state().marks) {
+      const at = t.markScreen(mark.id)
+      if (at?.visible && t.chipAt(at.x, at.y) === mark.id) return { id: mark.id, x: at.x, y: at.y }
+    }
+    return null
+  })
+  expect(again, 'a chip to click').not.toBeNull()
+  await page.mouse.click(box.x + again!.x * box.width, box.y + again!.y * box.height)
+  await expect.poll(async () => (await state()).activeMark).toBe(again!.id)
+  expect(marksOnDisk().marks).toHaveLength(before + 1)
+  // A draft of the person's opens its note too: put it away.
+  if (await card().count()) {
+    await page.keyboard.press('Escape')
+    await expect(card()).toHaveCount(0)
+  }
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+  await page.keyboard.press('v')
+  await expect(tool('Select')).toHaveAttribute('aria-pressed', 'true')
+})
+
 const shapeButton = () => tool('Shape')
 const shapeChoice = () => page.getByRole('menu', { name: 'Shape to place' })
 let box = '' // the id of the shape the next tests work on
