@@ -124,7 +124,7 @@ let whole: string
 test('before an object has been built, scene and look say there is no build', async () => {
   await page.emulateMedia({ colorScheme: 'light' })
   bracket = await connect('bracket')
-  expect((await bracket.listTools()).tools.map((t) => t.name).sort()).toEqual(['add_mark', 'ask', 'check', 'describe', 'diff', 'expect', 'features', 'highlight', 'look', 'marks', 'measure', 'resolve_mark', 'save_view', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show', 'try_fillet'])
+  expect((await bracket.listTools()).tools.map((t) => t.name).sort()).toEqual(['add_mark', 'ask', 'check', 'describe', 'diff', 'expect', 'features', 'highlight', 'history', 'look', 'marks', 'measure', 'resolve_mark', 'save_view', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show', 'try_fillet'])
   const asked: Array<[string, Record<string, unknown>]> = [
     ['scene', {}],
     ['look', {}],
@@ -177,6 +177,26 @@ test('try_fillet tries a fillet on the last build, throws it away and says so', 
   expect(fails.together.worksUpTo).toBeLessThan(5)
   expect(fails.reading).toMatch(/^Tried on r1 and thrown away, nothing changed: fillet R6 of 1 edge: the edge works up to R4.99/)
   expect((await call(bracket, 'scene')).text).toContain('"revision":1')
+})
+
+test('history lists the build kept of the project, with copies of its sources, and diff names it by id (#56)', async () => {
+  await expect
+    .poll(async () => JSON.parse((await call(bracket, 'history')).text).kept)
+    .toBeGreaterThan(0)
+  const listed = JSON.parse((await call(bracket, 'history')).text)
+  const first = listed.builds.at(-1)
+  expect(first).toMatchObject({ id: expect.stringMatching(/^h[1-9][0-9]*$/), revision: 1, changed: 'first build kept' })
+  const one = JSON.parse((await call(bracket, 'history', { id: first.id })).text)
+  expect(one.copies.length).toBeGreaterThan(0)
+  for (const copy of one.copies) {
+    expect(copy.path).toBe(join(root, 'bracket', '.torno', 'history', first.id, 'source', ...copy.file.split('/')))
+    expect(existsSync(copy.path)).toBe(true)
+  }
+  expect((await call(bracket, 'history', { id: 'h999' })).isError).toBe(true)
+  // A kept build is compared by its id; against itself nothing changed.
+  const same = JSON.parse((await call(bracket, 'diff', { from: first.id, to: 1 })).text)
+  expect(same).toMatchObject({ from: first.id, to: 1 })
+  expect(same.layouts[0].parts.every((p: { changed: boolean }) => !p.changed)).toBe(true)
 })
 
 test('look returns the picture the window draws, and keeps a copy under .torno/views', async () => {
@@ -812,7 +832,7 @@ let plateFaces: Array<{ ref: string; descriptor: string }>
 test('measure answers with the exact value, how it was taken and a reading, through refs, points and marks', async () => {
   await openObject('measures')
   measures = await connect('measures')
-  expect((await measures.listTools()).tools.map((t) => t.name).sort()).toEqual(['add_mark', 'ask', 'check', 'describe', 'diff', 'expect', 'features', 'highlight', 'look', 'marks', 'measure', 'resolve_mark', 'save_view', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show', 'try_fillet'])
+  expect((await measures.listTools()).tools.map((t) => t.name).sort()).toEqual(['add_mark', 'ask', 'check', 'describe', 'diff', 'expect', 'features', 'highlight', 'history', 'look', 'marks', 'measure', 'resolve_mark', 'save_view', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show', 'try_fillet'])
   const whole = JSON.parse((await call(measures, 'describe', { ref: 'plate' })).text) as { faceCount: number }
   plateFaces = []
   for (let i = 0; i < whole.faceCount; i += 1) plateFaces.push({ ref: `plate/F${i}`, descriptor: JSON.parse((await call(measures, 'describe', { ref: `plate/F${i}` })).text).descriptor })

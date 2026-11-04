@@ -67,6 +67,19 @@ export function changeLine(before: Scene | undefined, now: Scene): string {
   return [...lines, ...gone.map((layout) => `${layout} gone`)].join('; ')
 }
 
+/** A build as `diff` is asked for one: a revision of this run (`3`, `"3"`, `"r3"`), or a kept build by its id (`"h41"`). */
+export type BuildRef = { revision: number } | { id: string }
+
+/** The build a value names, or null when it names none. */
+export function parseBuildRef(value: unknown): BuildRef | null {
+  if (typeof value === 'number') return Number.isSafeInteger(value) && value >= 1 ? { revision: value } : null
+  if (typeof value !== 'string') return null
+  const text = value.trim().toLowerCase()
+  if (HISTORY_ID.test(text)) return { id: text }
+  const revision = /^r?([1-9][0-9]{0,8})$/.exec(text)
+  return revision ? { revision: Number(revision[1]) } : null
+}
+
 /** The entry's facts that come from the scene alone. */
 export function sceneFacts(scene: Scene): Pick<HistoryEntry, 'parts' | 'seconds' | 'params' | 'failing' | 'defects'> {
   const params = Object.fromEntries((scene.params ?? []).map((p) => [p.name, p.default]))

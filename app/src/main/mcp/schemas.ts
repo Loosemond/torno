@@ -276,9 +276,14 @@ const scanDeviationInput = {
   layout: z.string().optional().describe('The layout the part is in and the scan is aligned in, as listed by scene. Default: the one on screen.')
 }
 
+const buildRef = z.union([z.number().int(), z.string()])
 const diffInput = {
-  from: z.number().int().optional().describe('The revision to compare from, as scene and the build status give it. Default: the successful build before the last.'),
-  to: z.number().int().optional().describe('The revision to compare to. Default: the last successful build.')
+  from: buildRef.optional().describe('The build to compare from: a revision of this run, as scene and the build status give it (3), or a build kept in the history by its id ("h41", from the history tool). Default: the successful build before the last.'),
+  to: buildRef.optional().describe('The build to compare to, named the same way. Default: the last successful build.')
+}
+const historyInput = {
+  id: z.string().optional().describe('A kept build by its id ("h41"): the answer is that build alone, with where its copies of the sources are. Default: the list.'),
+  limit: z.number().int().optional().describe('How many builds the list gives, the newest first, 1 to 100. Default 20.')
 }
 const expectInput = {
   checks: z.array(z.unknown()).describe('What the next edit should change, 1 to 20 checks, each one of: {"part": "plate", "volume": {"change": -1200, "tolerance": 50}} (a part\'s volume, faces, edges or size, as a value or a change from now; size is [x, y, z]); {"measure": {"kind": "diameter", "a": "plate/F9"}, "expected": 6.4, "tolerance": 0.05} (a measurement as measure takes it); {"unchanged": ["lid", "hinge"]} (those parts keep their volume, box and counts).'),
@@ -491,8 +496,15 @@ export const TOOLS = {
     title: 'Compare two builds',
     annotations: READ_ONLY,
     description:
-      "Returns JSON of what changed between two successful builds (by default the one before the last and the last; only those two are kept): for each layout the parts added and removed, and for each part in both its volume, the size of its box and its min corner, before, after and the change in mm and mm³, each with exact (false where either build's number is approximate, as scene's sizeExact and volumeExact say), its face, edge and solid counts before and after, changed, and a line saying what changed (the volume's change also in percent; a number that is not exact has changed only by more than both builds' doubt of it). `builds` says what each build was made from: a hash of the sources, and the commit then checked out, with dirty when files differed from it. Call it after an edit to see what it did; numbers are the kernel's of each build, for orientation (call measure for one to rely on), and face or edge counts that changed mean refs such as lid/F12 may name other faces now, so describe a ref again before relying on it.",
+      "Returns JSON of what changed between two successful builds (by default the one before the last and the last; any of the last 100 builds, and every one the person starred, is kept in the history and named by its id, h41, or, if made in this run, by its revision): for each layout the parts added and removed, and for each part in both its volume, the size of its box and its min corner, before, after and the change in mm and mm³, each with exact (false where either build's number is approximate, as scene's sizeExact and volumeExact say), its face, edge and solid counts before and after, changed, and a line saying what changed (the volume's change also in percent; a number that is not exact has changed only by more than both builds' doubt of it). `builds` says what each build was made from: a hash of the sources, and the commit then checked out, with dirty when files differed from it, and, of a kept build, its id and the checks, defects and dimensions it had then (as of then, never how it stands now). Call it after an edit to see what it did, or against a kept build to see what changed since; numbers are the kernel's of each build, for orientation (call measure for one to rely on), and face or edge counts that changed mean refs such as lid/F12 may name other faces now, so describe a ref again before relying on it.",
     inputSchema: diffInput
+  },
+  history: {
+    title: 'List the builds kept',
+    annotations: READ_ONLY,
+    description:
+      "Returns JSON of the builds torno kept of this project under .torno/history/, newest first: for each its id (h41, which counts on across runs of torno), when it was made, its revision if it was made in this run, what changed from the build kept before it in a line, the checks of the model that failed and the parts with a defect in it (a build that fails them is kept all the same), how the person's dimensions stood when it was checked (as of then, never how they stand now), what sources it was made from, and whether the person starred it. With id, that build alone, with the paths of the copies of its Python files: read them to go back to that build, then edit the project's own files to match, since torno never restores a file and a copy is not to be edited. Use it to find the build to compare with diff, or to go back to.",
+    inputSchema: historyInput
   },
   expect: {
     title: 'Say what an edit should change',
@@ -554,7 +566,8 @@ export const SERVER_INSTRUCTIONS = `torno's server reads and measures the CAD pa
 - measure: one exact number: distance or angle between two ends, radius, diameter, wall thickness, area, volume, mass, bounding box.
 - section: the outlines a plane cuts of the parts, with their areas, and a 2D drawing of the cut.
 - check: overlap and clearance between parts, interference of a whole layout, a closed mesh, and for printing overhangs, thin walls and the fit on a bed.
-- diff: what changed between the last two successful builds: parts added or removed, volume, size and face counts.
+- diff: what changed between two successful builds (the last two, or any kept ones): parts added or removed, volume, size and face counts.
+- history: the builds kept of this project, by id (h41), with what changed in each; diff compares any two.
 - expect: say before an edit what it should change (volume, faces, size, a measurement, parts unchanged); the build after it is checked against that.
 - try_fillet: try a fillet or chamfer of some edges on the last build and throw it away: whether it works, the largest radius that does, which edges or pairs fail.
 - features: the holes (diameter, depth, through or blind, counterbore, countersink), bosses, fillets (radius), chamfers (size) and patterns (4 holes on a square, a bolt circle) of a part, exact, with the faces they are made of.

@@ -156,15 +156,20 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `mcp/markTools.ts`; those that read the part in `mcp/readTools.ts`; those
   that ask about scans in `mcp/scanTools.ts`): `scene`, `look`, `marks`,
   `describe`, `highlight`, `ask`, `show`, `save_view`, `add_mark`, `resolve_mark`,
-  `measure`, `section`, `check`, `diff`, `expect`, `try_fillet`, `features`, `scans`, `scan_clash`, `scan_deviation`.
+  `measure`, `section`, `check`, `diff`, `history`, `expect`, `try_fillet`, `features`, `scans`, `scan_clash`, `scan_deviation`.
   `expect` (`mcp/expectTools.ts`, `Expectations`, wired in `index.ts`) is the agent's note on one edit: checks on a
   part's volume, faces, edges or size, a `measure` with `expected`, or `unchanged` parts, taken against the last
   build and held in memory for the next successful build only (never a file, never a mark, never a Stop reason). It is
   settled in `buildContextFor`'s wrapper in `index.ts` and told once as the last line of the edit's answer; `scene`
   keeps the last verdict. Numbers not exact are `≈` and judged within the kernel's doubt; a ref of a part whose
   face (or edge) count changed is told as moved and not measured.
-  `diff` compares two of the last two successful builds (`Builds.scenes`; the blob of the older is not kept; each
-  part by `partDiff` of `shared/diff.ts`, which the window's status line and ghosts use too)
+  `diff` compares two of the last two successful builds (`Builds.scenes`; the blob of the older is not kept) or any build kept in the history (#56:
+  `from` and `to` take a revision, `r3`, or an id, `h41`; `ToolDeps.history` and `historyScene`, read by `ipc.ts` `historyOf` after the writes that
+  just landed, 2 s at most; a revision of this run that is no longer in memory is found there too; given only the last build, the
+  default is the newest kept build of other sources; what a kept build had then (`failingChecks`, `defects`, `dimensions`) is told with a
+  note that it is as of then); `history` (`historyTool`) lists the kept builds newest first or gives one with the paths of its
+  copies, so that the agent can read them and edit the project's files itself.
+  Each part is compared by `partDiff` of `shared/diff.ts`, which the window's status line and ghosts use too,
   from what the kernel sent with each, asking it nothing: a number is `exact` only where both builds say so.
   `look` and `show` take the name of a saved view as `view`, and `save_view`
   proposes one (Views). `show` changes
@@ -177,7 +182,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   - What a client reads of a tool before it calls one is beside its description in `TOOLS`: a `title` (sentence
     case), `annotations` and, for the tools loaded upfront, `meta`. Every tool has `openWorldHint: false`; the
     ones that only read have `readOnlyHint: true` (`scene`, `look`, `marks`, `describe`, `measure`, `section`,
-    `check`, `diff`, `try_fillet`, `features`, `scans`, `scan_clash`, `scan_deviation`: Claude Code runs the calls of those side by side;
+    `check`, `diff`, `history`, `try_fillet`, `features`, `scans`, `scan_clash`, `scan_deviation`: Claude Code runs the calls of those side by side;
     `look` reads, the picture it writes under `.torno/views/` being torno's own), the rest `readOnlyHint: false,
     destructiveHint: false`. `scene`, `look`, `marks`, `describe` and `measure` have
     `_meta["anthropic/alwaysLoad"]` (Claude Code's tool search defers every other MCP tool until it is searched for,

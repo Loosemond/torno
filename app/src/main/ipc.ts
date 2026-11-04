@@ -16,7 +16,8 @@ import type { ViewState } from '../shared/view'
 import type { ObjectInfo, RecentFolder, WorkspaceInfo } from '../shared/workspace'
 import { Builds, buildTimeout, watchFolder } from './builds'
 import { BuildLog } from './buildlog'
-import { History } from './history'
+import { History, readHistory, readHistoryScene } from './history'
+import type { HistoryEntry } from '../shared/history'
 import type { Verdict } from '../shared/sanity'
 import { gitStateRecently } from './git'
 import { keepExample } from './example'
@@ -405,6 +406,29 @@ export function openObjectId(): string | null {
 /** Where the build of an object stands, once the object has been opened. */
 export function buildState(id: string): BuildState | undefined {
   return current?.builds.state(id)
+}
+
+/** How long a tool waits for the builds that just landed to be written into the history. */
+const HISTORY_WAIT_MS = 2000
+
+/** The builds kept of an object (`.torno/history/`), oldest first, once the ones that just landed are written, with the run of this torno. */
+export async function historyOf(id: string): Promise<{ run: string; entries: HistoryEntry[] } | null> {
+  const ws = current
+  const obj = findObject(id)
+  if (!ws || !obj) return null
+  let timer: NodeJS.Timeout | undefined
+  const late = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, HISTORY_WAIT_MS)
+  })
+  await Promise.race([ws.history.settled(), late])
+  clearTimeout(timer)
+  return { run: ws.buildLog.run, entries: await readHistory(obj.dir) }
+}
+
+/** The scene a kept build left (without its mesh). */
+export async function historySceneOf(id: string, historyId: string): Promise<Scene | null> {
+  const obj = findObject(id)
+  return obj ? readHistoryScene(obj.dir, historyId) : null
 }
 
 /** What the person's dimensions said of build `revision` of an object when it was last checked: kept with its entry in the history. */

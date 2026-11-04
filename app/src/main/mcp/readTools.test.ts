@@ -6,8 +6,9 @@ import type { Part, Scene } from '../../shared/scene'
 import type { Camera, LookRequest, SectionDrawingRequest, ShowRequest, ViewState } from '../../shared/view'
 import { KernelError } from '../kernel/client'
 import { addMarkTool } from './markTools'
-import { MAX_SECTION_POINTS, checkTool, diffTool, measureTool, sectionTool, thinned, tryFilletTool } from './readTools'
+import { MAX_SECTION_POINTS, checkTool, diffTool, historyTool, measureTool, sectionTool, thinned, tryFilletTool } from './readTools'
 import type { BuildIdentity } from '../../shared/git'
+import type { HistoryEntry } from '../../shared/history'
 import { TOOLS } from './schemas'
 import { type ToolDeps, type ToolResult, describeTool } from './tools'
 import { lookTool, sceneTool, showTool } from './viewTools'
@@ -1007,6 +1008,96 @@ describe('diff', () => {
 
   it('refuses a revision not kept, naming those that are', async () => {
     expect(await diffTool(kept([3, BEFORE], [4, AFTER]), 'box', { from: 1 })).toEqual(refused('revision 1 is not kept: revisions 3 and 4 are'))
+  })
+
+  it('refuses what is neither a revision nor a kept id', async () => {
+    expect(text(await diffTool(kept([3, BEFORE], [4, AFTER]), 'box', { from: 'last' }))).toMatch(/^from is a revision of this run \(3\) or a build kept in the history \(h41\), not "last"/)
+  })
+
+  describe('with the history of the project (#56)', () => {
+    const entry = (id: string, more: Partial<HistoryEntry> = {}): HistoryEntry => ({ id, at: '2026-11-04T10:00:00.000Z', run: 'old', revision: 1, sources: `src-${id}`, model: 'box.py', files: ['box/box.py'], parts: 3, seconds: 1, line: 'tub changed', ...more })
+    const SCENES: Record<string, Scene> = { h2: BEFORE, h3: AFTER, h4: BEFORE }
+    /** Two runs of torno: h2 and h3 are of an earlier run, h4 is revision 1 of this one. */
+    const kept2 = (entries: HistoryEntry[], builds: Array<[number, Scene]>): Fake => ({
+      ...fake(undefined, { scenes: () => builds.map(([revision, scene]) => ({ revision, scene })), scene: () => ({ revision: builds.at(-1)![0], scene: builds.at(-1)![1] }) }),
+      history: async () => ({ run: 'now', entries }),
+      historyScene: async (_id, historyId) => SCENES[historyId] ?? null
+    })
+    const ENTRIES = [entry('h2'), entry('h3', { failing: ['walls'], dimensions: { pass: 1, fail: 1, none: 0 } }), entry('h4', { run: 'now', revision: 1 })]
+
+    it('compares any two kept builds by id, also of an earlier run, and says their checks are as of then', async () => {
+      const result: Row = data(await diffTool(kept2(ENTRIES, [[1, BEFORE]]), 'box', { from: 'h2', to: 'h3' }))
+      expect([result.from, result.to]).toEqual(['h2', 'h3'])
+      expect(result.layouts[0]).toMatchObject({ added: ['clip'], removed: ['cap'] })
+      expect(result.builds.from).toMatchObject({ id: 'h2', sources: 'src-h2' })
+      expect(result.builds.from).not.toHaveProperty('revision')
+      expect(result.builds.to).toMatchObject({ id: 'h3', failingChecks: ['walls'], dimensions: { pass: 1, fail: 1, none: 0 } })
+      expect(result.notes).toEqual(expect.arrayContaining([expect.stringMatching(/as of that build, never how the project stands now/)]))
+    })
+
+    it('takes a kept build against the last one, and a revision of this run that only the history holds', async () => {
+      const result: Row = data(await diffTool(kept2(ENTRIES, [[7, AFTER]]), 'box', { from: 'h2' }))
+      expect([result.from, result.to]).toEqual(['h2', 7])
+      const old: Row = data(await diffTool(kept2(ENTRIES, [[7, AFTER]]), 'box', { from: 1 }))
+      expect([old.from, old.builds.from.id, old.builds.from.revision]).toEqual([1, 'h4', 1])
+    })
+
+    it('compares the first build of a run with the newest kept build of other sources', async () => {
+      const fresh = { ...kept2(ENTRIES, [[1, AFTER]]), identity: () => ({ sources: 'src-h4' }) }
+      const result: Row = data(await diffTool(fresh, 'box', {}))
+      expect([result.from, result.to]).toEqual(['h3', 1])
+    })
+
+    it('refuses an id not kept, naming the ones that are, and a revision nowhere', async () => {
+      const deps = kept2(ENTRIES, [[3, BEFORE], [4, AFTER]])
+      expect(await diffTool(deps, 'box', { from: 'h9' })).toEqual(refused('h9 is not kept: the history keeps h2, h3, h4 (the history tool lists them)'))
+      expect(await diffTool(deps, 'box', { from: 9 })).toEqual(refused('revision 9 is not kept: revisions 3 and 4 are; the history keeps h2, h3, h4 (the history tool lists them)'))
+    })
+  })
+})
+
+describe('history', () => {
+  type Row = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
+  const entry = (id: string, more: Partial<HistoryEntry> = {}): HistoryEntry => ({ id, at: '2026-11-04T10:00:00.000Z', run: 'old', revision: 1, sources: `src-${id}`, model: 'box.py', files: ['box/box.py'], parts: 3, seconds: 1, line: 'tub changed', ...more })
+  const withHistory = (entries: HistoryEntry[]): Fake => ({ ...fake(), history: async () => ({ run: 'now', entries }) })
+
+  it('is a read-only tool with an id and a limit', () => {
+    expect(Object.keys(TOOLS.history.inputSchema)).toEqual(['id', 'limit'])
+    expect(TOOLS.history.annotations.readOnlyHint).toBe(true)
+  })
+
+  it('lists the kept builds newest first, with the revision of those made in this run, and what each had then', async () => {
+    const result = data(await historyTool(withHistory([entry('h1'), entry('h2', { run: 'now', revision: 2, starred: true, failing: ['walls'], line: 'lid changed' }), entry('h3', { run: 'now', revision: 3, dimensions: { pass: 2, fail: 0, none: 1 } })]), 'box', {})) as Row
+    expect(result).toMatchObject({ object: 'box', kept: 3, shown: 3 })
+    expect(result.builds.map((b: Row) => b.id)).toEqual(['h3', 'h2', 'h1'])
+    expect(result.builds[0]).toMatchObject({ revision: 3, dimensions: { pass: 2, fail: 0, none: 1 } })
+    expect(result.builds[1]).toMatchObject({ revision: 2, starred: true, failingChecks: ['walls'], changed: 'lid changed' })
+    expect(result.builds[2]).toMatchObject({ earlierRun: true })
+    expect(result.builds[2]).not.toHaveProperty('revision')
+    expect(result.notes[0]).toMatch(/as of that build/)
+  })
+
+  it('limits the list, and refuses a limit that is none', async () => {
+    const deps = withHistory(['h1', 'h2', 'h3', 'h4'].map((id) => entry(id)))
+    expect((data(await historyTool(deps, 'box', { limit: 2 })) as Row).builds.map((b: Row) => b.id)).toEqual(['h4', 'h3'])
+    expect(text(await historyTool(deps, 'box', { limit: 0 }))).toMatch(/^limit is a whole number from 1 to 100/)
+  })
+
+  it('gives one build with the paths of its copies, and says torno restores nothing', async () => {
+    const result = data(await historyTool(withHistory([entry('h1', { files: ['box/box.py', 'common/util.py'] })]), 'box', { id: 'H1' })) as Row
+    expect(result.id).toBe('h1')
+    expect(result.copies).toEqual([
+      { file: 'box/box.py', path: '/ws/box/.torno/history/h1/source/box/box.py' },
+      { file: 'common/util.py', path: '/ws/box/.torno/history/h1/source/common/util.py' }
+    ])
+    expect(result.notes.join(' ')).toMatch(/never restores a file/)
+  })
+
+  it('says so when a build is not kept, or the project keeps none', async () => {
+    expect(text(await historyTool(withHistory([entry('h2'), entry('h5')]), 'box', { id: 'h3' }))).toMatch(/is not kept: h2 to h5 are/)
+    expect(text(await historyTool(withHistory([]), 'box', { id: 'h1' }))).toMatch(/holds no build yet/)
+    expect((data(await historyTool(withHistory([]), 'box', {})) as Row).kept).toBe(0)
+    expect(await historyTool(fake(), 'box', {})).toEqual(refused('the history of this project cannot be read now'))
   })
 })
 
