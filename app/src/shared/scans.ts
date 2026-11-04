@@ -353,3 +353,20 @@ export function sizeAgainst(scan: Vec3, parts: Vec3, readAs: ScanUnit): { ratio:
   }
   return { ratio, suggest: best }
 }
+
+/** The sides of the box that holds all these boxes, or null of none. */
+export function boxSize(boxes: ReadonlyArray<{ min: Vec3; max: Vec3 }>): Vec3 | null {
+  if (boxes.length === 0) return null
+  const side = (a: number): number => Math.max(...boxes.map((b) => b.max[a])) - Math.min(...boxes.map((b) => b.min[a]))
+  return [side(0), side(1), side(2)]
+}
+
+/** How many times longer than the parts a scan's diagonal is before it is taken for their surroundings (a room, an engine bay) and not for a part to fit. */
+export const SURROUNDINGS = 10
+
+/** Whether the scan, as it is read, is much larger than the parts: where the floor is most of the job. False without parts. */
+export function muchLarger(imported: Pick<ScanImport, 'unit' | 'up' | 'bbox'>, parts: ReadonlyArray<{ min: Vec3; max: Vec3 }>): boolean {
+  const size = boxSize(parts)
+  const about = size ? sizeAgainst(sizeAs(imported, imported), size, imported.unit) : null
+  return about !== null && about.ratio > SURROUNDINGS
+}

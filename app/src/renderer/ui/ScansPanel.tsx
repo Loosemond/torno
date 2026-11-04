@@ -1,14 +1,13 @@
 import { hint, pressed } from '../../shared/keys'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { type ScanInfo, type ScanUnit, type ScanUp, MIN_SCAN_OPACITY, UNIT_MM, importText } from '../../shared/scans'
-import { setAlignScan, startedFrom } from '../state/align'
+import { startedFrom } from '../state/align'
 import { actions, store, useStore } from '../state/store'
-import { setTool } from '../state/tools'
 import { Confirm } from './Confirm'
 import { EyeIcon } from './Layers'
 import { capital, numbered } from './numbered'
 import { ScanReadSheet } from './ScanReadSheet'
-import { importScan, reimportScan } from './scanDrop'
+import { alignScan, importScan, reimportScan } from './scanDrop'
 import { guessOf, scanState } from './scanState'
 import { SectionTitle } from './SectionTitle'
 import { scansSaid } from './sectionSaid'
@@ -200,7 +199,7 @@ function ScanRow({ objectId, scan, open, onToggle }: { objectId: string; scan: S
           </span>
         )}
         {guess && <span className="scan-dot" role="img" aria-label="Read as assumed" title={`${guess}: assumed`} />}
-        <span className="chip" data-state={state.state} title={state.tip}>
+        <span className="chip" data-state={state.state} data-never={Object.keys(scan.alignments).length === 0 ? '' : undefined} title={state.tip}>
           {state.word}
         </span>
         <input
@@ -314,15 +313,11 @@ function ScanRow({ objectId, scan, open, onToggle }: { objectId: string; scan: S
             </button>
             <button
               type="button"
-              className="button button-quiet"
+              className={state.state === 'unaligned' ? 'button' : 'button button-quiet'}
               aria-label={`Align ${id}`}
               title={`Stand this scan where the model is, in the layout shown (${hint('tool.align')})`}
               disabled={meshGone}
-              onClick={() => {
-                // The tool first: taking it up puts down whatever was in hand.
-                setTool('align')
-                setAlignScan(id)
-              }}
+              onClick={() => alignScan(scan)}
             >
               Align
             </button>

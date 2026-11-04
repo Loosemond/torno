@@ -1,21 +1,13 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { number } from '../../shared/format'
 import { pressed } from '../../shared/keys'
-import { type ScanInfo, type ScanUnit, type ScanUp, UNIT_MM, sizeAgainst, sizeAs } from '../../shared/scans'
-import type { Vec3 } from '../../shared/marks'
-import { actions, useStore } from '../state/store'
+import { type ScanInfo, type ScanUnit, type ScanUp, UNIT_MM, boxSize, sizeAgainst, sizeAs } from '../../shared/scans'
+import { actions, store, useStore } from '../state/store'
 import { Confirm } from './Confirm'
 import { numbered } from './numbered'
+import { alignScan } from './scanDrop'
 import { UNIT_WORD } from './scanState'
 import { chosen, pointerChoice } from './typing'
-
-/** The sides of the box that holds all these, or null of none. */
-function sizeOfBoxes(boxes: Array<{ min: Vec3; max: Vec3 }>): Vec3 | null {
-  if (boxes.length === 0) return null
-  const lo = [0, 1, 2].map((a) => Math.min(...boxes.map((b) => b.min[a])))
-  const hi = [0, 1, 2].map((a) => Math.max(...boxes.map((b) => b.max[a])))
-  return [hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]]
-}
 
 /** `About 1,000 times`, or `About 1/1,000 of`: to two figures. */
 function timesText(ratio: number): string {
@@ -44,14 +36,17 @@ export function ScanReadSheet({ scan, convert, layoutsOf }: { scan: ScanInfo; co
   const scene = useStore((s) => s.scene)
   const layout = useStore((s) => s.layout)
   const parts = useMemo(() => scene?.parts.filter((part) => part.layout === layout) ?? [], [scene, layout])
-  const partsSize = sizeOfBoxes(parts.map((part) => part.bbox))
+  const partsSize = boxSize(parts.map((part) => part.bbox))
   const against = partsSize ? sizeAgainst(sizeAs(imported, { unit, up }), partsSize, unit) : null
   const exact = parts.length > 0 && parts.every((part) => part.bboxExact === true)
-  const done = (as: { unit: ScanUnit; up: ScanUp }): void => {
+  const done = (as: { unit: ScanUnit; up: ScanUp }, next = false): void => {
     actions.askScanRead(null)
     // A scan read another way has another size: it is brought into view again once main has it so.
     void convert(as).then(() => {
       if (as.unit !== imported.unit || as.up !== imported.up) actions.frameScan(id)
+      // Answered: the next step is to align it, on the Floor.
+      const now = store.getState().scans.find((one) => one.id === id)
+      if (next && now) alignScan(now, 'floor')
     })
   }
 
@@ -120,6 +115,9 @@ export function ScanReadSheet({ scan, convert, layoutsOf }: { scan: ScanInfo; co
         </button>
         <button type="button" className="button" title={changed ? undefined : 'Choose another unit or up axis first'} disabled={!changed} onClick={() => (layouts.length > 0 ? setAsking(true) : done({ unit, up }))}>
           Apply
+        </button>
+        <button type="button" className="button" title={changed && layouts.length > 0 ? 'Apply the other reading first: it drops the alignment' : 'Answers as chosen, then takes up the Align tool on Floor'} disabled={changed && layouts.length > 0} onClick={() => done(changed ? { unit, up } : { unit: imported.unit, up: imported.up }, true)}>
+          Next: align {id}
         </button>
         <button type="button" className="button button-quiet" title="Asks again in the scan's detail" onClick={() => actions.askScanRead(null)}>
           Later

@@ -1121,9 +1121,19 @@ behind it and takes the pointer; one drawn see-through lets you point at the
 part behind it. The section cuts a scan open like the parts.
 
 **Aligning** (`L`). A scan is aligned in one layout at a time; in a layout
-where it is not, its row says `unaligned` and nothing is checked
-against it. The bar at the bottom of the viewport has three ways, which can
-follow one another:
+where it is not, its row says `unaligned` (in the quiet colour until the scan
+has been aligned anywhere: it is only the next step) and nothing is checked
+against it. The detail of such a scan makes "Align" its main button, and the
+sheet that asks how a new scan is read offers `Next: align S1`, which takes up
+the tool on Floor. The bar at the bottom of the viewport has three steps,
+`1 Floor · 2 Pairs · 3 Nudge`, which can follow one another. A tick on a step
+says it has been done for the scan in this layout, and one line under them says
+what the step is for. The bar opens on the first step not done: Floor for a
+scan with no alignment that is much larger than the parts (ten times their
+diagonal: a room, an engine bay), Pairs for one about their size, Pairs once a
+floor is down, Nudge once there are pairs. When a floor or pairs are kept, the
+bar goes on to the next. Any step can still be chosen, and the bar comes back
+to the one you chose last for that scan, in this window:
 
 - **Floor.** Click a flat patch of the scan (`[` and `]` change its size), or
   three points with Shift. "Ground" lays it at a height, "On a face" on the

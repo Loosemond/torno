@@ -366,3 +366,16 @@
 .scan-basis .num {
   color: var(--ink);
 }
+
+.align-step .num {
+  color: var(--muted);
+}
+
+.align-step-tick {
+  margin-left: 4px;
+  color: var(--ok);
+}
+
+.alignbar-purpose {
+  color: var(--muted);
+}

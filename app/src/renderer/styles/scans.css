@@ -240,6 +240,11 @@ input.scan-name-field {
   color: var(--warn);
 }
 
+/* A scan never aligned anywhere is at its next step, not at fault. */
+.chip[data-state='unaligned'][data-never] {
+  color: var(--muted);
+}
+
 .chip[data-state='mesh-missing'] {
   color: var(--fail);
 }

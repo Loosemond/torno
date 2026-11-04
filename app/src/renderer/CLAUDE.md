@@ -566,8 +566,19 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   it never reads as `aligned`. How a scan this window just imported is read, when its unit or up axis was
   assumed, is asked once by `ui/ScanReadSheet.tsx` at the top of the section, shown for `store.scanAsking`
   (set by `importScan`, cleared by Keep, Apply, Later or another object), with the size from `sizeAs`
-  (`shared/scans.ts`).
-- The align bar is `ui/AlignBar.tsx`, its three bodies `ui/align/`
+  (`shared/scans.ts`), the size of the parts of the layout shown (`boxSize`, worded "about"), and, past
+  `UNIT_DOUBT` (100) times either way, a `--warn` line naming the unit `sizeAgainst` finds nearest. While it is up,
+  the scan's detail does not ask the same (no "right? Yes", no "Read as" fields). A scan just imported is framed
+  with the parts once (`importScan`, `actions.frameScan`; the viewport waits for the mesh if it is not drawn yet),
+  and again after Apply; `F` and the named views still frame the parts only. `unaligned` is `--muted` for a scan
+  never aligned in any layout (`data-never`), `--warn` otherwise.
+- The align bar is `ui/AlignBar.tsx`, its three bodies `ui/align/`. Its three ways are numbered steps
+  (`1 Floor · 2 Pairs · 3 Nudge`) with a tick (`--ok`) for each in `stepsDone` of the alignment in the layout shown
+  and one line of what the step is for. `state/align.ts` `firstStep` picks where the tool opens (`beginAlign`, from
+  `alignScan` in `ui/scanDrop.ts`: the Align button, "Next: align S1" on the read sheet, the bar's scan select): Floor for
+  a scan `muchLarger` than the parts (`SURROUNDINGS`, 10 times the diagonal) with nothing done, else Pairs, Nudge once
+  there are pairs; it comes back to what was chosen last for that scan (`chooseAlignMode`); a floor or pairs kept
+  moves it on (`advanceAlign`). A tick is a step, not a state: the row still says `placed` for a floor only.
   (`FloorBody`, `PairsBody`, `NudgeBody`, and `format.ts` for what they
   share); the field one number is typed in is `ui/Field.tsx`, the Region
   bar's too, and what was typed is read by `ui/typed.ts`.
