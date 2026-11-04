@@ -209,6 +209,9 @@ test('two clicks, on the top and on the bottom of the plate, read out its thickn
   // The kernel's value is read out at the pointer and held in the strip; nothing is kept of it, and no row is made.
   await expect(readout(page)).toHaveText(/^\s*6 mm\s*between planes\s*$/)
   await expect(last(page)).toContainText('Last: 6 mm between planes')
+  await expect(last(page).locator('.measure-delta')).toHaveCount(3)
+  // And drawn in the view between the kernel's two points, with its value, as a held draft (not a mark).
+  expect(await page.evaluate(() => window.__tornoTest!.draft())).toMatchObject({ kind: 'dimension', held: '6 mm', from: expect.any(Array), to: expect.any(Array) })
   await expect(last(page).locator('.measure-last-text')).toHaveAttribute('title', `Measured on r${(await state(page)).revision}, not kept: the agent is not told`)
   await page.waitForTimeout(500)
   expect(marksOnDisk(root).marks).toEqual([])

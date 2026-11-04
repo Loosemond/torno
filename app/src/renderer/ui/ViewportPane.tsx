@@ -482,6 +482,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
         return { count, meanMs: (performance.now() - started) / Math.max(count, 1), worstMs: worst, bytes }
       },
       regions: () => viewport.regionState(),
+      draft: () => viewport.draftState(),
       hoveredMark: () => viewport.hoveredMark(),
       highlighted: () => viewport.highlighted(),
       chipAt: (fx, fy) => {

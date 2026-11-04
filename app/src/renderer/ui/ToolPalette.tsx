@@ -4,7 +4,7 @@ import type { ShapeKind } from '../../shared/marks'
 import { BETWEEN, ROUND, SHAPES, TOOLS, TOOL_GROUPS, setBetween, setRound, setShape, setTool, useBetween, useRound, useShape, useTool, type ToolName } from '../state/tools'
 import { count } from '../../shared/format'
 import { useRegion } from '../state/region'
-import { keepHeld, useHeld } from '../state/measured'
+import { componentsOf, keepHeld, useHeld } from '../state/measured'
 import { scanless } from '../state/step'
 import { useStore } from '../state/store'
 import { commitMark } from '../tools/pickMarks'
@@ -276,6 +276,12 @@ function MeasureLast() {
         <>
           <span className="measure-last-text" title={`Measured on r${held.revision}, not kept: the agent is not told`}>
             Last: <span className="num">{valueText(held.measure, held.value)}</span> <span className="measure-how">{held.how}</span>
+            {componentsOf(held)?.map(([axis, text]) => (
+              <span key={axis} className="measure-delta">
+                {' '}
+                Δ{axis} <span className="num">{text}</span>
+              </span>
+            ))}
           </span>
           <button
             type="button"

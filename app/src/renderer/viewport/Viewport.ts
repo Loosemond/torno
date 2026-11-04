@@ -451,8 +451,15 @@ export class Viewport {
    */
   setDraft(draft: Draft | null): void {
     this.marks.setDraft(draft)
+    const held = draft?.kind === 'dimension' && draft.to && draft.held !== undefined ? draft : null
+    this.overlay.held = held && held.to ? { at: [(held.from[0] + held.to[0]) / 2, (held.from[1] + held.to[1]) / 2, (held.from[2] + held.to[2]) / 2], text: held.held! } : null
     this.extent = this.measured()
     this.invalidate()
+  }
+
+  /** The draft drawn now (a pending measurement, or the last one held), for the test hook. */
+  draftState(): Draft | null {
+    return this.marks.currentDraft()
   }
 
   /** Calls back after every frame drawn: what is laid over the view (the note of a mark) follows the camera with it. Returns what stops it. */

@@ -963,7 +963,9 @@ refuses (an angle to a sphere), its reason is read out at the
 pointer. `Esc` drops a first click; the tool stays in hand.
 
 **A measurement leaves nothing.** The kernel's value is read out at the pointer
-and stays in the strip as `Last: 6 mm between planes` until the next
+and stays in the strip as `Last: 6 mm between planes` (a distance adds
+`Δx`, `Δy` and `Δz`, from the kernel's two points) and drawn in the view in ink,
+between those points, with its value at the middle, until the next
 measurement, `Esc` with nothing under way, another tool, a new build or another
 project. It is no mark, and the agent is not told of it: not with the next
 prompt, not in `state.md`, not in a picture. To keep it, press `Enter` or

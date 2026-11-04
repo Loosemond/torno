@@ -70,7 +70,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   which changes once per measurement. The strip shows it (`Last: …`, only for the object and build on show)
   until the next first end, Escape with nothing under way or the tool put down. It is kept as a dimension only
   by `measure.keep` (Enter) or the strip's "Keep as a dimension", both `keepHeld`, which commits the same
-  anchors through `commitMark` (main measures it again); the strip then says `Kept as M7`. A readout is not a
+  anchors through `commitMark` (main measures it again); the strip then says `Kept as M7`. The kernel's two points (`Held.points`) draw it in the view until then: a `held` draft (`Draft.held`, the value text) in `--ink`, not faint, with its value at the middle (`viewport/heldValue.ts`); a distance's strip adds `Δx Δy Δz` (`componentsOf`). A readout is not a
   mark and is never drawn in a mark's colour. In Angle, before the second click, an end the kernel takes by its axis, only if
   flat or straight, or never (`angleTaking`, by the descriptor's type, the kernel's rule) is said at the pointer
   in place of the `≈` estimate; it is a hint, never a gate: the click is sent whatever it says. A tool is a `Tool`

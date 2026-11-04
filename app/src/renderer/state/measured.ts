@@ -1,6 +1,7 @@
 import { useStore as useZustand } from 'zustand'
 import { type StoreApi, createStore } from 'zustand/vanilla'
-import type { Anchor, Mark, MeasureKind, NewMark } from '../../shared/marks'
+import type { Anchor, Mark, MeasureKind, NewMark, Vec3 } from '../../shared/marks'
+import { number } from '../../shared/format'
 import type { Camera } from '../../shared/view'
 
 /**
@@ -19,6 +20,8 @@ export interface Held {
   b?: Anchor
   value: number
   how: string
+  /** The kernel's two points, when it gave them: the measurement is drawn between them, and its components are theirs subtracted. */
+  points?: [Vec3, Vec3]
   kept?: string
 }
 
@@ -41,6 +44,16 @@ export const measuredStore: StoreApi<MeasuredState> = createStore<MeasuredState>
   setHeld: (held) => set({ held, keeping: false, refused: null }),
   clearHeld: () => set({ held: null, keeping: false, refused: null })
 }))
+
+/**
+ * The components of a distance: the kernel's second point less its first, per axis, as the strip says them
+ * (`Δx 0 Δy 12.5 Δz 0`, through `number`). Null for any other measurement, or when the kernel gave no points.
+ */
+export function componentsOf(held: Pick<Held, 'measure' | 'points'>): Array<[axis: 'x' | 'y' | 'z', text: string]> | null {
+  if (held.measure !== 'distance' || !held.points) return null
+  const [p, q] = held.points
+  return (['x', 'y', 'z'] as const).map((axis, i) => [axis, number(q[i] - p[i])])
+}
 
 export function useHeld<T>(pick: (s: MeasuredState) => T): T {
   return useZustand(measuredStore, pick)

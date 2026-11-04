@@ -36,6 +36,8 @@ declare global {
       highlighted(): Record<'hover' | 'selection' | 'agent' | 'userMark' | 'agentMark' | 'point', readonly string[]>
       /** The mark whose chip is drawn at a point of the canvas, in fractions of it: a press there is the chip's, whatever tool is in hand. Null for none. */
       chipAt(fx: number, fy: number): string | null
+      /** What the pointer is making, drawn now: a pending measurement, or the last one held (`held` is its value); null for none. */
+      draft(): { kind: string; from?: [number, number, number]; to?: [number, number, number] | null; held?: string } | null
       /** What a thumbnail of the build on show (or of a scene given, with its meshes) costs, drawn `count` times off screen as a card's picture is: the mean and the worst, in milliseconds, and the size of the PNG. */
       timeThumbnail(count?: number, given?: { scene: import('../shared/scene').Scene; blob: ArrayBuffer }): Promise<{ count: number; meanMs: number; worstMs: number; bytes: number }>
       /** The scans of the open object as the viewport has them: whether each mesh has come, where it stands, how it is drawn. */
