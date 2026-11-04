@@ -389,3 +389,31 @@ test('the build an edit started is a build under the edit: that it worked and ho
   await expect(chat().locator('.chat-build').last()).toContainText('Built r3 · ok', { timeout: 30_000 })
   await expect(failed.getByRole('button', { name: 'Show error' })).toHaveCount(0)
 })
+
+test('a turn ends with what it did to the project, and "See changes" shows the lines it removed and added, and the file as it is', async () => {
+  await expect(composer()).toBeEnabled()
+  const before = await turns().count()
+  await say('edit hollow.py "wall: float = 3" "wall: float = 4"')
+  await expect(turns()).toHaveCount(before + 1, { timeout: 30_000 })
+  const end = turns().last()
+  // The account, from the turn's own items: the file, the build its edit started.
+  await expect(end.locator('.chat-turn-line').first()).toContainText('hollow.py edited')
+  await expect(end.locator('.chat-turn-line').first()).toContainText(/r\d+ → r\d+ ok|r\d+ ok/)
+  await end.getByRole('button', { name: 'See changes' }).click()
+  const sheet = page.getByRole('dialog', { name: 'Changes in this turn' })
+  await expect(sheet).toBeVisible()
+  // Main read the file when the prompt was sent and when the turn ended.
+  await expect(sheet.locator('.diff-row[data-kind="removed"]')).toContainText('wall: float = 3', { timeout: 15_000 })
+  await expect(sheet.locator('.diff-row[data-kind="added"]')).toContainText('wall: float = 4')
+  await sheet.getByRole('button', { name: 'Whole file' }).click()
+  await expect(sheet.locator('.changes-whole')).toContainText('wall: float = 4')
+  await expect(sheet.locator('.changes-whole')).not.toContainText('wall: float = 3')
+  // Escape puts it away and the focus goes back to the button.
+  await page.keyboard.press('Escape')
+  await expect(sheet).toHaveCount(0)
+  await expect(end.getByRole('button', { name: 'See changes' })).toBeFocused()
+  // A turn that edited nothing has no such button.
+  await say('say nothing was changed')
+  await expect(turns()).toHaveCount(before + 2, { timeout: 30_000 })
+  await expect(turns().last().getByRole('button', { name: 'See changes' })).toHaveCount(0)
+})

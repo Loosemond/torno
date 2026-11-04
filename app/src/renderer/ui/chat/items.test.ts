@@ -40,4 +40,12 @@ describe('what is drawn under an item', () => {
     expect(line).toContain('r2')
     expect(line).toContain('Pulled from torno: look')
   })
+
+  it('offers "See changes" for a turn whose edit changed a .py file, and for no other', () => {
+    const turn: ChatItem = { kind: 'turn', id: 'i9', ok: true, stopped: false, seconds: 1, pulled: {} }
+    expect(drawn([user, tool, turn])).toContain('See changes')
+    expect(drawn([user, { ...tool, input: { file_path: '/ws/part/brief.md' } } as ChatItem, turn])).not.toContain('See changes')
+    expect(drawn([user, { ...tool, state: 'denied' } as ChatItem, turn])).not.toContain('See changes')
+    expect(drawn([user, turn])).not.toContain('See changes')
+  })
 })

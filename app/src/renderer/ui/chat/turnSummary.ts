@@ -1,5 +1,6 @@
 import { type ChatItem, TORNO_TOOL_PREFIX } from '../../../shared/chat'
-import type { Verdict } from '../../../shared/sanity'
+import { number } from '../../../shared/format'
+import type { DigestPart, Verdict } from '../../../shared/sanity'
 
 /** The tools of Claude Code that write a file. */
 const WRITES = new Set(['Edit', 'Write', 'MultiEdit'])
@@ -15,6 +16,12 @@ export interface TurnSummary {
   resolved: string[]
   /** The dimensions whose verdict at the end of the turn is another than at its start, as far as the builds measured them. */
   dimensions: Array<{ id: string; now: Verdict }>
+}
+
+/** What a turn's end draws besides its own fields: what it did, and the builds' numbers taken together (`netParts`). */
+export interface TurnAccount {
+  summary: TurnSummary
+  net: string[]
 }
 
 /** The items of one turn: after the turn before it, up to its own end. Empty for an id that is not a turn. */
@@ -126,4 +133,38 @@ export function summaryParts(s: TurnSummary): string[] {
   for (const d of s.dimensions.slice(0, MOST)) parts.push(`${d.id} ${NOW[d.now]}`)
   if (s.dimensions.length > MOST) parts.push(`${s.dimensions.length - MOST} more dimensions changed`)
   return parts
+}
+
+/**
+ * What the turn's builds did to each part, taken together: the volume and the face count the build the turn began with
+ * had, against those of the last build that worked, from the kernel's numbers in the digests (`DigestPart`), never
+ * worked out again here. A part is told only where one of the two is another; `≈` where the volume of any of its steps
+ * is not exact. Empty when no build of the turn worked, or when the builds left every part as it was.
+ */
+export function netParts(items: readonly ChatItem[]): string[] {
+  const first = new Map<string, DigestPart>()
+  const last = new Map<string, DigestPart>()
+  const inexact = new Set<string>()
+  for (const item of items) {
+    if (item.kind !== 'context' || !item.forTool || item.buildState !== 'ok') continue
+    for (const part of item.digest?.parts ?? []) {
+      const key = `${part.layout}/${part.name}`
+      if (!part.volume.exact) inexact.add(key)
+      if (!first.has(key)) first.set(key, part)
+      last.set(key, part)
+    }
+  }
+  const lines: string[] = []
+  for (const [key, was] of first) {
+    const now = last.get(key)!
+    const said: string[] = []
+    const [v0, v1] = [was.volume.before, now.volume.after]
+    if (v0 !== v1) {
+      const percent = v0 === 0 ? '' : ` (${v1 > v0 ? '+' : ''}${number(((v1 - v0) / v0) * 100)} %)`
+      said.push(`volume ${inexact.has(key) ? '≈ ' : ''}${number(v0)} → ${number(v1)} mm³${percent}`)
+    }
+    if (was.faces.before !== now.faces.after) said.push(`faces ${was.faces.before} → ${now.faces.after}`)
+    if (said.length > 0) lines.push(`${now.name}: ${said.join(', ')}`)
+  }
+  return lines
 }

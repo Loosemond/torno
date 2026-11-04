@@ -650,6 +650,21 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   is; otherwise, and after that question, `applyView('terminal', true)`, which ends a live session, writes the view and
   starts a terminal session resuming the conversation whether the chat was live or had ended, and also when the
   choice already was the terminal. A note's `action` other than `terminal` is dropped when a log is read (`readLog`).
+- **The end of a turn** (`ui/chat/TurnEnd.tsx`; the rule is `ui/chat/turnSummary.ts`, pure). Its first quiet line is
+  "Done in 42 s" and then what the turn did, said from the turn's own items and nothing else (`turnSummary` over
+  `itemsOfTurn`, the items after the turn before it): the files the agent's `Edit`, `Write` and `MultiEdit` changed (only
+  those that finished: a denied one is not counted), the builds their edits started (`r1 → r3 ok`, `build failed`,
+  `r3 ok after 1 failed build`: the first revision is the build on show when the prompt was sent), the marks it resolved
+  and added (`resolve_mark`'s `id`; `add_mark`'s from its answer), and the dimensions whose verdict at the end is another
+  than at the start (the first `was` and the last `now` of the digests, `verdictChanges`' own). What it pulled from torno
+  is a line of its own. Under them a row of buttons for the turn (`TurnActions`): "See changes" (only when an edit
+  changed a `.py`), which opens `ChangesSheet` over the transcript as a picture is shown large (a dialog in the host
+  `.chat-scroll`, `chat.close` puts it away, Tab goes round within it, the focus goes back to the button): per file main
+  kept (`chat.changes`, in memory, the last 20 turns; none is "No change ... is kept for this turn"), "Changes" (the
+  file before against after, `Diff` with `ofEdit` false, so without the caption that is true only of an edit's lines)
+  or "Whole file" (read only, the monospace face, no refs searched), and, below, the builds taken together
+  (`netParts`: a part's volume and faces from the first digest's `before` to the last's `after`, `≈` unless exact). A
+  further action for a turn (to undo it) is one more button in `TurnActions`, given the turn's `item` and `account`.
 - Refs are chips (`RefChip`, `refs.ts` `refInfo`): hover lights the ref through `peek` in `state/agent.ts`, which
   is not an agent highlight (no agent line, no locked tools) and is drawn in the accent on a layer of its own
   (`point` in `viewport/highlight.ts`, `Viewport.setPointed`), never in a mark's colour, whoever made the mark it is

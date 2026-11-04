@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ChatItem } from '../../../shared/chat'
-import { isEmpty, itemsOfTurn, summaryParts, turnSummary } from './turnSummary'
+import { isEmpty, itemsOfTurn, netParts, summaryParts, turnSummary } from './turnSummary'
 
 const user: ChatItem = { kind: 'user', id: 'u1', text: 'thicken it', images: [], state: 'sent', at: 1 }
 const prompt = (revision: number): ChatItem => ({ kind: 'context', id: 'c1', forUser: 'u1', text: '', marks: [], revision, buildState: 'ok' })
@@ -63,6 +63,27 @@ describe('the account of a turn', () => {
   it('names three files and counts the rest', () => {
     const items: ChatItem[] = ['a', 'b', 'c', 'd', 'e'].map((n) => tool(n, 'Edit', { file_path: `/p/${n}.py` }))
     expect(summaryParts(turnSummary([...items]))).toEqual(['a.py, b.py, c.py and 2 more files edited'])
+  })
+
+  it('puts the first build against the last, from the kernel numbers of the digests', () => {
+    const part = (before: number, after: number, exact: boolean, faces: [number, number]) => ({
+      name: 'tub',
+      layout: 'main',
+      text: '',
+      volume: { before, after, change: after - before, exact },
+      size: { before: [1, 1, 1], after: [1, 1, 1], change: [0, 0, 0], exact: true },
+      faces: { before: faces[0], after: faces[1] },
+      edges: { before: 1, after: 1 }
+    })
+    const withParts = (id: string, revision: number, p: ReturnType<typeof part>): ChatItem => {
+      const item = build(id, 'e1', 'ok', revision)
+      return item.kind === 'context' ? { ...item, digest: { revision, changed: true, parts: [p as never], unchanged: 0, flags: [], dimensions: [] } } : item
+    }
+    const items = [withParts('b1', 2, part(28400, 26000, true, [14, 18])), withParts('b2', 3, part(26000, 25560, false, [18, 22]))]
+    expect(netParts(items)).toEqual(['tub: volume ≈ 28400 → 25560 mm³ (-10 %), faces 14 → 22'])
+    // Back where it began: nothing to tell.
+    expect(netParts([withParts('b1', 2, part(100, 90, true, [4, 5])), withParts('b2', 3, part(90, 100, true, [5, 4]))])).toEqual([])
+    expect(netParts([user])).toEqual([])
   })
 
   it('finds the turn by its id and gives nothing for another', () => {

@@ -498,6 +498,22 @@ is a new line, and a prompt sent while the agent is at work waits its turn
   failed"), the marks it resolved and added, and the dimensions whose verdict
   is another than it was ("M3 now passes"). A turn that did none of these says
   only how long it took.
+- **See changes.** A turn that edited a `.py` file has "See changes" under its
+  account. It opens a sheet over the chat with, for each `.py` file directly
+  in the project's folder that the turn changed, the file at the start of the
+  turn against its end as lines removed and added, and the file as it is now
+  (read only: torno never writes the model, and the sheet runs nothing). Under
+  them, the builds of the turn taken together, from the kernel's numbers: a
+  part's volume and face count before the turn's first build against its last
+  (`≈` where a number is not exact). torno reads the files when you send a
+  prompt and when the turn ends, and keeps the two texts in memory for the
+  last 20 turns of the session: nothing is written to disk, not under `.torno/`
+  and not in the chat's log, so a turn of an earlier session, or one more than
+  20 turns back, has no changes to show. Only the project's own folder is
+  looked at, not `common/`, and a file over 200 KB is said to have changed
+  without its text. The button is there when the agent's edit tools changed a
+  `.py` file; the sheet then lists every file that differs, a change made by a
+  command (`sed`, a script) too.
 - **Refs are live.** `M4`, `lid/F12` and `lid/E3` in the agent's text and in
   the cards are chips: hovering one lights it in the view, clicking a mark
   focuses it, clicking a face or an edge selects it. A ref that names nothing
