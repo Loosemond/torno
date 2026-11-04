@@ -2,6 +2,7 @@
 
 .status {
   position: absolute;
+  z-index: 2;
   left: 0;
   right: 0;
   bottom: 0;
@@ -65,6 +66,14 @@
   background: transparent;
   color: var(--fail);
   font-weight: 500;
+}
+
+.status-landed {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .status-letgo {

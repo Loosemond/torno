@@ -1,0 +1,1 @@
+A rail 100 mm long with a T-shaped cross-section (a stem 6 mm wide and 6 mm tall under a head 14 mm wide and 4 mm tall), and a carriage 30 mm long that slides on it with 0.3 mm clearance on every face. Parts "rail" and "carriage".

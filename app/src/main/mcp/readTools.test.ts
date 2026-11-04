@@ -383,6 +383,27 @@ describe('check', () => {
     expect(await reading({ distance: 1.5, overlapping: null, how: shell })).toBe(`clearance 1.5 mm between lid and tub (${shell})`)
   })
 
+  it('asks for interference of the whole layout and reads what the kernel found', async () => {
+    const said = { layout: 'assembly', parts: 4, pairs: 6, interfering: [{ a: 'tub', b: 'lid', volume: 120, volumeExact: true }], touching: [{ a: 'lid', b: 'clip' }], clear: 4, sampling: { measured: 2, of: 2, complete: true } }
+    const asked = fake(() => said)
+    const told = data(await checkTool(asked, 'box', { kind: 'interference' }))
+    expect(asked.queries[0].args).toEqual({ kind: 'interference', layout: 'assembly' })
+    expect(told.reading).toBe('assembly: 4 solid parts: 1 pair shares volume (tub and lid 120 mm³), 1 pair only touches (lid and clip); 4 pairs clear')
+    const cut = data(await checkTool(fake(() => ({ ...said, interfering: [], touching: [], clear: 3, sampling: { measured: 1, of: 2, complete: false }, notSolid: ['pin'] })), 'box', { kind: 'interference' }))
+    expect(cut.reading).toBe('assembly: 4 solid parts: no pair shares volume; 3 pairs clear; the time ran out after 1 of 2 pairs whose boxes meet, the rest are NOT measured; left out, not solids: pin')
+    expect(await checkTool(fake(), 'box', { kind: 'interference', a: 'tub' })).toEqual(refused('interference is of the whole layout: leave a out'))
+    expect(await checkTool(fake(), 'box', { kind: 'interference', b: 'tub' })).toEqual(refused('interference is of the whole layout: leave b out'))
+  })
+
+  it('refuses interference in a layout torno spread, and asks it in one that was not', async () => {
+    const deps = spread(() => ({ layout: 'x', parts: 2, interfering: [], touching: [], clear: 1 }))
+    const refusedText = (await checkTool(deps, 'box', { kind: 'interference', layout: 'print' })).content[0] as { text: string }
+    expect(refusedText.text).toContain('torno spread the parts apart for display (lid moved')
+    expect(refusedText.text).toContain('layouts: assembly')
+    expect(deps.queries).toHaveLength(0)
+    expect((await checkTool(deps, 'box', { kind: 'interference', layout: 'assembly' })).isError).toBeUndefined()
+  })
+
   it('reads a mesh that is closed, and one that is open with where', async () => {
     const reading = async (said: object): Promise<string> => data(await checkTool(fake(() => said), 'box', { kind: 'mesh', a: 'lid' })).reading
     expect(await reading({ watertight: true, openEdges: 0, where: [], triangles: 20594 })).toBe('mesh of lid: closed, 20,594 triangles')

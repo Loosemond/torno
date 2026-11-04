@@ -54,7 +54,7 @@ is the detail of this folder, under the heading it has there. Paths are from `ap
   where it was once they are together, if nobody moved it; `keepInView` in `main.ts`). It draws on demand, picks nothing and
   measures nothing: a dimension shows the text torno made of it on the build exported (`shownDimension`: no
   value and no verdict that is not of that build), and the page says so. A cut is by clipping alone, the inside
-  in a darker tone, and the page says it draws no cut faces; a mark is a label with a dot at its point (a
+  in a darker tone, and the page says it draws no cut faces (so the hatch of the window's cut face, `hatchCap`, has nothing to be drawn on: the page never closes a cut, and a hatch over the inside of a clipped shell would read as a cut face it is not); a mark is a label with a dot at its point (a
   dimension has one at each end of its line), put under a label it would cover; a resolved mark is in the list
   and is labelled only when asked. The theme is the system's, light or dark, chosen in the footer line. With
   no WebGL 2 or no `DecompressionStream` it says so in words, alone on the page; a failure to show an object

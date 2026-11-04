@@ -2,7 +2,7 @@ import { ARROWS_CAP, domKey, hint, keyName, pressed } from '../../shared/keys'
 import { useEffect, useRef, useState } from 'react'
 import type { ObjectCard } from '../../shared/show'
 import { actions, store, useStore } from '../state/store'
-import { BEHIND, buildLine, cardChips, matching, pictureLine, stepCard } from './cards'
+import { BEHIND, buildLine, cardChips, matching, ordered, pictureLine, stepCard, type Order } from './cards'
 import { EmptyWorkspace } from './EmptyWorkspace'
 import { Logo } from './Logo'
 import { numbered } from './numbered'
@@ -66,6 +66,33 @@ function columnsOf(cards: HTMLElement[]): number {
  * By the keys: the arrows go from card to card, Enter opens the one in focus, `/` or any letter filters by name,
  * Escape empties the filter and then goes back to the object that was open.
  */
+const ORDERS: [Order, string][] = [['name', 'By name'], ['recent', 'Recently changed']]
+
+/** The order of the cards, kept for each workspace in this window's storage (never in the workspace); a storage that is not there is no memory. */
+function useOrder(root: string | undefined): [Order, (order: Order) => void] {
+  const key = `torno.show.order:${root ?? ''}`
+  const read = (): Order => {
+    try {
+      return globalThis.localStorage?.getItem(key) === 'recent' ? 'recent' : 'name'
+    } catch {
+      return 'name'
+    }
+  }
+  const [order, set] = useState<Order>(read)
+  useEffect(() => set(read()), [key]) // eslint-disable-line react-hooks/exhaustive-deps
+  return [
+    order,
+    (next) => {
+      set(next)
+      try {
+        globalThis.localStorage?.setItem(key, next)
+      } catch {
+        // No storage: the choice lasts while the page does.
+      }
+    }
+  ]
+}
+
 export function ShowPage({ onOpen, onExample }: { onOpen: (id: string) => void; onExample: () => void }) {
   const workspace = useStore((s) => s.workspace)
   const openId = useStore((s) => s.objectId)
@@ -76,6 +103,7 @@ export function ShowPage({ onOpen, onExample }: { onOpen: (id: string) => void; 
   const filter = useRef(typed)
   filter.current = typed
   const root = workspace?.root
+  const [order, chooseOrder] = useOrder(root)
   const hasProject = workspace?.hasProject ?? true
   const [hasExample, setHasExample] = useState(false)
   useEffect(() => {
@@ -195,7 +223,7 @@ export function ShowPage({ onOpen, onExample }: { onOpen: (id: string) => void; 
     return () => window.removeEventListener('keydown', onKey, true)
   }, [])
 
-  const shown = cards ? matching(cards, typed) : []
+  const shown = cards ? ordered(matching(cards, typed), order) : []
   const name = root ? root.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || root : ''
 
   return (
@@ -223,6 +251,15 @@ export function ShowPage({ onOpen, onExample }: { onOpen: (id: string) => void; 
           <button type="button" className="button show-export" title="Export projects to one HTML file that opens by itself, or one of them to a STEP, STL or 3MF file" onClick={() => actions.exportSheet('all')}>
             Export…
           </button>
+        )}
+        {cards && cards.length > 1 && (
+          <div className="show-order" role="group" aria-label="Order of the projects">
+            {ORDERS.map(([value, label]) => (
+              <button key={value} type="button" aria-pressed={order === value} onClick={() => chooseOrder(value)}>
+                {label}
+              </button>
+            ))}
+          </div>
         )}
         {cards && cards.length > 0 && (
           <label className="show-filter">
@@ -281,7 +318,7 @@ function Card({ card, open, onOpen }: { card: ObjectCard; open: boolean; onOpen:
           </span>
           {open && <span className="card-open">Open</span>}
         </span>
-        <span className="card-line" data-part="build" data-tone={build.tone} data-status={build.standing} title={card.problemAt ?? build.text}>
+        <span className="card-line" data-part="build" data-tone={build.tone} data-status={build.standing} title={card.problemAt ?? build.title ?? build.text}>
           {/* Of a build of this run only: the status line's dot, and the line in ink. */}
           {build.standing && <span className="status-dot" aria-hidden="true" />}
           {numbered(build.text)}
@@ -289,6 +326,11 @@ function Card({ card, open, onOpen }: { card: ObjectCard; open: boolean; onOpen:
         {picture && (
           <span className="card-line" data-part="picture">
             {numbered(picture.text)}
+          </span>
+        )}
+        {card.uses && card.uses.length > 0 && (
+          <span className="card-line" data-part="uses" title={card.uses.join(', ')}>
+            Uses {card.uses.join(', ')}
           </span>
         )}
         {picture?.behind && (
@@ -380,7 +422,7 @@ function Picture({ card, of, dimmed, onMissing }: { card: ObjectCard; of: string
         <span className="card-nopicture">
           <Logo plain />
           <span>No picture yet</span>
-          {card.problem === undefined && <span className="card-nopicture-how">{card.opened ? 'One is made when it builds' : 'Open it, and one is made from its build'}</span>}
+          {card.problem === undefined && <span className="card-nopicture-how">{card.opened ? 'One is made when it builds' : 'Open it to make one'}</span>}
         </span>
       ) : null}
     </span>

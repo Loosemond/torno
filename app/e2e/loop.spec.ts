@@ -480,6 +480,62 @@ test('an object with two candidate models says what was looked for, and nothing 
   expect(await layerNames()).toEqual(['base', 'post'])
 })
 
+// The parts fade for a build that takes a while, not at each save; picks are locked from the first moment either way.
+test('a quick save never fades the parts; a build held past 600 ms does, and the pick lock does not wait', async () => {
+  const faded = () => page.evaluate(() => window.__tornoTest!.faded())
+  const before = (await state()).build!.revision
+  await page.evaluate(() => {
+    const w = window as unknown as { __fadedSeen: boolean; __fadedTimer: number }
+    w.__fadedSeen = false
+    w.__fadedTimer = window.setInterval(() => { if (window.__tornoTest!.faded()) w.__fadedSeen = true }, 10)
+  })
+  appendFileSync(model(), '# quick\n')
+  await expect.poll(async () => (await state()).build?.revision, { timeout: 15_000 }).toBe(before + 1)
+  await page.waitForTimeout(700)
+  expect(await page.evaluate(() => (window as unknown as { __fadedSeen: boolean }).__fadedSeen)).toBe(false)
+  expect(await faded()).toBe(false)
+
+  // Held by the model itself: it sleeps in the build.
+  writeFileSync(model(), readFileSync(model(), 'utf8').replace('def assembly(p):\n', 'def assembly(p):\n    import time\n    time.sleep(1.5)\n'))
+  await expect.poll(async () => (await state()).build?.status, { timeout: 15_000 }).toBe('building')
+  // The lock holds from the first moment; the fade does not.
+  expect((await state()).build).toMatchObject({ status: 'building', stale: true })
+  expect(await faded()).toBe(false)
+  await expect.poll(faded, { timeout: 5_000 }).toBe(true)
+  expect((await state()).build?.status).toBe('building')
+  await expect.poll(async () => (await state()).build?.revision, { timeout: 20_000 }).toBe(before + 2)
+  await expect.poll(faded).toBe(false)
+  await page.evaluate(() => window.clearInterval((window as unknown as { __fadedTimer: number }).__fadedTimer))
+  cpSync(join(fixtures, 'bracket', 'bracket.py'), model())
+  await expect.poll(async () => (await state()).build?.revision, { timeout: 15_000 }).toBe(before + 3)
+})
+
+// What a build changed is told when it lands: the status line names the part, and for a moment the old edges and the new are drawn.
+test('a build that changes one part says which in the status line, shows its ghost for a moment, and a key puts it away', async () => {
+  const ghosts = () => page.evaluate(() => window.__tornoTest!.ghosts())
+  const landing = status(page).locator('[data-part="landing"]')
+  const before = (await state()).build!.revision
+  // The ghost is gone by itself, with no key or click.
+  writeFileSync(model(), readFileSync(model(), 'utf8').replace('Box(40, 30, 5)', 'Box(40, 30, 7)'))
+  await expect.poll(async () => (await state()).build?.revision, { timeout: 15_000 }).toBe(before + 1)
+  await expect(landing).toHaveText('base changed, post same')
+  await expect(landing).toHaveAttribute('title', /^Since the build before:\nbase: volume .* mm³/)
+  expect(await ghosts()).toEqual(['assembly:base'])
+  await expect.poll(ghosts, { timeout: 5_000 }).toEqual([])
+  // A key puts it away at once.
+  writeFileSync(model(), readFileSync(model(), 'utf8').replace('Box(40, 30, 7)', 'Box(40, 30, 5)'))
+  await expect.poll(async () => (await state()).build?.revision, { timeout: 15_000 }).toBe(before + 2)
+  await expect(landing).toHaveText('base changed, post same')
+  expect(await ghosts()).toEqual(['assembly:base'])
+  await page.keyboard.press('Shift')
+  expect(await ghosts()).toEqual([])
+  // A save that changes nothing drawn names no part, and leaves no ghost.
+  appendFileSync(model(), '# touch\n')
+  await expect.poll(async () => (await state()).build?.revision, { timeout: 15_000 }).toBe(before + 3)
+  await expect(landing).toHaveText('no part changed')
+  expect(await ghosts()).toEqual([])
+})
+
 // Milestone 5 (M11): the kernel let the build go to make room for another's. No test's kernel is short of memory,
 // so main is told it was (`__tornoMain.letGo`): the status line says it in the words the tools use.
 test('an object whose build the kernel let go says so in the status line', async () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Camera } from '../../shared/view'
-import { CameraMove, MOVE_MS, between, standingAt } from './cameraMoves'
+import { CameraMove, MOVE_MS, between, pivotOn, standingAt } from './cameraMoves'
 
 const ISO: Camera = { position: [90, -90, 110], target: [0, 0, 20], up: [0, 0, 1], ortho: false, fov: 35, zoom: 1 }
 const TOP: Camera = { position: [0, 0, 180], target: [0, 0, 20], up: [0, 1, 0], ortho: false, fov: 35, zoom: 2 }
@@ -54,5 +54,16 @@ describe('where a camera is going', () => {
     move.begin(from, to, 2000)
     move.drop()
     expect(move.goal).toBeNull()
+  })
+})
+
+describe('the target to turn about', () => {
+  it('is on the camera\'s axis, level with the point', () => {
+    expect(pivotOn([0, 0, 0], [0, 1, 0], [3, 8, -2])).toEqual([0, 8, 0])
+    expect(pivotOn([0, 0, 10], [0, 0, -2], [5, 5, 4])).toEqual([0, 0, 4])
+  })
+  it('is none for a point beside or behind the camera', () => {
+    expect(pivotOn([0, 0, 0], [0, 1, 0], [3, 0, 0])).toBeNull()
+    expect(pivotOn([0, 0, 0], [0, 1, 0], [3, -4, 0])).toBeNull()
   })
 })

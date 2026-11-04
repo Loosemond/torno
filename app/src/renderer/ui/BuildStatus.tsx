@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import { letGoText, rebuildHelps } from '../../shared/build'
+import { landingText } from '../../shared/diff'
 import { hint } from '../../shared/keys'
 import { unmetDimensions } from '../../shared/dimension'
 import type { Part } from '../../shared/scene'
 import { partDefects } from '../../shared/sanity'
 import { makesEnvironment } from './readyLines'
+import { landedOn } from '../state/landing'
 import { actions, partsInLayout, useStore } from '../state/store'
 import { BuildErrorSheet } from './BuildErrorSheet'
 import { UNCHECKED_AFTER_MS, useLasting } from './MarkRow'
@@ -35,6 +37,8 @@ export function defectsSaid(parts: readonly Part[]): string {
  * build no longer has is only made active.
  */
 export function goToRow(id: string): void {
+  // A list cut to one part may not hold its row.
+  actions.listMarksOnPart(null)
   actions.selectMark(id)
   actions.setActiveMark(id)
   // Its row is there already, whichever layout is shown: an open mark is never folded away.
@@ -79,6 +83,12 @@ export function BuildStatus({ onOpen }: { onOpen: (id: string) => void }) {
   const defects = useStore((s) => defectsSaid(partsInLayout(s)))
   const broken = defects === '' ? 0 : defects.split('; ').length
   const build123d = useStore((s) => s.versions.build123d)
+  // What the build on show did to the parts, against the build before it of the same object ('' for a first build). Strings, so that the line is drawn again only when they change.
+  const landedText = useStore((s) => {
+    const told = landedOn(s)
+    return told ? landingText(told) : ''
+  })
+  const landedLines = useStore((s) => landedOn(s)?.lines.join('\n') ?? '')
   // The kernel is starting and torno's own Python environment is not made: this build is the one that makes it, once.
   const firstTime = useStore((s) => makesEnvironment(s.ready))
   const marks = useStore((s) => s.marks)
@@ -125,6 +135,11 @@ export function BuildStatus({ onOpen }: { onOpen: (id: string) => void }) {
             {build.status === 'building' && firstTime && <span>Making torno's Python environment, first time only</span>}
             {build.status === 'ok' && (
               <span>Built{build.seconds !== undefined && <> in <span className="num">{seconds(build.seconds)}</span> s</>}</span>
+            )}
+            {build.status === 'ok' && hasScene && landedText !== '' && (
+              <span className="status-landed" data-part="landing" title={landedLines === '' ? undefined : `Since the build before:\n${landedLines}`}>
+                {landedText}
+              </span>
             )}
             {build.status === 'failed' && (
               <button type="button" className="status-fail" aria-expanded={errorOpen} onClick={() => actions.setErrorOpen(!errorOpen)}>

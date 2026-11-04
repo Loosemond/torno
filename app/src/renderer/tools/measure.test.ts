@@ -60,7 +60,7 @@ function fake(over: Partial<ToolContext> = {}) {
     measure: async (probe) => {
       taken.push(probe)
       const { value, how } = measures[probe.measure]
-      return { value: value!, how: how!, revision: probe.revision }
+      return { value: value!, how: how!, revision: probe.revision, points: [[5, 3, 3], [5, 3, -3]] }
     },
     commit: async (mark) => {
       committed.push(mark)
@@ -292,6 +292,26 @@ describe('the measure tool', () => {
     expect(taken).toHaveLength(1)
   })
 
+  it('draws the last measurement between the kernel’s points, with its value, until Escape or the next first end', async () => {
+    const tool = measureTool()
+    const { ctx, drafts } = fake()
+    tool.onPointer(pointer('click', [50, 50], top()), ctx)
+    tool.onPointer(pointer('click', [50, 120], bottom()), ctx)
+    await settled()
+    expect(drafts.at(-1)).toEqual({ kind: 'dimension', from: [5, 3, 3], to: [5, 3, -3], held: '6 mm' })
+    expect(measuredStore.getState().held?.points).toEqual([[5, 3, 3], [5, 3, -3]])
+    // The next first end takes it away, and draws its own.
+    tool.onPointer(pointer('click', [80, 50], top([1, 1, 3])), ctx)
+    expect(drafts.at(-1)).toEqual({ kind: 'dimension', from: [1, 1, 3], to: null })
+    tool.onKey!(key('Escape'), ctx)
+    tool.onPointer(pointer('click', [50, 50], top()), ctx)
+    tool.onPointer(pointer('click', [50, 120], bottom()), ctx)
+    await settled()
+    expect(tool.onKey!(key('Escape'), ctx)).toBe(true)
+    expect(drafts.at(-1)).toBeNull()
+    expect(measuredStore.getState().held).toBeNull()
+  })
+
   it('Escape drops the first end and keeps the tool; with nothing under way it is not the tool’s', async () => {
     const tool = measureTool()
     const { ctx, taken, drafts } = fake()
@@ -400,7 +420,7 @@ describe('the measure tool', () => {
     expect(drafts.at(-1)).toEqual({ kind: 'dimension', from: [5, 3, 3], to: [5, 3, -3] })
     await settled()
     expect(said.at(-1)).toBe('6 mm | between planes')
-    expect(drafts.at(-1)).toBeNull()
+    expect(drafts.at(-1)).toEqual({ kind: 'dimension', from: [5, 3, 3], to: [5, 3, -3], held: '6 mm' })
     // It stays while the pointer rests there, and makes way when it moves on.
     tool.onPointer(pointer('move', [50, 121], bottom()), ctx)
     expect(said.at(-1)).toBe('6 mm | between planes')

@@ -1,0 +1,30 @@
+name: The agent did the wrong thing
+description: Claude Code went wrong while working in torno
+labels: ["area: chat"]
+body:
+  - type: textarea
+    id: prompt
+    attributes:
+      label: The prompt and the marks
+      description: What you asked, and the marks you sent. The session pane shows what torno added.
+    validations:
+      required: true
+  - type: textarea
+    id: did
+    attributes:
+      label: What the agent did
+      description: And what you expected instead.
+    validations:
+      required: true
+  - type: dropdown
+    id: alone
+    attributes:
+      label: Does the same prompt in `claude` alone do the same?
+      options:
+        - I have not tried
+        - Yes
+        - No
+  - type: input
+    id: version
+    attributes:
+      label: torno version and Claude Code version

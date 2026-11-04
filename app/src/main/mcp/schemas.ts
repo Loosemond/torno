@@ -116,11 +116,18 @@ type Vec3 = [number, number, number]
 const refText = 'A ref names a part (lid), one of its faces (lid/F12) or edges (lid/E3), as given by marks, scene and describe.'
 const layoutText = 'The layout the refs are of, as listed by scene. Default: the one on screen.'
 
+const sceneInput = {
+  layout: z.string().optional().describe('List the parts of that layout. Default: the one on screen; the parts of the others are counted, not listed.')
+}
+
 const marksInput = {
   status: z
     .enum(['draft', 'sent', 'resolved', 'open'])
     .optional()
-    .describe('Only the marks of that status: draft (not yet told to you), sent, resolved, or open for all that are not resolved. Default: all.'),
+    .describe('Only the marks of that status: draft (not yet told to you), sent, resolved, or open for all that are not resolved. Default: open (resolved marks only on request, or by ids).'),
+  ids: z.array(z.string()).optional().describe('Only these marks, by number: ["M4"]. Whatever their status; a stroke is then given with all its points.'),
+  limit: z.number().int().optional().describe('The most marks to list. Default 50, at most 200.'),
+  next: z.string().optional().describe('Where to go on after a list that left marks out: the number the answer gives under next (M51).'),
   layout: z.string().optional().describe(`${layoutText} A region of a scan is told where the scan stands in that layout; every other mark is in its own.`)
 }
 
@@ -262,10 +269,14 @@ const diffInput = {
   from: z.number().int().optional().describe('The revision to compare from, as scene and the build status give it. Default: the successful build before the last.'),
   to: z.number().int().optional().describe('The revision to compare to. Default: the last successful build.')
 }
+const expectInput = {
+  checks: z.array(z.unknown()).describe('What the next edit should change, 1 to 20 checks, each one of: {"part": "plate", "volume": {"change": -1200, "tolerance": 50}} (a part\'s volume, faces, edges or size, as a value or a change from now; size is [x, y, z]); {"measure": {"kind": "diameter", "a": "plate/F9"}, "expected": 6.4, "tolerance": 0.05} (a measurement as measure takes it); {"unchanged": ["lid", "hinge"]} (those parts keep their volume, box and counts).'),
+  note: z.string().optional().describe('A few words on what the edit is for; told back with the verdict.')
+}
 const checkInput = {
-  kind: z.enum(['overlap', 'clearance', 'mesh', 'overhang', 'thin', 'bed']).describe('overlap and clearance are of the two parts a and b; mesh, overhang and thin are of the part a; bed is of the whole layout.'),
-  a: z.string().optional().describe('The name of a part, as listed by scene. Not for bed.'),
-  b: z.string().optional().describe('The name of the other part, for overlap and clearance.'),
+  kind: z.enum(['overlap', 'clearance', 'interference', 'mesh', 'overhang', 'thin', 'bed']).describe('overlap and clearance are of the two parts a and b; mesh, overhang and thin are of the part a; interference and bed are of the whole layout.'),
+  a: z.string().optional().describe('The name of a part, as listed by scene. Not for interference or bed.'),
+  b: z.string().optional().describe('The name of the other part, for overlap and clearance only.'),
   layout: z.string().optional().describe('The layout the parts are in, as listed by scene. Default: print for overhang, thin and bed when the model has it, else the one on screen.'),
   angle: loose(z.number()).optional().describe('For overhang: how far from vertical a face may lean before it overhangs, in degrees, above 0 and below 90. Default 45.'),
   min: loose(z.number()).optional().describe('For thin: the least wall, in mm.'),
@@ -288,6 +299,9 @@ const resolveMarkInput = {
 
 export interface MarksArgs {
   status?: 'draft' | 'sent' | 'resolved' | 'open'
+  ids?: string[]
+  limit?: number
+  next?: string
   layout?: string
 }
 export interface DescribeArgs {
@@ -357,8 +371,9 @@ export const TOOLS = {
     title: 'Scene and build',
     annotations: READ_ONLY,
     meta: ALWAYS_LOADED,
+    inputSchema: sceneInput,
     description:
-      'Returns JSON for the project this session works on: the build status, revision and error, output (the last lines the model printed in the build that ended last, failed or good, outputCut when earlier lines were left out), its layouts, every part with size, bounding box, volume, face and edge counts in mm (sizeExact and volumeExact say whether the size and the volume are exact; reversed, only where there is any, lists the part’s solids turned inside out; solids is how many it has, openShells, only above 0, how many of its shells are not closed, and meshDisagrees with meshVolume, only then, that its mesh encloses other than its volume), what the user sees (layout, visible parts, camera, section, and explode when they have the parts drawn apart for display), under views the views saved by name (whose each is, its layout, whether it holds a section or an explode, how many parts it hides), and, under dimensions, how many of the unresolved dimensions pass, fail and are not measured on that revision, and under scans the scans the user imported, each with how its alignment in that layout stands, in a word (call scans for the whole of it), under groups the groups of parts the model’s groups(p) declares, each with its parts in the layout shown and whether they are visible (all, some, none), each part naming its group; a group name can be given wherever parts are named, and under params the fields of the model’s Params dataclass as the kernel read them from the source: name, type as written, default (the value Params() holds, null when it is no plain value), literal (whether the default in the source is a literal; an expression or a default_factory is not) and doc (the field’s comment, or null; to change one, edit its default in the model file). Call it after every edit of the model to check that the build passed. Sizes and volumes here are for orientation (sizeExact and volumeExact say which are exact): call measure for a number to rely on.'
+      'Returns JSON for the project this session works on: the build status, revision and error, output (the last lines the model printed in the build that ended last, failed or good, outputCut when earlier lines were left out), its layouts, every part with size, bounding box, volume, face and edge counts in mm (sizeExact and volumeExact say whether the size and the volume are exact; reversed, only where there is any, lists the part’s solids turned inside out; solids is how many it has, openShells, only above 0, how many of its shells are not closed, and meshDisagrees with meshVolume, only then, that its mesh encloses other than its volume), what the user sees (layout, visible parts, camera, section, and explode when they have the parts drawn apart for display), under views the views saved by name (whose each is, its layout, whether it holds a section or an explode, how many parts it hides), and, under dimensions, how many of the unresolved dimensions pass, fail and are not measured on that revision, and under scans the scans the user imported, each with how its alignment in that layout stands, in a word (call scans for the whole of it), under groups the groups of parts the model’s groups(p) declares, each with its parts in the layout shown and whether they are visible (all, some, none), each part naming its group; a group name can be given wherever parts are named, and under params the fields of the model’s Params dataclass as the kernel read them from the source: name, type as written, default (the value Params() holds, null when it is no plain value), literal (whether the default in the source is a literal; an expression or a default_factory is not) and doc (the field’s comment, or null; to change one, edit its default in the model file). It lists the parts of one layout (the one on screen, or layout) and counts those of the others, and past 200 parts, or when the list would not fit, gives the name, size and group of each part only (partsTruncated; describe gives the rest), so call it after every edit of the model to check that the build passed. Sizes and volumes here are for orientation (sizeExact and volumeExact say which are exact): call measure for a number to rely on.'
   },
   look: {
     title: 'Look at the view',
@@ -373,7 +388,7 @@ export const TOOLS = {
     annotations: READ_ONLY,
     meta: ALWAYS_LOADED,
     description:
-      "Returns JSON with the revision of the build it is of, a stale note when a newer build is running or failed, and the marks on this project, the user's and your own: each with its number (M3), kind, note, status, layout, the ref and descriptor of what it is on, its coordinates in mm in the frame of its layout, for a stroke its points, and a line that says it in words; a region is a part of a scan the user painted and named with its note (\"wiring loom, can be pushed aside\"): it holds scan, triangles, area, its size along its own axes and whether it is flat, and, where its scan is aligned in the layout asked (toldIn), centroid, axes, the box it lies within (bbox) and plane in the frame of that layout, all approximate, with alignment saying in a word how that alignment stands (aligned, rough, in doubt, not checked), and its number is what scan_clash takes in ignore, scan_deviation in region and measure as an end; a dimension also holds value, how, points and verdict when they were measured on that revision (its measuredRevision), wasValue and wasRevision in their place when what it holds is of an older build, and resolvedValue, resolvedVerdict and resolvedOnRevision once it is resolved and no longer measured. Marks are how the user points at the part; new ones are told to you with the prompt, a line each, so call this for all of their data, or when you are told that more marks were left out. An anchorState other than ok means the build moved the surface or dropped the part, and a checkedRevision that is absent or is not the revision means the mark has not been checked against that build: either way the ref may no longer name what the mark is on.",
+      "Returns JSON with the revision of the build it is of, a stale note when a newer build is running or failed, and the marks on this project, the user's and your own: each with its number (M3), kind, note, status, layout, the ref and descriptor of what it is on, its coordinates in mm in the frame of its layout, for a stroke a summary of its points (pointsSummary: count, first, last and box; all of them only when you name it in ids), and a line that says it in words; a region is a part of a scan the user painted and named with its note (\"wiring loom, can be pushed aside\"): it holds scan, triangles, area, its size along its own axes and whether it is flat, and, where its scan is aligned in the layout asked (toldIn), centroid, axes, the box it lies within (bbox) and plane in the frame of that layout, all approximate, with alignment saying in a word how that alignment stands (aligned, rough, in doubt, not checked), and its number is what scan_clash takes in ignore, scan_deviation in region and measure as an end; a dimension also holds value, how, points and verdict when they were measured on that revision (its measuredRevision), wasValue and wasRevision in their place when what it holds is of an older build, and resolvedValue, resolvedVerdict and resolvedOnRevision once it is resolved and no longer measured. Marks are how the user points at the part; new ones are told to you with the prompt, a line each, so call this for their data, or when you are told that more marks were left out; it lists the open ones, 50 at a time (omitted says how many were left out and next where to go on; status resolved or ids gives the others). An anchorState other than ok means the build moved the surface or dropped the part, and a checkedRevision that is absent or is not the revision means the mark has not been checked against that build: either way the ref may no longer name what the mark is on.",
     inputSchema: marksInput
   },
   describe: {
@@ -381,7 +396,7 @@ export const TOOLS = {
     annotations: READ_ONLY,
     meta: ALWAYS_LOADED,
     description:
-      'Returns JSON with the exact geometry of a part, a face or an edge, or of a group (a group name, as scene lists them: the box of its parts and their total volume, exact only where every part\'s is, with reversed by part where one has a solid inside out): its type, size, area or length, centre, normal or radius, a one-line descriptor (of a part its box and volume, with bboxExact and volumeExact, and reversed where a solid of it is turned inside out), the revision of the build it was measured on, and a stale note when a newer build is running or failed; an area with areaExact false is approximate (≈ in the descriptor), as that of a freeform face always is, and so are the box and the volume of a part where bboxExact or volumeExact is false. Refs come from marks, scene and earlier describe calls; face and edge numbers change when the model is rebuilt, so describe a ref again after an edit before relying on it.',
+      'Returns JSON with the exact geometry of a part, a face or an edge, or of a group (a group name, as scene lists them: the box of its parts and their total volume, exact only where every part\'s is, with reversed by part where one has a solid inside out): its type, size, area or length, centre, normal or radius, a one-line descriptor (of a part its box and volume, with bboxExact and volumeExact, and reversed where a solid of it is turned inside out), the revision of the build it was measured on, and a stale note when a newer build is running or failed; an area with areaExact false is approximate (≈ in the descriptor), as that of a freeform face always is, and so are the box and the volume of a part where bboxExact or volumeExact is false. Refs come from marks, scene and earlier describe calls; face and edge numbers change when the model is rebuilt, so describe a ref again after an edit before relying on it. A face or an edge also gets a selector: a build123d expression on part (part.faces().filter_by(Axis.Z).sort_by(Axis.Z)[-1]) that the kernel evaluated on this build and that gave exactly that shape, with robust \'by geometry\' (a direction, an extreme, a radius, a place) or \'by order\' (an index into a sort, which the next edit may break), and selectorFrame saying whose frame its directions are in (a layout that moves or turns the part gives its own); selector is null, with selectorWhy, when none picks only that shape; paste it into the model instead of writing one from the descriptor, and look at the result, as it is right for this build only.',
     inputSchema: describeInput
   },
   highlight: {
@@ -438,7 +453,7 @@ export const TOOLS = {
     title: 'Run a check',
     annotations: READ_ONLY,
     description:
-      'Returns JSON and a reading in a line of one check of the last build: overlap is the volume two parts share, in mm³; clearance the least distance between two parts, in mm, with the points it is between; mesh whether the mesh a part is drawn and exported with is closed, with where its open edges are; and, of the print layout, overhang the faces of a part that face down steeper than angle from vertical (refs such as tray/F7, with their areas; faces on the bed left out; curved faces judged by sampled normals, approximate), thin where its walls are under min mm, sampled over its faces (always approximate), and bed whether the layout fits a bed of size [x, y, z] mm, and by how much it does not on each axis ({"kind": "bed", "size": [256, 256, 256]}). A clearance is exact, from the B-rep, unless the reply says approximate; what two parts share is exact of parts all planes and round faces and approximate (≈, volumeExact false, how saying how many digits are good) of freeform ones; overlap, mesh and thin can take seconds on large parts; a bed fit is exact only where every box is. Use it after changing parts that must fit together, and before saying a part is ready to print.',
+      'Returns JSON and a reading in a line of one check of the last build: overlap is the volume two parts share, in mm³; clearance the least distance between two parts, in mm, with the points it is between; interference every pair of the layout at once ({"kind": "interference"}): the pairs of solid parts that share volume, each with the volume and the box it lies in, the pairs that only touch, and how many are clear; mesh whether the mesh a part is drawn and exported with is closed, with where its open edges are; and, of the print layout, overhang the faces of a part that face down steeper than angle from vertical (refs such as tray/F7, with their areas; faces on the bed left out; curved faces judged by sampled normals, approximate), thin where its walls are under min mm, sampled over its faces (always approximate), and bed whether the layout fits a bed of size [x, y, z] mm, and by how much it does not on each axis ({"kind": "bed", "size": [256, 256, 256]}). A clearance is exact, from the B-rep, unless the reply says approximate; what two parts share is exact of parts all planes and round faces and approximate (≈, volumeExact false, how saying how many digits are good) of freeform ones; overlap, mesh and thin can take seconds on large parts, and interference up to 20 s (it says how many pairs it measured when the time runs out); a bed fit is exact only where every box is. Use it after changing parts that must fit together, and before saying a part is ready to print.',
     inputSchema: checkInput
   },
   diff: {
@@ -447,6 +462,13 @@ export const TOOLS = {
     description:
       "Returns JSON of what changed between two successful builds (by default the one before the last and the last; only those two are kept): for each layout the parts added and removed, and for each part in both its volume, the size of its box and its min corner, before, after and the change in mm and mm³, each with exact (false where either build's number is approximate, as scene's sizeExact and volumeExact say), its face, edge and solid counts before and after, changed, and a line saying what changed (the volume's change also in percent; a number that is not exact has changed only by more than both builds' doubt of it). `builds` says what each build was made from: a hash of the sources, and the commit then checked out, with dirty when files differed from it. Call it after an edit to see what it did; numbers are the kernel's of each build, for orientation (call measure for one to rely on), and face or edge counts that changed mean refs such as lid/F12 may name other faces now, so describe a ref again before relying on it.",
     inputSchema: diffInput
+  },
+  expect: {
+    title: 'Say what an edit should change',
+    annotations: CHANGES_VIEW_OR_MARKS,
+    description:
+      "Returns JSON that says what was kept, and holds the next successful build against what an edit should change, once the build lands: the answer to the edit then says how many checks were met and which not, with the numbers (≈ where the kernel's is not exact, judged within its doubt; a ref of a face or edge of a part whose face or edge count changed is told as moved and not measured). A check is a part's volume, faces, edges or size as a value or a change, a measurement with its expected value, or parts that stay unchanged. Call it before an edit to state what it should do; it is yours, held in memory for that one build, no mark, and never holds anything back; scene gives the last verdict.",
+    inputSchema: expectInput
   },
   try_fillet: {
     title: 'Try a fillet or chamfer',
@@ -490,11 +512,12 @@ export const SERVER_INSTRUCTIONS = `torno's server reads and measures the CAD pa
 - scene: the build status and error, what the model printed, layouts, parts with size and volume, groups, params, saved views, the person's camera, section and explode. Start here.
 - look: a picture of the part as the person's viewport draws it, with the marks, from any view, camera, layout, section or explode, or framed close on one face, edge, mark or box.
 - marks: the person's marks (pins, picks, arrows, strokes, shapes, dimensions, regions of a scan) and yours, with notes, status and what each is on.
-- describe: the exact geometry of a part, a face, an edge, a group of parts or a mark: area, centre, normal, radius, volume, box.
+- describe: the exact geometry of a part, a face, an edge, a group of parts or a mark: area, centre, normal, radius, volume, box; of a face or an edge also a build123d selector that picks it now.
 - measure: one exact number: distance or angle between two ends, radius, diameter, wall thickness, area, volume, mass, bounding box.
 - section: the outlines a plane cuts of the parts, with their areas, and a 2D drawing of the cut.
-- check: overlap and clearance between parts, a closed mesh, and for printing overhangs, thin walls and the fit on a bed.
+- check: overlap and clearance between parts, interference of a whole layout, a closed mesh, and for printing overhangs, thin walls and the fit on a bed.
 - diff: what changed between the last two successful builds: parts added or removed, volume, size and face counts.
+- expect: say before an edit what it should change (volume, faces, size, a measurement, parts unchanged); the build after it is checked against that.
 - try_fillet: try a fillet or chamfer of some edges on the last build and throw it away: whether it works, the largest radius that does, which edges or pairs fail.
 - scans: the scans the person imported, and how each is aligned to the model.
 - scan_clash: what of a scan is inside a part, as clusters with their depth.

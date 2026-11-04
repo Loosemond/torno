@@ -114,7 +114,7 @@ test('three pairs and a fourth bring a displaced scan onto the model, and say ho
   await page.getByRole('button', { name: 'Import scan…' }).click()
   await expect.poll(async () => (await scans())[0]?.ready).toBe(true)
   // From above, so that the tops of both are what is clicked.
-  await page.getByRole('button', { name: 'Top', exact: true }).click()
+  await fromAbove()
   await frame([...ON_TOP, ...ON_TOP.map(where)])
   await page.keyboard.press('l')
   await expect(bar()).toBeVisible()
@@ -183,7 +183,7 @@ test('a tilted floor is laid flat on the ground, and says that is all it is', as
   await pickFile(file)
   await page.getByRole('button', { name: 'Import scan…' }).click()
   await expect.poll(async () => (await scans())[0]?.ready).toBe(true)
-  await page.getByRole('button', { name: 'Top', exact: true }).click()
+  await fromAbove()
   await frame([[0, 0, 60], [14, 14, 61.4], [-14, -14, 58.6]])
   await page.keyboard.press('l')
   await bar().getByRole('button', { name: 'Floor' }).click()
@@ -215,7 +215,7 @@ test('an alignment says so when a build moves the model from under it', async ()
   await pickFile(file)
   await page.getByRole('button', { name: 'Import scan…' }).click()
   await expect.poll(async () => (await scans())[0]?.ready).toBe(true)
-  await page.getByRole('button', { name: 'Top', exact: true }).click()
+  await fromAbove()
   const top: Vec3[] = [[6, 6, 2], [-6, 6, 2], [-6, -6, 2]]
   const onLid = top.map(([x, y, z]) => [centre[0] + x, y, z] as Vec3)
   const onTwin = top.map(([x, y, z]) => [centre[0] + x, 40 + y, z] as Vec3)
@@ -252,7 +252,7 @@ test('a fit that says the unit is wrong offers the change in one click, keeps no
   await expect.poll(async () => (await state()).scans[0].imported.unit).toBe('cm')
   await expect.poll(async () => (await scans())[0]?.ready).toBe(true)
   await page.getByRole('button', { name: 'assembly', exact: true }).click()
-  await page.getByRole('button', { name: 'Top', exact: true }).click()
+  await fromAbove()
   const big = (p: Vec3): Vec3 => where(p).map((c) => 10 * c) as Vec3
   const canvas = (await page.locator('.viewport-canvas canvas').first().boundingBox())!
   await page.mouse.move(canvas.x + canvas.width / 2, canvas.y + canvas.height / 2)
@@ -448,7 +448,7 @@ test('a floor is laid on a face of the model at the point that was clicked, eith
 test('a build that takes the model from under a point raises a doubt; "Still right" settles it, and the same move is not raised again', async () => {
   test.setTimeout(120_000)
   await open('spread')
-  await page.getByRole('button', { name: 'Top', exact: true }).click()
+  await fromAbove()
   // The tray is 40 wide by now. The twin of the lid lies on it; it is moved 12 mm along X, tied to a point near the tray's end.
   const { min, max } = (await state()).scans[0].imported.bbox
   const mid: Vec3 = [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, max[2]]
@@ -589,4 +589,30 @@ test('"Use this alignment" in another layout keeps it there as placed by hand, w
   // The fit it was taken from is as it was.
   expect((await alignment('assembly')).pairs).toHaveLength(4)
   expect(JSON.parse(readFileSync(join(root, 'bracket', '.torno', 'scans.json'), 'utf8')).scans[0].alignments.print.steps).toEqual(['typed'])
+})
+
+// Issue #82.
+test('after an import the sheet leads on to the bar on its first step, and a floor kept ticks Floor and moves the bar to Pairs', async () => {
+  await page.getByRole('button', { name: 'assembly', exact: true }).click()
+  const before = (await state()).scans.length
+  const file = join(root, 'next.stl')
+  writeFileSync(file, TWIN)
+  await pickFile(file)
+  await page.getByRole('button', { name: 'Import scan…' }).click()
+  await expect.poll(async () => (await state()).scans.length).toBe(before + 1)
+  const id = (await state()).scans[before].id
+  // Not yet aligned anywhere: the next step, said in the quiet colour.
+  await expect(row(id).locator('.chip[data-state="unaligned"][data-never]')).toHaveText('unaligned')
+  const sheet = page.getByRole('dialog', { name: `How is ${id} read?` })
+  await sheet.getByRole('button', { name: `Next: align ${id}` }).click()
+  await expect(sheet).toHaveCount(0)
+  await expect(bar()).toBeVisible()
+  await expect(bar().getByRole('button', { name: 'Floor' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(bar().locator('.align-step-tick')).toHaveCount(0)
+  await expect(bar().locator('[data-part="purpose"]')).toHaveText('lays the scan level: how it lies, not where')
+  // A floor kept: Floor is done, and the bar is on Pairs.
+  await page.evaluate((id) => window.torno.scans.align('bracket', id, 'assembly', { transform: { t: [0, 0, 0], q: [0, 0, 0, 1], s: 1 }, steps: ['floor'] }, { revision: window.__tornoTest!.state().revision }), id)
+  await expect(bar().getByRole('button', { name: 'Floor' }).locator('.align-step-tick')).toBeVisible()
+  await expect(bar().getByRole('button', { name: 'Pairs' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(bar().locator('[data-part="purpose"]')).toContainText('three points on the scan')
 })

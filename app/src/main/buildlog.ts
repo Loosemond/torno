@@ -92,7 +92,7 @@ export class BuildLog {
   }
 
   /** The build has landed: what it was made from is found, kept, and added to the file. Resolves with the record. */
-  record(obj: ObjectInfo, revision: number, scene: Scene & { uses?: string[] }, now: Date = new Date()): Promise<BuildRecord> {
+  record(obj: ObjectInfo, revision: number, scene: Pick<Scene, 'uses'>, now: Date = new Date()): Promise<BuildRecord> {
     const made = (async (): Promise<BuildRecord> => {
       const [sources, git] = await Promise.all([sourcesHash(obj.dir, scene.uses), gitState(obj.dir)])
       const record: BuildRecord = { revision, at: now.toISOString(), run: this.run, sources, ...(git?.head ? { head: git.head } : {}), ...(git?.head && git.changed > 0 ? { dirty: true as const } : {}) }

@@ -1,0 +1,23 @@
+{
+  "layout": "assembly",
+  "layers": {},
+  "views": [
+    {
+      "name": "Lid fit",
+      "author": "user",
+      "layout": "assembly",
+      "camera": { "position": [46, 70, 40], "target": [31, 0, 22], "up": [0, 0, 1], "ortho": false, "fov": 35, "zoom": 1 },
+      "hidden": ["clip"],
+      "section": { "origin": [0, 0, 0], "normal": [0, 1, 0] },
+      "at": "2026-11-02T09:50:31.000Z"
+    },
+    {
+      "name": "Cable side",
+      "author": "user",
+      "layout": "assembly",
+      "camera": { "position": [34, 96, 58], "target": [0, 22, 18], "up": [0, 0, 1], "ortho": false, "fov": 35, "zoom": 1 },
+      "hidden": ["case-lid"],
+      "at": "2026-11-02T09:52:08.000Z"
+    }
+  ]
+}

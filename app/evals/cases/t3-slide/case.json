@@ -1,0 +1,47 @@
+{
+  "object": "slide",
+  "tier": "T3",
+  "prompts": [
+    "Make the two parts in the brief. Build it in the model file, check it with torno's tools, and say when it is done."
+  ],
+  "answers": {
+    "default": "I don't know: choose, and say what you chose."
+  },
+  "checks": [
+    {
+      "id": "valid",
+      "kind": "valid"
+    },
+    {
+      "id": "parts",
+      "kind": "parts",
+      "names": [
+        "carriage",
+        "rail"
+      ]
+    },
+    {
+      "id": "rail-x",
+      "kind": "size",
+      "part": "rail",
+      "axis": "x",
+      "expect": 100,
+      "tol": 0.1
+    },
+    {
+      "id": "gap",
+      "kind": "clearance",
+      "a": "rail",
+      "b": "carriage",
+      "min": 0.25,
+      "max": 0.35
+    },
+    {
+      "id": "no-overlap",
+      "kind": "overlap",
+      "a": "rail",
+      "b": "carriage",
+      "max": 0.001
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "object": "enclosure",
+  "tier": "T2",
+  "prompts": [
+    "Make the enclosure in the brief. Build it in the model file, check it with torno's tools, and say when it is done."
+  ],
+  "answers": {
+    "default": "I don't know: choose, and say what you chose."
+  },
+  "checks": [
+    {
+      "id": "valid",
+      "kind": "valid"
+    },
+    {
+      "id": "parts",
+      "kind": "parts",
+      "names": [
+        "lid",
+        "tub"
+      ]
+    },
+    {
+      "id": "tub-x",
+      "kind": "size",
+      "part": "tub",
+      "axis": "x",
+      "expect": 70,
+      "tol": 0.05
+    },
+    {
+      "id": "tub-y",
+      "kind": "size",
+      "part": "tub",
+      "axis": "y",
+      "expect": 50,
+      "tol": 0.05
+    },
+    {
+      "id": "tub-z",
+      "kind": "size",
+      "part": "tub",
+      "axis": "z",
+      "expect": 30,
+      "tol": 0.05
+    },
+    {
+      "id": "fit",
+      "kind": "clearance",
+      "a": "tub",
+      "b": "lid",
+      "min": 0.0,
+      "max": 0.3
+    },
+    {
+      "id": "no-overlap",
+      "kind": "overlap",
+      "a": "tub",
+      "b": "lid",
+      "max": 0.001
+    }
+  ]
+}
