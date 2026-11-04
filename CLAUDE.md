@@ -93,6 +93,15 @@ to headings the manual has; the reference goes in the manual.
   output) and never written to `state.md`, `.torno/chat/` or any other file. The test hook `__tornoMain.mcpFor(id)`
   gives an object's MCP address and a token that opens it; the stand-in agent reads `--mcp-config` from its file and
   expands both placeholders from its environment, as Claude Code does.
+- The second door (#54, a spike, only with `TORNO_OUTSIDE_AGENTS=1`; `main/door.ts`, `scripts/torno-mcp.mjs`): one
+  Unix socket, `door.sock` in `$XDG_RUNTIME_DIR/torno/` (else `$TMPDIR/torno-<uid>/`), the folder `0700` (a link or
+  another user's is refused, other bits taken off) and the socket `0600`; never a TCP port, never in a workspace,
+  never a file with a secret. A connection's first line names a folder; main maps it to a project of the open
+  workspace (or refuses every request) and answers nothing until the person allows that connection in the window,
+  asked for each connection. Allowed, main grants it a token of its own (`HttpRouter.grant`, that project's
+  `/mcp/<object id>` only, never hooks) and posts each line to the MCP server with it in the header: the token never
+  leaves main, and is revoked when the connection closes. What the bridge says of its client is its word only, shown
+  as such. Tested with the MCP SDK's client over stdio (`door.itest.ts`), never a real CLI.
 - Images for the agent: long edge at most 2000 px, default 1280.
 - No control-room look: no black/red/amber, no condensed uppercase labels, no corner-tick frames. Follow spec section 10 and the tokens in Task 4.
 - UI text is sentence case. Every number and ref is set in the monospace face.
