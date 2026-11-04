@@ -978,6 +978,20 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   reads the tail of the file as "Earlier in this conversation". A log over 5 MB is cut to its last 2,000 lines, whole
   and atomically, when a session starts on it (`trimLog`). Switching `view` ends the session and resumes the
   conversation in the other kind (`session.json` is the same).
+- **What a turn changed in the model** (`sessions/snapshots.ts`, `shared/changes.ts`, `chat:changes`). When a
+  prompt is sent (its `UserPromptSubmit`, read before the hook is answered, so before the agent can have touched
+  anything) and when the turn ends (its `result`, as the transcript puts the turn item), main reads the text of the `.py`
+  files directly in the object's folder (as `sourceFolders` has the own folder; not `<workspace>/common`; plain files
+  only, `lstat` and `O_NOFOLLOW`, 60 files at most, `MAX_FILE_BYTES` (200 KB) each: a larger file is told to have
+  changed by its size and mtime, with no text), and keeps the files that differ as `TurnChanges`, by the id of the turn's item
+  (`KeptChanges`: the last `MAX_TURNS` (20) turns of a session and `MAX_KEPT_CHARS` (4 M characters) of text, the oldest let
+  go first). **Held in memory only**: never written (not under `.torno/`, not in `.torno/chat/`, not in `state.md`), not
+  a chat item and not logged, gone with the session's record. A prompt folded into a turn under way is not a start of its
+  own (the turn keeps its first snapshot); a turn with no hook before it begins where the last ended. What the
+  person saved between two turns is no turn's. A change made by a `Bash` is found too (it is by the files, not by
+  the tools); a file outside the folder is not. `chat:changes(sessionId, turnId)` answers null for a session that is not
+  of the open workspace and for a turn it holds nothing of (also one that changed no file there); it waits for the
+  turn's snapshot to be read. The window draws the diff (`ChangesSheet`); torno never writes the model.
 - The first prompt of a new conversation (`newConversation`: a session not resumed, its first `UserPromptSubmit`;
   or `fresh`, after /clear) is told in a last line the files of `reference/` (`referencesLine` in `context.ts`,
   `listReferences`: plain files of create's names, photos then doodles, twelve named at most). It is no mark, and is

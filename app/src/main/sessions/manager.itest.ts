@@ -1355,6 +1355,26 @@ describe('the transcript of a chat session', () => {
     expect(tSessions.history(c.id)!.earlier).toEqual([])
   })
 
+  it('keeps what a turn changed in the .py files of the folder, in memory, and tells it by the id of the turn', async () => {
+    const c = await start()
+    writeFileSync(join(c.obj.dir, 'part.py'), 'W = 1\nH = 5\n')
+    writeFileSync(join(c.obj.dir, 'notes.md'), 'W = 1\n')
+    await c.send('say first')
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
+    const quiet = c.items().find((i) => i.kind === 'turn')!
+    expect(await tSessions.changesOf(c.id, quiet.id)).toBeUndefined()
+    // The person saves between the turns: not the next turn's.
+    writeFileSync(join(c.obj.dir, 'part.py'), 'W = 1\nH = 6\n')
+    await c.send('edit part.py "W = 1" "W = 2"\nsay done')
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(2)
+    const turn = c.items().filter((i) => i.kind === 'turn')[1]
+    const changes = await tSessions.changesOf(c.id, turn.id)
+    expect(changes).toEqual({ files: [{ file: 'part.py', before: 'W = 1\nH = 6\n', after: 'W = 2\nH = 6\n' }] })
+    // Nothing of it in the log, which is text of the chat only.
+    for (const file of c.logFile()) expect(readFileSync(file, 'utf8')).not.toContain('H = 6')
+    expect(await tSessions.changesOf(c.id, 'no-such-turn')).toBeUndefined()
+  })
+
   it('does not leave a queued command that is no turn queued, and puts a prompt that begins after the one at work', async () => {
     const c = await start()
     await c.send('slow 0.5')

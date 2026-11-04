@@ -29,6 +29,8 @@ import { SESSION_FILE, storeConversation, storedConversation, UUID } from './res
 import { HOOK_EVENTS, reduceStatus } from './status'
 import type { AgentAsk, AgentMessage, AgentTransport, AskAnswer, PromptBlock } from './transport'
 import { Transcript } from './transcript'
+import { changesBetween, KeptChanges, type Snapshot, snapshotSources } from './snapshots'
+import type { TurnChanges } from '../../shared/changes'
 
 const HOOK_BODY_LIMIT = 1024 * 1024
 const KILL_AFTER_MS = 2000
@@ -162,6 +164,13 @@ interface ChatRecord {
   capabilities?: Capabilities
   /** Counts every item and meta told, so that a window that asked for the history knows which of them it holds. */
   seq: number
+  /** What the last turns changed in the model's source files (`snapshots.ts`): in memory only, never in the log, and not an item. */
+  changes: KeptChanges
+  /** The sources as they were when the prompt now at work was sent, and as they were when the last turn ended (the start of a turn the CLI took up without a hook). */
+  sourcesBefore?: Promise<Snapshot>
+  sourcesAfter?: Promise<Snapshot>
+  /** The changes of the last turn that are being worked out: a call for them waits for it. */
+  settling?: Promise<void>
 }
 
 /** What a chat session's CLI says it can do: its slash commands and the models it offers. */
@@ -392,6 +401,7 @@ export class Sessions {
             dir: obj.dir,
             earlier,
             seq: 0,
+            changes: new KeptChanges(),
             transcript: new Transcript({
               prefix: `${id.slice(0, 6)}-`,
               redact: http.redact,
@@ -400,6 +410,7 @@ export class Sessions {
               ...(isEffort(opts.effort) ? { effort: opts.effort } : {}),
               emit: (item) => {
                 chat!.seq += 1
+                if (item.kind === 'turn') this.keepChanges(chat!, item.id)
                 this.emit('item', { sessionId: id, objectId: obj.id, item, seq: chat!.seq })
                 this.log(session)
               },
@@ -836,6 +847,33 @@ export class Sessions {
     return { items: r.transcript.items(), meta: r.transcript.meta(), earlier: r.earlier, commands, models: modelsOf(models), seq: r.seq }
   }
 
+  /**
+   * What a turn changed in the `.py` files directly in the object's folder: the text of each that differs, at the
+   * start of the turn (when its prompt was sent) and at its end. None for a turn main did not see begin or end, one
+   * it let go of (the last `MAX_TURNS`, a few MB of text), and a session that is not a chat.
+   */
+  async changesOf(sessionId: string, turnId: string): Promise<TurnChanges | undefined> {
+    const chat = this.records.get(sessionId)
+    await chat?.settling
+    return chat?.changes.get(turnId)
+  }
+
+  /** A turn has ended: the sources now, against the sources when its prompt was sent; kept only when they differ. Never written. */
+  private keepChanges(chat: ChatRecord, turnId: string): void {
+    const before = chat.sourcesBefore ?? chat.sourcesAfter
+    chat.sourcesBefore = undefined
+    const after = snapshotSources(chat.dir)
+    chat.sourcesAfter = after
+    if (!before) return
+    chat.settling = Promise.all([before, after]).then(
+      ([was, now]) => {
+        const changes = changesBetween(was, now)
+        if (changes.files.length > 0) chat.changes.keep(turnId, changes)
+      },
+      () => undefined
+    )
+  }
+
   /** The chat of an object that has ended and whose transcript is still held, for a window loaded since to show. */
   endedChat(objectId: string): string | undefined {
     for (const [id, record] of this.records) if (record.objectId === objectId && !this.sessions.has(id)) return id
@@ -1199,6 +1237,13 @@ export class Sessions {
     session.unprompted = false
     const first = session.firstPrompt
     session.firstPrompt = false
+    // The sources as the turn begins, read before the agent can have touched them: they are what "See changes" compares with.
+    // A prompt folded into a turn under way (one result for both) is not a start of its own: the turn keeps its first.
+    if (session.chat && !session.chat.sourcesBefore) {
+      const read = snapshotSources(session.chat.dir)
+      session.chat.sourcesBefore = read
+      await read.catch(() => undefined)
+    }
     let context: PromptContext
     try {
       context = await this.deps.contextFor(objectId, { fresh, newConversation, first, toolName: this.deps.adapter.toolName })
