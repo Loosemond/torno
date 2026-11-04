@@ -597,7 +597,27 @@ is a new line, and a prompt sent while the agent is at work waits its turn
   of its own, with its input, its result and its pictures as thumbnails that
   open large; the turn ends with a line such as "Pulled from torno: scene, 2
   pictures, measure ×3". Other tools are one line each, opened for their input
-  and result.
+  and result; a tool that went well says nothing on its line, and one that is
+  running, failed, was denied, cancelled or stopped keeps its word. Once a turn has
+  ended, three or more of those lines in a row (the agent's own tools that finished,
+  with no picture and no build under them) are one line, `Read 3 files, Grep ×2,
+  Bash`, that opens into the lines; the lines of a turn still going on are all
+  there, and folding changes nothing in the conversation or its log. The refs in a card's line are chips. A finished `look`, `section` or
+  `show` has "See in view" (or "Show again" for `show`): it puts what the agent
+  looked at on your screen as your own edit, as a saved view is applied (the layout,
+  the parts shown, the cut or the parts apart, the scans, and the camera), so that
+  you can turn it, measure in it or save it. A look framed on a place (`focus`) is
+  not framed again. A finished `highlight` has "Point again", which lights its refs
+  once more, while the window shows the build they were read from and the card was
+  seen as it happened. When a card cannot be gone to (another layout, a part or scan
+  the build lacks, parts apart under a cut) the line says why, in the tools' words,
+  and nothing changes.
+- **The agent's task list.** What the agent plans with `TodoWrite`, or with the
+  task tools (`TaskCreate`, `TaskUpdate`) Claude Code has behind
+  `CLAUDE_CODE_ENABLE_TODO_TOOLS`, is a checklist above the box while the turn
+  runs and has a task left (`Tasks 1 of 4 done`, what is being done in the words
+  of "doing"), and a card in the transcript where the call was, as the list stood
+  then. torno reads it from the cards and keeps nothing of it.
 - **What the turn did.** The last line of a turn says, from the turn's own
   items, what it did to the project: the files the agent edited ("hollow.py
   edited ×2"), the builds those edits started ("r1 → r3 ok", or "build

@@ -231,6 +231,7 @@ export function toolLabel(name: string, input: unknown, where?: ChatWhere): stri
     const at = field(input, 'path')
     if (detail && at) return `${name}: ${cut(detail)} in ${shownPath(at, where)}`
   } else if (name === 'Task') detail = field(input, 'description')
+  else if (name === 'TaskCreate') detail = field(input, 'subject')
   return detail ? `${name}: ${cut(detail)}` : name
 }
 

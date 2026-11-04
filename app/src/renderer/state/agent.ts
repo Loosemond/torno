@@ -30,6 +30,8 @@ import { describeSection } from '../viewport/section'
 import { sectionPng } from '../viewport/sectionDrawing'
 import type { Viewport } from '../viewport/Viewport'
 import { hiddenIn, scansShown } from './savedViews'
+import { type SeeTool, replayOf } from './seeAgain'
+import { markAnchors } from '../../shared/marks'
 import { actions, layerOf, explodeNow, partsInLayout, sceneFileOf, store } from './store'
 
 /** How long what the agent points at stays pointed at, unless the person clicks first. */
@@ -58,6 +60,10 @@ export function useAgentHighlight(): AgentHighlight | null {
 }
 
 let dismiss: () => void = () => {}
+let pointing: (req: HighlightRequest) => HighlightResult = () => {
+  throw new Error('the 3D view is not there')
+}
+let seeing: Pick<Viewport, 'setView' | 'getCamera'> & Partial<Pick<Viewport, 'keepApartInView'>> | null = null
 let peeking: (refs: string[]) => void = () => {}
 
 /** Light these refs in the viewport, in the accent, while the pointer is on what names them; none when it leaves. */
@@ -242,7 +248,7 @@ function missing(ref: string, parts: ReturnType<typeof partsInLayout>): string |
  * dismisses it, the object, the layout or the build changes, or a minute has
  * passed. Returns what undoes the joining.
  */
-export function connectAgent(viewport: Pick<Viewport, 'setView' | 'getCamera' | 'cameraGoal' | 'pointerBusy' | 'setAgentHighlight' | 'setPointed' | 'canvas'>): () => void {
+export function connectAgent(viewport: Pick<Viewport, 'setView' | 'getCamera' | 'cameraGoal' | 'pointerBusy' | 'setAgentHighlight' | 'setPointed' | 'canvas'> & Partial<Pick<Viewport, 'keepApartInView'>>): () => void {
   let timer: ReturnType<typeof setTimeout> | undefined
   const clear = (): void => {
     clearTimeout(timer)
@@ -285,6 +291,9 @@ export function connectAgent(viewport: Pick<Viewport, 'setView' | 'getCamera' | 
     return { objectId: req.objectId, layout: s.layout, refs: req.refs, revision: s.revision }
   }
 
+  pointing = highlight
+  seeing = viewport
+
   const answered = <Q, R>(act: (req: Q) => R, reply: (id: number, result: R | { error: string }) => void) => {
     return ({ id, request }: { id: number; request: Q }): void => {
       let result: R | { error: string }
@@ -322,6 +331,10 @@ export function connectAgent(viewport: Pick<Viewport, 'setView' | 'getCamera' | 
     agentStore.setState({ peek: [] })
     dismiss = () => {}
     peeking = () => {}
+    pointing = () => {
+      throw new Error('the 3D view is not there')
+    }
+    seeing = null
     offShow()
     offHighlight()
     offSaveView()
@@ -329,6 +342,82 @@ export function connectAgent(viewport: Pick<Viewport, 'setView' | 'getCamera' | 
     viewport.canvas.removeEventListener('pointerdown', onDown)
     viewport.canvas.removeEventListener('pointerup', onUp)
   }
+}
+
+/** The tools of the agent's whose card offers the person to go to what it showed, or to be shown it again. */
+export const SEE_TOOLS = ['mcp__torno__look', 'mcp__torno__section', 'mcp__torno__show', 'mcp__torno__highlight'] as const
+
+/**
+ * Where the window stood when a `highlight` of the agent's was first seen, by the id of the tool use: what a card's
+ * "Point again" is checked against, since a ref (`tub/F3`) names whatever that face is in the build it was read from.
+ * Held for the run only; a card not seen as it happened (a history read from the log) has none, and offers nothing.
+ */
+const highlightedAt = new Map<string, { objectId: string | null; revision: number }>()
+
+/** Note that a tool of the agent's was just seen in the transcript: the build the window shows is the one its refs were read from. */
+export function noteTool(toolUseId: string, name: string): void {
+  if (name !== 'mcp__torno__highlight' || highlightedAt.has(toolUseId)) return
+  const s = store.getState()
+  highlightedAt.set(toolUseId, { objectId: s.objectId, revision: s.revision })
+}
+
+/** Whether "Point again" can be offered for this tool use: it was seen as it happened. */
+export function canPointAgain(toolUseId: string): boolean {
+  return highlightedAt.has(toolUseId)
+}
+
+/**
+ * "See in view" of a card of `look`, `section` or `show`: the card's input put on the screen as the person's own
+ * edit, as a saved view is (`actions.applyLook`), and the camera moved to its view. Null when it was done, else why
+ * not, in the words of the tools.
+ */
+export function seeInView(tool: SeeTool, input: unknown): string | null {
+  const viewport = seeing
+  if (!viewport) return 'The 3D view is not there'
+  const plan = replayOf(tool, input, store.getState(), viewport.getCamera())
+  if (typeof plan === 'string') return plan
+  const applied = actions.applyLook(plan.view)
+  if (typeof applied === 'string') return applied
+  // The camera goes there once the store has the rest: the viewport follows the store as it is set.
+  const apart = plan.view.explode !== undefined && !plan.view.section
+  if (plan.camera) viewport.setView(plan.camera, !apart)
+  if (apart) viewport.keepApartInView?.()
+  return null
+}
+
+/**
+ * "Point again" of a card of `highlight`: the same refs and note put back, when the window shows the build they were
+ * read from. Marks and groups are read as the tool reads them. Null when it was done, else why not.
+ */
+export function pointAgain(toolUseId: string, input: unknown): string | null {
+  const then = highlightedAt.get(toolUseId)
+  const s = store.getState()
+  if (!then) return 'That was pointed out before this window was open'
+  if (then.objectId !== s.objectId) return `That was pointed out in another project than the one open (${s.objectId ?? 'none'})`
+  if (then.revision !== s.revision) return `That was pointed out on r${then.revision}; the window shows r${s.revision}, where those refs may name something else`
+  const given = (typeof input === 'object' && input !== null ? input : {}) as { refs?: unknown; note?: unknown; layout?: unknown }
+  if (!Array.isArray(given.refs) || s.objectId === null) return 'There is nothing to point at'
+  const layout = typeof given.layout === 'string' ? given.layout : s.layout
+  const refs: string[] = []
+  for (const ref of given.refs) {
+    if (typeof ref !== 'string') continue
+    if (/^M\d+$/.test(ref)) {
+      const mark = s.marks.find((m) => m.id === ref)
+      const on = mark && mark.layout === layout ? markAnchors(mark).flatMap((a) => (a.ref ? [a.ref] : []))[0] : undefined
+      if (!on) return `${ref} is not on a part, a face or an edge of layout ${layout}`
+      refs.push(on)
+      continue
+    }
+    const group = s.scene && partsNamed(s.scene, layout, [ref])
+    if (Array.isArray(group) && !partsInLayout(s, layout).some((p) => p.name === ref)) refs.push(...group)
+    else refs.push(ref)
+  }
+  try {
+    pointing({ objectId: s.objectId, layout, refs: [...new Set(refs)], ...(typeof given.note === 'string' ? { note: given.note } : {}) })
+  } catch (e) {
+    return e instanceof Error ? e.message : String(e)
+  }
+  return null
 }
 
 let draw: ((req: LookRequest) => Promise<LookResult>) | null = null

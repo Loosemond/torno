@@ -175,7 +175,8 @@ test('a tool of torno is shown as torno\'s: its line, its picture, what was pull
   await say('tool mcp__torno__look {"view":"iso"}')
   const look = chat().locator('.chat-tool[data-torno]').last()
   await expect(look).toContainText('torno · look (iso)')
-  await expect(look.locator('.chat-tool-state')).toHaveText('done', { timeout: 20_000 })
+  await expect(look).toHaveAttribute('data-state', 'done', { timeout: 20_000 })
+  await expect(look.locator('.chat-tool-state')).toHaveText('')
   await expect(look.locator('.chat-thumb')).toHaveCount(1)
   await expect(turns().last()).toContainText('Pulled from torno: look, 1 picture')
   // The picture opens large over the transcript, and Escape puts it away.
@@ -194,7 +195,8 @@ test('a tool of torno is shown as torno\'s: its line, its picture, what was pull
   const bash = chat().locator('.chat-tool').last()
   await expect(bash).toContainText('Bash: ls -la')
   await expect(bash).not.toHaveAttribute('data-torno', '')
-  await expect(bash.locator('.chat-tool-state')).toHaveText('done')
+  await expect(bash).toHaveAttribute('data-state', 'done')
+  await expect(bash.locator('.chat-tool-state')).toHaveText('')
   await expect(bash.locator('.chat-thumb')).toHaveCount(0)
 })
 
@@ -466,4 +468,76 @@ test('"Undo" is offered on the last turn that edited the model while the session
   await expect(turns()).toHaveCount(before + 4, { timeout: 30_000 })
   // That turn is no longer the last, and the new one edited nothing.
   await expect(chat().getByRole('button', { name: 'Undo' })).toHaveCount(0)
+})
+
+test('a card of look can be gone to as the person\'s own view, and a highlight pointed again after a click put it away', async () => {
+  await openListed(page, 'bracket')
+  await expect.poll(async () => (await state()).build, { timeout: 30_000 }).toMatchObject({ status: 'ok' })
+  // Which way the camera looks: from its position to its target.
+  const along = async (): Promise<number[]> => {
+    const c = await page.evaluate(() => window.__tornoTest!.camera())
+    return c.target.map((t, i) => t - c.position[i])
+  }
+  await say('tool mcp__torno__look {"view":"front"}')
+  const look = chat().locator('.chat-tool[data-torno]').last()
+  await expect(look).toHaveAttribute('data-state', 'done', { timeout: 20_000 })
+  const before = await along()
+  await look.getByRole('button', { name: 'See in view' }).click()
+  // The front view looks along +y.
+  await expect.poll(async () => { const [x, y] = await along(); return y > Math.abs(x) * 10 + 1e-6 }, { timeout: 5_000 }).toBe(true)
+  expect(await along()).not.toEqual(before)
+  // The person's own edit, not the agent's `show`: nothing of it is put back.
+  expect((await state()).shownByAgent).toBeNull()
+
+  // A highlight: its refs are chips in the line, and "Point again" lights them once a click has put them away.
+  await say('tool mcp__torno__highlight {"refs":["base/F1"],"note":"here"}')
+  const pointed = chat().locator('.chat-tool[data-torno]').last()
+  await expect(pointed).toHaveAttribute('data-state', 'done', { timeout: 20_000 })
+  await expect(pointed.locator('.ref-chip[data-ref="base/F1"]')).toHaveCount(1)
+  const agentLit = (): Promise<readonly string[]> => page.evaluate(() => window.__tornoTest!.highlighted().agent)
+  await expect.poll(agentLit).toEqual(['base/F1'])
+  const box = (await canvas().boundingBox())!
+  await page.mouse.click(box.x + 4, box.y + 4)
+  await expect.poll(agentLit).toEqual([])
+  await pointed.getByRole('button', { name: 'Point again' }).click()
+  await expect.poll(agentLit).toEqual(['base/F1'])
+})
+
+test('a turn\'s tools fold to one line once it has ended, and the agent\'s list of tasks stands above the box while it works', async () => {
+  await openListed(page, 'bracket')
+  await composer().focus()
+  const script = [
+    'tool TodoWrite {"todos":[{"content":"Look at the part","status":"in_progress","activeForm":"Looking at the part"},{"content":"Report","status":"pending"}]}',
+    'work 2',
+    'tool Read {"file_path":"/ws/a.py"}',
+    'tool Read {"file_path":"/ws/b.py"}',
+    'tool Read {"file_path":"/ws/c.py"}',
+    'tool Read {"file_path":"/ws/d.py"}',
+    'say that is all'
+  ]
+  for (const [n, line] of script.entries()) {
+    await page.keyboard.type(line)
+    if (n < script.length - 1) await page.keyboard.press('Shift+Enter')
+  }
+  await page.keyboard.press('Enter')
+  const turnsBefore = await turns().count()
+  // While it works: the list is above the box, with what is being done.
+  const bar = chat().locator('.chat-tasks-bar')
+  await expect(bar).toContainText('Looking at the part', { timeout: 20_000 })
+  await expect(bar).toContainText('0 of 2 done')
+  // Every line is there while the turn goes on.
+  await expect(chat().locator('.chat-fold')).toHaveCount(0)
+  // Over: the five lines are one, the list is a card in the transcript and no longer above the box.
+  await expect(turns()).toHaveCount(turnsBefore + 1, { timeout: 30_000 })
+  await expect(bar).toHaveCount(0)
+  const fold = chat().locator('.chat-fold').last()
+  await expect(fold.locator('.chat-tool-label')).toHaveText('Bash, Read 4 files')
+  await expect(chat().locator('[data-kind="tasks"]').last()).toContainText('Looking at the part')
+  const lines = chat().locator('.chat-tool:not(.chat-fold-head)')
+  const before = await lines.count()
+  await fold.locator('.chat-tool-line').click()
+  await expect(lines).toHaveCount(before + 5)
+  await expect(fold.locator('.chat-tool[data-state="done"] .chat-tool-state').first()).toHaveText('')
+  await fold.locator('.chat-tool-line').first().click()
+  await expect(lines).toHaveCount(before)
 })
