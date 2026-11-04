@@ -739,10 +739,12 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   it). It is appended with `--append-system-prompt`, not an agent definition or an output style. `contextFor`
   names tools through `opts.toolName` likewise.
 - **Ablations of an eval run** (`main/ablations.ts`, `ablations()`, read once in `index.ts`): `TORNO_EVAL_ABLATE`
-  (`skills`, `reviewer`, `stop`, `look`) is read only when both `TORNO_TEST=1` and `TORNO_EVAL=1` are set, and is
-  empty otherwise; an unknown name throws. Each is one switch: no plugin folder for the adapter, `claudeAdapter`'s
+  (`skills`, `reviewer`, `stop`, `look`, `digest`), and `evalTuning()` of `TORNO_EVAL_LOOK_SIZE` (`ToolDeps.lookSize`,
+  the fallback of `clampSize`) and `TORNO_EVAL_HOLDS` (`Sessions`' `mostHolds`, 1 or 2), are read only when both
+  `TORNO_TEST=1` and `TORNO_EVAL=1` are set, and are empty otherwise; an unknown name or a value out of range throws.
+  `digest` is `ContextDeps.digest: false` on the deps of `buildContextFor` (`state.md` keeps its digest). Each is one switch: no plugin folder for the adapter, `claudeAdapter`'s
   `reviewer: false` (no `--agents`), `Sessions`' `holdStops: false` (`stopAnswer` holds nothing), `ToolDeps.off` (the
-  tool answers `LOOK_OFF`). Neither variable reaches the agent (`agentEnv`). Only `app/evals` sets them together.
+  tool answers `LOOK_OFF`). None of the variables reaches the agent (`agentEnv`). Only `app/evals` sets them together.
 - The view of an object's sessions, chat or terminal, is chosen under the session header and kept in
   `<object>/.torno/agent.json` (`{ "agent": "claude", "view": "terminal" }`; `sessions/choice.ts`, main's alone,
   atomic; `agent` is written still, so that the file is one an older torno reads). No file is the chat. A file

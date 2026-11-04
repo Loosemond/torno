@@ -238,7 +238,7 @@ export async function lookTool(deps: ToolDeps, objectId: string, given: LookArgs
   if (wrong !== null) return failure(wrong)
   const view = cameraOf(args.view)
   if (view === null) return failure('position and target are the same')
-  const request: LookRequest = { view, size: clampSize(args.size) }
+  const request: LookRequest = { view, size: clampSize(args.size, deps.lookSize) }
   if (named) request.viewName = named.view.name
   if (args.layout !== undefined) request.layout = args.layout
   if (args.parts !== undefined) {

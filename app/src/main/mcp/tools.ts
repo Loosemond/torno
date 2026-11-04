@@ -41,6 +41,8 @@ import { type SceneArgs, lookTool, saveViewTool, sceneTool, showTool } from './v
 export interface ToolDeps {
   /** The tools an eval run takes away (`main/ablations.ts`): each answers that it is off. Absent in every other run. */
   off?: ReadonlySet<string>
+  /** The size of a `look` that names none, from an eval run (`evalTuning`); DEFAULT_SIZE otherwise. */
+  lookSize?: number
   /** Takes out of what the model printed what must not be told (the tokens of the sessions). */
   redact?(text: string): string
   object(objectId: string): ObjectInfo | undefined
@@ -389,8 +391,8 @@ export function onScreen(deps: ToolDeps, objectId: string): { obj: ObjectInfo; r
   return found
 }
 
-export function clampSize(size: number | undefined): number {
-  if (size === undefined || !Number.isFinite(size)) return DEFAULT_SIZE
+export function clampSize(size: number | undefined, fallback: number = DEFAULT_SIZE): number {
+  if (size === undefined || !Number.isFinite(size)) return fallback
   return Math.round(Math.min(Math.max(size, MIN_SIZE), MAX_SIZE))
 }
 

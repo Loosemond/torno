@@ -77,6 +77,8 @@ const moreMarksBy = (toolName: ToolName) => (count: number): string => `… and 
 const moreDimensionsBy = (toolName: ToolName) => (count: number): string => `… and ${count} more unmet or unmeasured: call ${toolName('marks')}`
 
 export interface ContextDeps {
+  /** False only in an eval run that takes it away (`main/ablations.ts`): the answer to an edit has no digest. */
+  digest?: boolean
   object(objectId: string): ObjectInfo | undefined
   build(objectId: string): BuildState | undefined
   /** The last successful build. */
@@ -242,11 +244,12 @@ function contextText(deps: ContextDeps, objectId: string, marks: readonly Mark[]
   // What the dimensions need at the least, kept from the drafts: the head, how many are left out, how many pass.
   const floor = (unmet.length > 0 ? 1 + DIMENSIONS_HEAD.length + 1 + moreDimensions(unmet.length).length : passLine ? 1 + DIMENSIONS_HEAD.length : 0) + (passLine ? 1 + passLine.length : 0)
   // After an edit, what its build did to the parts: before the dimensions, in what their least leaves.
-  const digest = opts.buildOnly ? buildDigest(deps, objectId) : undefined
+  const digested = opts.buildOnly ? buildDigest(deps, objectId) : undefined
+  const digest = deps.digest === false ? undefined : digested
   const digestLines = digest ? digestText(digest, CONTEXT_LIMIT - lines.join('\n').length - floor - 1, toolName) : ''
   if (digestLines) lines.push(digestLines)
   // Which sizes the model says it assumed, only when that set is other than after the build before.
-  const assumed = opts.buildOnly && digest ? paramsLine(deps, objectId) : ''
+  const assumed = opts.buildOnly && digested ? paramsLine(deps, objectId) : ''
   if (assumed && lines.join('\n').length + 1 + assumed.length <= CONTEXT_LIMIT - floor - 1) lines.push(assumed)
   let used = lines.join('\n').length + (openLine ? openLine.length + 1 : 0) + floor + (instructed ? instructed.length + 1 : 0)
   /**
