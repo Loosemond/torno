@@ -88,6 +88,12 @@ export interface TornoBridge {
     hasExample(): Promise<boolean>
     /** Opens a copy of the example, made in a temporary folder. It is not remembered. */
     openExample(): Promise<WorkspaceInfo>
+    /**
+     * "Keep this as a folder": copies the open example, with whatever was made in it, to a new folder at a path the person
+     * chooses in the save dialog (never one given here), whole or not at all, and opens that folder in its place. Null
+     * when the dialog was cancelled. Rejects, saying why, for a folder that is there already.
+     */
+    keepExample(): Promise<WorkspaceInfo | null>
     onRequested(cb: (root: string) => void): () => void  // a second launch of torno was given this folder to open
     /** The window was asked to close (the window manager's close): it is held until the window answers. */
     onCloseAsked(cb: () => void): () => void

@@ -82,7 +82,7 @@ test('builds an object with the kernel it carries, in an environment outside the
   expect(listing(installed(packaged!))).toEqual(before)
 })
 
-test('offers the example it carries, with its four objects', async () => {
+test('offers the example it carries, with its project, marks and views', async () => {
   test.setTimeout(420_000)
   const bare = await launch()
   let copy = ''
@@ -96,6 +96,8 @@ test('offers the example it carries, with its four objects', async () => {
     const resources = await bare.evaluate(() => process.resourcesPath)
     expect(copy.startsWith(resources)).toBe(false)
     await expect(page.locator('.object-row')).toHaveText([...EXAMPLE_OBJECTS].sort())
+    // Its marks and its views came with it, from the resources.
+    for (const file of ['marks.json', 'scene.json']) expect(existsSync(join(copy, EXAMPLE_OBJECTS[0], '.torno', file))).toBe(true)
   } finally {
     await bare.close()
   }

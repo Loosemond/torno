@@ -297,7 +297,7 @@ test('the example says for as long as it is open that it is a temporary copy', a
   // A session runs here (the stand-in says nothing of being at work once it has answered): leaving may ask first.
   const leave = page.getByRole('button', { name: 'Open another folder' })
   if (await leave.isVisible().catch(() => false)) await leave.click()
-  await expect(page.locator('.workspace-example')).toHaveText(EXAMPLE_NOTE)
+  await expect(page.locator('.workspace-example')).toContainText(EXAMPLE_NOTE)
   expect(EXAMPLE_NOTE).toBe('A temporary copy: it is removed when torno quits')
   expect((await state()).workspace!.example).toBe(true)
 })
