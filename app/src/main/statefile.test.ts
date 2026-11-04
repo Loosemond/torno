@@ -47,6 +47,15 @@ afterEach(() => {
 })
 
 describe('stateText', () => {
+  it('lists the sizes of Params with where the model says each comes from', () => {
+    const param = (name: string, value: number, doc: string | null) => ({ name, type: 'float', default: value, literal: true, doc })
+    const scene = { ...SCENE, params: [param('wall', 2, 'assumed: perimeters'), param('w', 60, 'brief: asked'), param('c', 1, null)] }
+    const text = stateText(obj, OK, { revision: 3, scene }, [])
+    expect(text).toContain('## Params')
+    expect(text).toContain('- wall = 2: assumed\n- w = 60: brief\n- c = 1: no source')
+    expect(stateText(obj, OK, { revision: 3, scene: SCENE }, [])).not.toContain('## Params')
+  })
+
   it('writes the digest of a build that worked under it, naming the tools as tools', () => {
     const sound = (name: string, more: Partial<Part> = {}): Part => ({ ...part('assembly', name, [0, 0, 0], [10, 10, 10]), volume: 1000, faceCount: 6, edgeCount: 12, valid: true, solids: 1, openShells: 0, ...more }) as Part
     const before = { revision: 2, scene: { ...SCENE, layouts: ['assembly'], parts: [sound('base'), sound('post')] } }

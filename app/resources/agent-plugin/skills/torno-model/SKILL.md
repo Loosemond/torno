@@ -19,7 +19,7 @@ Before the first build of a new project, and before a new feature whose key size
    2 to 4 options, one of them a typical value labelled as typical ("0.2 mm per side, usual for PLA at a 0.4 mm
    nozzle"); the person may answer "build with assumptions". Do not ask about what you can choose freely (a fillet
    radius, a chamfer). If every size has a source, ask nothing. Never ask more than one round for a change.
-3. Build with the answers. A size still unknown is built as assumed: a field of `Params` commented "assumed", and your
+3. Build with the answers. A size still unknown is built as assumed: a field of `Params` whose comment begins `assumed:`, and your
    reply lists the assumptions.
 
 ## Seeing a value while building
@@ -91,6 +91,18 @@ def groups(p: Params):
 Every size, clearance and count is a field of `Params`, with a default; functions read `p.wall`, never a number
 written inline. A change of size is then one edit, and the parts that must fit each other read the same field.
 
+Every size says where it comes from: its comment begins with the source and a colon, and the rest says why. The
+sources are `brief`, `M<n>` (a mark), `S<n> ≈` (a scan), `ref <file>` (a reference picture's note), `object` (another
+project), `datasheet <name>`, `person` (an answer in the chat), `derived` (worked out from other fields) and
+`assumed`. A size with no source is shown to the person as having none; torno tells you the assumed ones after a build
+and does not check any of them.
+
+```py
+wall: float = 2.0       # assumed: 5 perimeters at 0.4 mm
+board_w: float = 55.2   # datasheet: ESP32-S3 DevKitC-1 v1.1
+clearance: float = 0.2  # person: "0.2 per side"
+```
+
 ## Template
 
 ```python
@@ -103,13 +115,13 @@ from build123d import Axis, Box, Location, Pos, Rot, fillet
 
 @dataclass(frozen=True)
 class Params:
-    width: float = 60.0
-    depth: float = 40.0
-    height: float = 30.0
-    wall: float = 2.0
-    lid_height: float = 4.0
-    clearance: float = 0.2
-    rounding: float = 1.0
+    width: float = 60.0  # brief: "about 60 by 40"
+    depth: float = 40.0  # brief: "about 60 by 40"
+    height: float = 30.0  # assumed: not in the brief
+    wall: float = 2.0  # assumed: 5 perimeters at 0.4 mm
+    lid_height: float = 4.0  # assumed: plate 2 mm plus a 2 mm lip
+    clearance: float = 0.2  # person: "0.2 per side"
+    rounding: float = 1.0  # assumed: a soft edge
 
 
 def make_tub(p: Params):

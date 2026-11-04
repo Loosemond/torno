@@ -307,7 +307,10 @@ layers (parts) of the open project each have a visibility switch. Parameters lis
 the model's `Params` (folded to its title at first; a model with none has no section): each
 field's name, its default in the monospace face (four digits at most, the whole value on hover) and
 its comment as the model has it, and, for a default the model works out (an expression, not a
-number written in), that it is worked out in the model. It is read only: torno never writes
+number written in), that it is worked out in the model. The model's comments should begin with where a size
+comes from (`brief:`, `M3:`, `S1 ≈:`, `ref <file>:`, `object:`, `datasheet <name>:`, `person:`, `derived:` or
+`assumed:`), and under the title a line counts the sizes that say `assumed` and those that say nothing, their
+names on hover; it is what the model says, not something torno has checked. It is read only: torno never writes
 the model. With a session running, a click on a row puts `Params.wall` in its prompt at the
 cursor, never sent, so you can write "make Params.wall 2.4" around it; with no session the rows say
 to start one. A model that says which of its parts belong together (an optional
@@ -815,8 +818,11 @@ So a `print()` in the model is how the agent sees a value, since it may not run
 the model itself; `scene` gives the same as `output`. `state.md` does not
 carry what the model printed.
 
+After a build, the agent is also told which sizes the model's comments say are assumed or have no source
+(`Assumed: wall 2, lip 3 (2 of 14 sizes); no source: 4`), only when that set is other than after the build before.
+
 `.torno/state.md` says the same as text, for an agent without torno's tools:
-the build, the layouts and parts, the saved views, the scans and every open
+the build, the layouts and parts, where each size of `Params` comes from, the saved views, the scans and every open
 mark. Its first line says when it was written: nothing keeps it current once
 torno has quit.
 

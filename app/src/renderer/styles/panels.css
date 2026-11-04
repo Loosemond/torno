@@ -514,3 +514,9 @@ button.param-button:focus-visible {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.params-sources {
+  margin: 0 0 var(--space-2);
+  color: var(--muted);
+  font-size: var(--text-small);
+}

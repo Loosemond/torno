@@ -231,7 +231,10 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   (`src/main/statefile.ts`): the build (and under it the digest of a build that
   worked, naming tools as `the diff tool`), the parts, the scans with how each is
   aligned in every layout, the open marks. Its first line is when it was
-  written.
+  written. A `## Params` section lists each numeric `Params` field with the source its comment begins with
+  (`shared/params.ts` `sourceOf`: the model's claim, never checked; no or unknown word is `no source`, never
+  `assumed`). The answer to an edit adds `Assumed: …; no source: n` (`paramsLine` in `context.ts`) only when the set
+  differs from the build before's, compared from the two kept scenes, so no state is tracked.
 
 ## Explode
 
