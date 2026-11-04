@@ -688,6 +688,17 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   let go of, when its session is released or dropped), its file name as the thumbnail's title, the frame empty
   while it comes; one main has no plain file for says `reference/doodle-1.png is no longer there`, the path in the
   monospace face. A tool's picture says "Picture of an earlier build, not kept"; any other "Picture not kept".
+- **A tool card goes to what it showed** (`ui/chat/ToolCard.tsx`). The line is a row (`.chat-tool-row`) whose toggle
+  (`.chat-tool-line`, `aria-expanded`) covers it, so that the refs of a torno card's label are live chips (a button inside
+  a button is no HTML) and the action is a button beside the state. A finished `look`, `section` or `show` has "See in
+  view" (`show`: "Show again"): `seeInView` in `state/agent.ts` reads the card's input once more against the window as it is
+  now (`replayOf` in `state/seeAgain.ts`, pure: a saved view it names is that view but for what is given beside it; a cut
+  given leaves the parts together; an explode under a cut, a layout, scan or saved view the build lacks are refused in the
+  tools' words, and a `focus` is not framed again, it being worked out in main) and applies it as the person's own edit
+  (`actions.applyLook`, which `applyView` is the saved-view case of: `shownByAgent` cleared, no `activeView`) and then
+  moves the camera. A finished `highlight` has "Point again" (`pointAgain`) only for a card that was seen as it
+  happened (`noteTool` in the chat's `onItem` keeps the object and build on show then: a ref names whatever that face is
+  in the build it was read from), and only while the window shows that build. A refusal is a line under the card.
 - **"Draw on view"** (`ui/drawing/`, `state/drawing.ts`). The ground is the agent's own picture of the view
   (`picture({ view: 'current', size: 1280 })`, the code of `look`), opened on `ui/board/Board.tsx` by `ViewBoard`, over
   the whole window as the export sheet is. The ink is `--drawing-ink` over a casing in `--panel` (`InkLook`), read once

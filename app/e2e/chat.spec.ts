@@ -389,3 +389,36 @@ test('the build an edit started is a build under the edit: that it worked and ho
   await expect(chat().locator('.chat-build').last()).toContainText('Built r3 · ok', { timeout: 30_000 })
   await expect(failed.getByRole('button', { name: 'Show error' })).toHaveCount(0)
 })
+
+test('a card of look can be gone to as the person\'s own view, and a highlight pointed again after a click put it away', async () => {
+  await openListed(page, 'bracket')
+  await expect.poll(async () => (await state()).build, { timeout: 30_000 }).toMatchObject({ status: 'ok' })
+  // Which way the camera looks: from its position to its target.
+  const along = async (): Promise<number[]> => {
+    const c = await page.evaluate(() => window.__tornoTest!.camera())
+    return c.target.map((t, i) => t - c.position[i])
+  }
+  await say('tool mcp__torno__look {"view":"front"}')
+  const look = chat().locator('.chat-tool[data-torno]').last()
+  await expect(look).toHaveAttribute('data-state', 'done', { timeout: 20_000 })
+  const before = await along()
+  await look.getByRole('button', { name: 'See in view' }).click()
+  // The front view looks along +y.
+  await expect.poll(async () => { const [x, y] = await along(); return y > Math.abs(x) * 10 + 1e-6 }, { timeout: 5_000 }).toBe(true)
+  expect(await along()).not.toEqual(before)
+  // The person's own edit, not the agent's `show`: nothing of it is put back.
+  expect((await state()).shownByAgent).toBeNull()
+
+  // A highlight: its refs are chips in the line, and "Point again" lights them once a click has put them away.
+  await say('tool mcp__torno__highlight {"refs":["base/F1"],"note":"here"}')
+  const pointed = chat().locator('.chat-tool[data-torno]').last()
+  await expect(pointed).toHaveAttribute('data-state', 'done', { timeout: 20_000 })
+  await expect(pointed.locator('.ref-chip[data-ref="base/F1"]')).toHaveCount(1)
+  const agentLit = (): Promise<readonly string[]> => page.evaluate(() => window.__tornoTest!.highlighted().agent)
+  await expect.poll(agentLit).toEqual(['base/F1'])
+  const box = (await canvas().boundingBox())!
+  await page.mouse.click(box.x + 4, box.y + 4)
+  await expect.poll(agentLit).toEqual([])
+  await pointed.getByRole('button', { name: 'Point again' }).click()
+  await expect.poll(agentLit).toEqual(['base/F1'])
+})

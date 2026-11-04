@@ -373,43 +373,70 @@ button.ref-chip {
   border-left: 2px solid var(--accent);
 }
 
-.chat-tool-line {
+/* The row is the line; its toggle covers it, and what is live on it (a ref, "See in view") stands over the toggle. */
+.chat-tool-row {
+  position: relative;
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: var(--space-3);
-  width: 100%;
   padding: 2px var(--space-1);
   margin-left: calc(-1 * var(--space-1));
-  border: 0;
   border-radius: 4px;
-  background: transparent;
   color: var(--muted);
-  text-align: left;
 }
 
-.chat-tool[data-torno] .chat-tool-line {
+.chat-tool[data-torno] .chat-tool-row {
   color: var(--ink);
 }
 
-.chat-tool-line:hover {
+.chat-tool-row:hover {
   background: var(--accent-wash);
+}
+
+.chat-tool-line {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+}
+
+.chat-tool-label .ref-chip,
+.chat-tool-act {
+  position: relative;
+  pointer-events: auto;
+}
+
+.chat-tool-act {
+  flex: none;
+}
+
+.chat-tool-said {
+  margin: 0;
+  padding: 0 var(--space-1);
+  color: var(--muted);
 }
 
 .chat-tool-label {
   min-width: 0;
+  pointer-events: none;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .chat-tool-steps {
+  pointer-events: none;
   flex: none;
   margin-left: auto;
   color: var(--muted);
 }
 
 .chat-tool-state {
+  pointer-events: none;
   display: inline-flex;
   flex: none;
   align-items: center;

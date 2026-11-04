@@ -491,7 +491,16 @@ is a new line, and a prompt sent while the agent is at work waits its turn
   of its own, with its input, its result and its pictures as thumbnails that
   open large; the turn ends with a line such as "Pulled from torno: scene, 2
   pictures, measure ×3". Other tools are one line each, opened for their input
-  and result.
+  and result. The refs in a card's line are chips. A finished `look`, `section` or
+  `show` has "See in view" (or "Show again" for `show`): it puts what the agent
+  looked at on your screen as your own edit, as a saved view is applied (the layout,
+  the parts shown, the cut or the parts apart, the scans, and the camera), so that
+  you can turn it, measure in it or save it. A look framed on a place (`focus`) is
+  not framed again. A finished `highlight` has "Point again", which lights its refs
+  once more, while the window shows the build they were read from and the card was
+  seen as it happened. When a card cannot be gone to (another layout, a part or scan
+  the build lacks, parts apart under a cut) the line says why, in the tools' words,
+  and nothing changes.
 - **Refs are live.** `M4`, `lid/F12` and `lid/E3` in the agent's text and in
   the cards are chips: hovering one lights it in the view, clicking a mark
   focuses it, clicking a face or an edge selects it. A ref that names nothing

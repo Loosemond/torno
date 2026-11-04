@@ -1,10 +1,13 @@
 import { memo, useMemo, useState } from 'react'
-import { type ChatItem, type ChatWhere, shownPath, toolLabel } from '../../../shared/chat'
+import { type ChatItem, type ChatWhere, refsIn, shownPath, toolLabel } from '../../../shared/chat'
+import { canPointAgain, pointAgain, seeInView } from '../../state/agent'
+import { seeToolOf } from '../../state/seeAgain'
 import { numbered } from '../numbered'
 import { Diff } from './Diff'
 import { editHunks, type Hunk, limitHunks } from './lineDiff'
 import { Pictures } from './Pictures'
 import { useChatPlace } from './place'
+import { RefChip } from './RefChip'
 import { RefText } from './RefText'
 
 type Tool = Extract<ChatItem, { kind: 'tool' }>
@@ -76,22 +79,46 @@ function Changes({ hunks, input, where }: { hunks: Hunk[]; input: unknown; where
  */
 export const ToolCard = memo(function ToolCard({ item, beat }: { item: Tool; beat: boolean }) {
   const [open, setOpen] = useState(false)
+  const [said, setSaid] = useState<string | null>(null)
   const where = useChatPlace()
   const label = useMemo(() => toolLabel(item.name, item.input, where), [item.name, item.input, where])
   const full = useMemo(() => toolLabel(item.name, item.input), [item.name, item.input])
   // Only an open card needs its input as text.
   const hunks = useMemo(() => (open ? editHunks(item.name, item.input) : undefined), [open, item.name, item.input])
   const input = useMemo(() => (open && !hunks ? inputText(item.input) : ''), [open, hunks, item.input])
+  // What a finished tool of torno's can do again: go to the view it showed, show it, or point at the refs once more.
+  const seen = seeToolOf(item.name)
+  const act =
+    item.state !== 'done'
+      ? null
+      : seen !== null
+        ? { word: seen === 'show' ? 'Show again' : 'See in view', run: () => seeInView(seen, item.input) }
+        : item.name === 'mcp__torno__highlight' && canPointAgain(item.toolUseId)
+          ? { word: 'Point again', run: () => pointAgain(item.toolUseId, item.input) }
+          : null
   return (
     <div className="chat-item chat-tool" data-kind="tool" data-torno={item.torno ? '' : undefined} data-state={item.state}>
-      <button type="button" className="chat-tool-line" title={full} aria-expanded={open} onClick={() => setOpen(!open)}>
-        <span className="chat-tool-label">{numbered(label)}</span>
+      <div className="chat-tool-row">
+        <button type="button" className="chat-tool-line" title={full} aria-label={full} aria-expanded={open} onClick={() => setOpen(!open)} />
+        <span className="chat-tool-label">
+          {item.torno ? refsIn(label).map((piece, n) => (piece.ref !== undefined ? <RefChip key={n} value={piece.ref} prose /> : <span key={n}>{numbered(piece.text)}</span>)) : numbered(label)}
+        </span>
         {item.steps !== undefined && <span className="chat-tool-steps">{numbered(`${item.steps} ${item.steps === 1 ? 'step' : 'steps'}`)}</span>}
         <span className="chat-tool-state">
           {item.state === 'running' && <span className="chat-dot" data-beat={beat ? undefined : 'off'} aria-hidden="true" />}
           {STATE_WORD[item.state]}
         </span>
-      </button>
+        {act && (
+          <button type="button" className="chat-more chat-tool-act" onClick={() => setSaid(act.run())}>
+            {act.word}
+          </button>
+        )}
+      </div>
+      {said !== null && (
+        <p className="chat-tool-said" role="status">
+          {numbered(said)}
+        </p>
+      )}
       {item.images.length > 0 && <Pictures images={item.images} what={label} />}
       {open && (
         <div className="chat-tool-body">

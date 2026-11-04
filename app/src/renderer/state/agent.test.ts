@@ -3,7 +3,7 @@ import type { Part, Scene } from '../../shared/scene'
 import type { SceneFile } from '../../shared/scenefile'
 import type { Camera, HighlightRequest, LookRequest, LookResult, SaveViewRequest, SaveViewResult, SectionDrawingRequest, ShowRequest } from '../../shared/view'
 import { MAX_PROPOSALS } from '../../shared/views'
-import { agentStore, connectAgent, connectLook, dismissHighlight, HIGHLIGHT_FOR_MS, peek, setPictures } from './agent'
+import { agentStore, canPointAgain, connectAgent, connectLook, dismissHighlight, HIGHLIGHT_FOR_MS, noteTool, peek, pointAgain, seeInView, setPictures } from './agent'
 import { actions, explodeNow, sceneFileOf, store } from './store'
 
 const part = (layout: string, name: string): Part => ({ key: `${layout}:${name}`, name, layout, faceCount: 6, edgeCount: 12, bbox: name === 'post' ? { min: [-4, -4, 2.5], max: [4, 4, 22.5] } : { min: [-20, -15, -2.5], max: [20, 15, 2.5] } }) as Part
@@ -632,5 +632,68 @@ describe('look, joined by the app', () => {
       { id: 6, result: { error: 'the torno window has no 3D view to draw it with' } },
       { id: 7, result: { error: 'no build yet' } }
     ])
+  })
+})
+
+describe('a card of the agent\'s, gone to by the person', () => {
+  const ASSEMBLY = 'assembly'
+
+  it('"See in view" puts a look on screen as the person\'s own edit and moves the camera', () => {
+    actions.showForAgent(ASSEMBLY, { post: false })
+    expect(seeInView('look', { view: 'front', parts: ['base', 'post'], section: { axis: 'z', at: 1 } })).toBeNull()
+    const s = store.getState()
+    expect(s.section).toEqual({ origin: [0, 0, 1], normal: [0, 0, 1] })
+    expect(s.layers.post?.visible).not.toBe(false)
+    // The person's now: nothing of it is the agent's to put back.
+    expect(s.shownByAgent).toBeNull()
+    expect(views.at(-1)).toBe('front')
+  })
+
+  it('leaves out of a look what it leaves out: the camera stays for "current", and the parts as they are', () => {
+    actions.setLayer('post', { visible: false })
+    expect(seeInView('look', { view: 'current' })).toBeNull()
+    expect(views).toEqual([])
+    expect(store.getState().layers.post?.visible).toBe(false)
+  })
+
+  it('a section is the card\'s plane, and an explode with it is refused in the tools\' words, with nothing changed', () => {
+    expect(seeInView('section', { plane: { axis: 'z', at: 2 } })).toBeNull()
+    expect(store.getState().section).not.toBeNull()
+    const edits = store.getState().edits
+    expect(seeInView('look', { explode: { amount: 0.5, axis: 'z' } })).toMatch(/a section is not drawn exploded/)
+    expect(store.getState().edits).toBe(edits)
+    // With the section taken away in the same look, it is drawn apart.
+    expect(seeInView('look', { section: null, explode: { amount: 0.5, axis: 'z' } })).toBeNull()
+    expect(explodeNow(store.getState())).toMatchObject({ amount: 0.5, axis: 'z' })
+  })
+
+  it('a layout, a saved view or a scan the build lacks is refused, and a focus is not framed again', () => {
+    expect(seeInView('show', { layout: 'nowhere' })).toMatch(/no layout 'nowhere'/)
+    expect(seeInView('look', { view: 'hinge side' })).toMatch(/no view "hinge side"/)
+    expect(seeInView('show', { scans: ['S9'] })).toMatch(/no scan S9/)
+    expect(seeInView('look', { view: 'iso', focus: 'base/F1' })).toMatch(/framed on a place/)
+    expect(views).toEqual([])
+  })
+
+  it('"Point again" lights the same refs once the first were put away, on the same build', () => {
+    noteTool('t1', 'mcp__torno__highlight')
+    expect(pointAgain('t1', { refs: ['base/F5', 'post'], note: 'this one?' })).toBeNull()
+    expect(agentStore.getState().highlight).toEqual({ refs: ['base/F5', 'post'], note: 'this one?' })
+    press()
+    release()
+    expect(agentStore.getState().highlight).toBeNull()
+    expect(pointAgain('t1', { refs: ['base/F5', 'post'], note: 'this one?' })).toBeNull()
+    expect(tinted.at(-1)).toEqual(['base/F5', 'post'])
+  })
+
+  it('"Point again" says why not: a card not seen as it happened, another build, a face the build lacks', () => {
+    expect(canPointAgain('t2')).toBe(false)
+    expect(pointAgain('t2', { refs: ['base'] })).toMatch(/before this window was open/)
+    noteTool('t2', 'mcp__torno__highlight')
+    expect(canPointAgain('t2')).toBe(true)
+    expect(pointAgain('t2', { refs: ['base/F99'] })).toMatch(/nothing was highlighted/)
+    actions.applyScene({ objectId: 'bracket', revision: 4, scene: SCENE })
+    expect(pointAgain('t2', { refs: ['base'] })).toMatch(/r3.*r4/)
+    expect(agentStore.getState().highlight).toBeNull()
   })
 })
