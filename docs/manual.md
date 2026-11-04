@@ -1448,6 +1448,7 @@ place.
 | `session.json` | the conversation to resume | ignored |
 | `state.md` | the build, the parts, the views, the scans and the open marks as text | ignored |
 | `thumb.png`, `thumb.json` | the card's picture, and what it is of | ignored |
+| `builds.jsonl` | a line for each build that worked: its revision, when, the run of torno it was made in (revisions count from 1 in every run), a hash of the sources it was made from, and the commit then checked out and whether files differed from it; the last 500 | ignored |
 | `views/<n>.png` | the pictures and section drawings the agent asked for, the latest 20 | ignored (a picture of a scan may show the real world) |
 | `exports/` | where the save dialog of an export opens; empty unless you save there | ignored |
 
@@ -1456,7 +1457,7 @@ adds lines to and never rewrites; a line you negate there (`!state.md`) is
 yours, and is not added against. What travels with the project in git is what
 is the project's: `scene.json`, `marks.json`, `scans.json` and `agent.json`.
 What changes with every build or session, or is of this machine, is
-ignored: `state.md`, `session.json`, `chat/`, the thumbnail, `views/` and
+ignored: `state.md`, `session.json`, `chat/`, the thumbnail, `builds.jsonl`, `views/` and
 `exports/`. Add `.torno/` to the workspace's `.gitignore` if you
 want none of it in git.
 
