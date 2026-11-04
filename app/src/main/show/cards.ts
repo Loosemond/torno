@@ -78,7 +78,9 @@ async function cardOf(deps: CardDeps, obj: ObjectInfo, commonOf: (dir: string) =
   const marks = opened ? await deps.marks(obj.id).catch(() => null) : await deps.readFile(join(obj.dir, FOLDER, 'marks.json')).then(peekMarks, (e: unknown) => (isMissing(e) ? [] : null))
   const meta = await deps.readFile(join(obj.dir, FOLDER, THUMB_JSON)).then((text) => JSON.parse(text) as unknown).catch(() => null)
   const [own, common] = sourceFolders(obj.dir)
-  let thumb = meta === null ? null : thumbOf(meta, obj.model === null ? null : newestOf(await deps.sourcesMtimeMs(own).catch(() => null), await commonOf(common)))
+  // When a source was last saved: one read of two folders' listings, nothing built. For the picture's `behind` and for the card's own line.
+  const saved = obj.model === null ? null : newestOf(await deps.sourcesMtimeMs(own).catch(() => null), await commonOf(common))
+  let thumb = meta === null ? null : thumbOf(meta, saved)
   // A picture of what another file made is behind, whenever that one was last saved.
   if (thumb && (meta as { model?: unknown }).model !== obj.model) thumb = { ...thumb, behind: true }
   // The picture on file is not the one these facts are of (two builds landed close together, a file was put
@@ -86,6 +88,7 @@ async function cardOf(deps: CardDeps, obj: ObjectInfo, commonOf: (dir: string) =
   if (thumb && (await deps.size(join(obj.dir, FOLDER, THUMB_PNG)).catch(() => null)) !== (meta as { bytes?: unknown }).bytes) thumb = null
 
   const card: ObjectCard = { id: obj.id, name: obj.name, opened, thumb, marks: marks && { open: marks.filter((m) => m.status !== 'resolved').length, drafts: marks.filter((m) => m.status === 'draft').length }, dimensions: null, session: deps.session(obj.id) }
+  if (saved !== null) card.sourcesMtimeMs = saved
   if (obj.problem !== undefined) {
     // The folder by its name: the card is of that folder, and where it is on this machine is for whoever asks.
     card.problem = obj.problem.split(obj.dir).join(obj.name)

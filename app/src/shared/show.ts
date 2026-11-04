@@ -21,6 +21,8 @@ export interface ObjectCard {
    * `apart`, and how many parts of the layout it leaves out (`hidden`). Null for none.
    */
   thumb: { at: string; layout: string; behind: boolean; cut?: true; apart?: true; hidden?: number } | null
+  /** When the newest source of its model was saved (ms since the epoch), read from the files; absent when it has none. */
+  sourcesMtimeMs?: number
   /** Null when the marks file could not be read. */
   marks: { open: number; drafts: number } | null
   /** Of the last build of this run; null for an object not built in it (a verdict of no build of this run is none). */

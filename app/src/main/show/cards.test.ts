@@ -57,7 +57,7 @@ describe('cardsOf', () => {
   it('says of one not opened only what its files say, and no verdict of a build it has not seen', async () => {
     const [, b] = await cardsOf(deps())
     // What its one dimension said when it was last measured is of a run before: told as that, never as a verdict.
-    expect(b).toEqual({ id: 'b', name: 'b', opened: false, thumb: { at: '2026-10-08T21:14:03.000Z', layout: 'assembly', behind: true }, marks: { open: 2, drafts: 1 }, dimensions: null, lastRun: { dimensions: 1, failed: 1 }, session: null })
+    expect(b).toEqual({ id: 'b', name: 'b', opened: false, thumb: { at: '2026-10-08T21:14:03.000Z', layout: 'assembly', behind: true }, marks: { open: 2, drafts: 1 }, dimensions: null, lastRun: { dimensions: 1, failed: 1 }, session: null, sourcesMtimeMs: 2000 })
   })
 
   it('says a marks file could not be read, and carries a problem', async () => {

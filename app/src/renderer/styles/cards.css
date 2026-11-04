@@ -55,11 +55,41 @@
   gap: var(--space-4);
   /* Clear of the button that shows and hides the session, in the window's corner when the dock is away. */
   min-height: 34px;
-  margin-bottom: 22px;
+  /* Stays at the top while the cards scroll under it: out to the page's edges, on the page's ground. */
+  position: sticky;
+  top: -28px;
+  z-index: 2;
+  margin: -28px -36px 22px;
+  padding: 28px 36px 10px;
+  background: var(--surface);
+}
+
+.show-order {
+  display: flex;
+  flex: none;
+  border: var(--divider);
+  border-radius: var(--radius-control);
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.show-order button {
+  height: 28px;
+  padding: 0 var(--space-3);
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-small);
+}
+
+.show-order button[aria-pressed='true'] {
+  background: var(--accent-wash);
+  color: var(--accent);
 }
 
 .shell[data-dock='collapsed'] .show-head {
-  padding-right: 36px;
+  padding-right: 72px;
 }
 
 .show-title {
@@ -229,6 +259,7 @@
   grid-template-columns: auto minmax(0, max-content);
   place-content: center;
   justify-items: start;
+  text-align: center;
   gap: 2px var(--space-3);
   padding: var(--space-2) var(--space-4);
   color: var(--muted);
@@ -246,14 +277,8 @@
 
 /* What makes a picture, said of the card that is pointed at or in focus: not on every card of a new workspace. */
 .card-nopicture-how {
-  visibility: hidden;
   font-size: var(--text-small);
   text-wrap: balance;
-}
-
-.card:hover .card-nopicture-how,
-.card:focus-visible .card-nopicture-how {
-  visibility: visible;
 }
 
 .card-body {
