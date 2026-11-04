@@ -637,6 +637,17 @@ test('the effort menu offers what the model takes, and sets the effort of the se
   await expect(menu).toHaveValue('medium')
 })
 
+test('the edits menu sets how edits are asked for this session only, and the CLI reports it', async () => {
+  const menu = dock().getByRole('combobox', { name: 'Edits' })
+  await expect(menu.locator('option')).toHaveText(['Ask before edits', 'Accept edits', 'Plan only'])
+  await menu.selectOption({ label: 'Accept edits' })
+  await expect(menu).toHaveValue('acceptEdits')
+  await expect(chat().locator('.chat-note').last()).toContainText('Edits: accept edits')
+  await say('say with the new mode')
+  await expect(turns().last()).toContainText('Done in')
+  await expect(menu).toHaveValue('acceptEdits')
+})
+
 test('the foot says, quietly, when a window of the rate limit is half used or more', async () => {
   await expect(chat().locator('.chat-rate')).toHaveCount(0)
   await say('rate 72')

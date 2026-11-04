@@ -8,7 +8,7 @@ import { type HttpRouter, readBody, SESSION_HEADER, startHttp } from '../http'
 import { Trust } from '../trust'
 import { claudeAdapter } from './claude'
 import { killGroup, Sessions } from './manager'
-import type { ChatItem, ChatMeta, Effort } from '../../shared/chat'
+import type { ChatItem, ChatMeta, Effort, Mode } from '../../shared/chat'
 import type { PromptBlock, StreamMessage } from './stream'
 import type { BuildState } from '../../shared/build'
 import type { ViewDrawing } from '../../shared/drawing'
@@ -1198,6 +1198,17 @@ describe('a chat session', () => {
     expect(c.messages.find((m) => m.type === 'system' && m.subtype === 'init')).toMatchObject({ effort: 'max' })
     await expect(c.sessions.setEffort(c.sessionId, 'loud' as Effort)).rejects.toThrow(/effortLevel/)
     expect(c.sessions.history(c.sessionId)!.meta.effort).toBe('max')
+  })
+
+  it('sets the permission mode of the session through a control request, and the next init reports it', async () => {
+    const c = await chat()
+    await c.sessions.setMode(c.sessionId, 'acceptEdits')
+    expect(c.sessions.history(c.sessionId)!.meta.permissionMode).toBe('acceptEdits')
+    c.send('say hi')
+    await expect.poll(() => c.results().length).toBe(1)
+    expect(c.messages.find((m) => m.type === 'system' && m.subtype === 'init')).toMatchObject({ permissionMode: 'acceptEdits' })
+    await expect(c.sessions.setMode(c.sessionId, 'loud' as Mode)).rejects.toThrow(/unknown mode/)
+    expect(c.sessions.history(c.sessionId)!.meta.permissionMode).toBe('acceptEdits')
   })
 
   it('sets the model of the session through a control request', async () => {

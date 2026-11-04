@@ -1,6 +1,6 @@
 import type { BuildState } from './build'
 import type { TurnChanges } from './changes'
-import type { AgentChoice, ChatAnswer, ChatHistory, ChatCommand, ChatItem, ChatMeta, ChatModel, Effort } from './chat'
+import type { AgentChoice, ChatAnswer, ChatHistory, ChatCommand, ChatItem, ChatMeta, ChatModel, Effort, Mode } from './chat'
 import type { ExportPlan, ExportRequest, ExportSaved } from './exportdata'
 import type { Described, MeasureProbe, MeasuredOnce } from './geometry'
 import type { InstructionFile } from './instructions'
@@ -304,6 +304,7 @@ export interface TornoBridge {
     /** For this session only: the person's settings are not written. */
     setModel(sessionId: string, model: string): Promise<void>
     /** For the session alone too (`apply_flag_settings`): the person's settings are not written. Rejects for an effort the CLI does not take. */
+    setMode(sessionId: string, mode: Mode): Promise<void>
     setEffort(sessionId: string, effort: Effort): Promise<void>
     /** The models a session can be started on before it has said its own: the list the last chat's CLI offered, or Claude Code's aliases. */
     models(): Promise<ChatModel[]>

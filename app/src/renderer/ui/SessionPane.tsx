@@ -17,6 +17,7 @@ import { clearDrafts, holdDraft } from './chat/Composer'
 import { effortsOf } from '../../shared/chat'
 import { EffortMenu } from './chat/EffortMenu'
 import { ModelMenu } from './chat/ModelMenu'
+import { ModeMenu } from './chat/ModeMenu'
 import { Confirm } from './Confirm'
 import { numbered } from './numbered'
 import { edgeGround } from './termGround'
@@ -766,6 +767,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
           {chatting && chatOf && chatOf.models.length > 0 ? (
             <>
               <ModelMenu sessionId={session.sessionId} model={model} models={chatOf.models} live={!ended} />
+              <ModeMenu sessionId={session.sessionId} mode={chatOf.meta.permissionMode} live={!ended} />
               <EffortMenu sessionId={session.sessionId} effort={chatOf.meta.effort} efforts={effortsOf(chatOf.models, model)} live={!ended} />
             </>
           ) : (

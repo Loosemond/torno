@@ -855,7 +855,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   clicking it (`e2e/session.spec.ts`).
 - **The chat session** (Claude Code with `view` `chat`; `sessions/transport.ts`, `stream.ts`, `transcript.ts`,
   `chatlog.ts`, `permissions.ts`, `Sessions` in `manager.ts`). `Sessions` drives a chat through `AgentTransport`
-  (`transport.ts`: `prompt`, `control` for `initialize` and `set_model`, `interrupt`, `answer` to an ask, `end`, and `terminate` and `kill` for
+  (`transport.ts`: `prompt`, `control` for `initialize`, `set_model` and `set_permission_mode`, `interrupt`, `answer` to an ask, `end`, and `terminate` and `kill` for
   an agent that stays after `end` (`Sessions.stop` times them; the process group is the transport's, `signals.ts`), and the events `message`, `ask`, `note`, `stderr`, `exit`) and never through a class of its own:
   the adapter makes it (`AgentAdapter.chat`), and `ClaudeStream` (`stream.ts`) is the one there is. `sessions/memory.itest.ts`
   drives `Sessions` with a transport in memory. Another
@@ -867,6 +867,15 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   at it. Torno answers `initialize` (the commands and models, told to the window as a `capabilities` event),
   `interrupt`, `set_model`, which changes this session's model and nothing of the person's, and `apply_flag_settings`
   for its effort (below).
+- **The mode of a session** (`MODES`, `isMode`, `MODE_NOTE` in `shared/chat.ts`; `ModeMenu`). The edits menu beside the
+  model offers `default`, `acceptEdits` and `plan`. `Sessions.setMode` (`chat:setMode`, the mode checked by `isMode`
+  first) sends the control request `set_permission_mode` and, once the CLI has answered, the transcript says it
+  (`modeSet`). The CLI holds it in memory for that session: no settings file is written, so a permission answer and a
+  mode alike never write the person's settings. `ChatMeta.permissionMode` is the `permissionMode` of every `init`
+  (the person's own start mode may be one torno does not offer; it is shown as the CLI names it). The `setMode`
+  suggestion of an ask is still never passed on (below): the mode is chosen by the menu alone. The request is built
+  on the Agent SDK's documented control request; the stand-in answers it, and a real CLI is still to be checked
+  (the manual's last section).
 - **The model and effort of a session** (`AgentChoice`, `agentChoiceOf`, `MODEL_NAME`, `EFFORTS` in `shared/chat.ts`).
   `Sessions.start` takes `model` and `effort` (`StartOptions`), for that session alone; `claude.ts` passes them as one
   argument each, `--model=<name>` and `--effort=<level>`, so that a value can never be read as a flag, and nothing

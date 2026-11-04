@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { isInsideFolder } from './inside'
 import * as pty from 'node-pty'
 import type { AgentView, SessionStatus } from '../../shared/bridge'
-import { type AgentChoice, agentChoiceOf, type ChatAnswer, type ChatCommand, type ChatHistory, type ChatItem, type ChatMeta, type ChatModel, type Effort, isEffort } from '../../shared/chat'
+import { type AgentChoice, agentChoiceOf, type ChatAnswer, type ChatCommand, type ChatHistory, type ChatItem, type ChatMeta, type ChatModel, type Effort, isEffort, type Mode } from '../../shared/chat'
 import { modelsOf } from './models'
 import { type BuildState, errorLine, failedAfter } from '../../shared/build'
 import { type DrawnOver, type ViewDrawing, drawnOver } from '../../shared/drawing'
@@ -826,6 +826,17 @@ export class Sessions {
     if (!s?.agent) throw new Error('This is not a chat session, or it has ended')
     await s.agent.control({ subtype: 'apply_flag_settings', settings: { effortLevel: effort } })
     s.chat?.transcript.effortSet(effort)
+  }
+
+  /**
+   * A chat session's permission mode, for the session alone (`set_permission_mode`, held in the CLI's memory): no
+   * settings file is written. The transcript says it once the CLI has taken it.
+   */
+  async setMode(sessionId: string, mode: Mode): Promise<void> {
+    const s = this.chat(sessionId, 'control')
+    if (!s?.agent) throw new Error('This is not a chat session, or it has ended')
+    await s.agent.control({ subtype: 'set_permission_mode', mode })
+    s.chat?.transcript.modeSet(mode)
   }
 
   /** A chat session: a request of ours to its agent (`interrupt`, `set_model`, `initialize`), resolved with its answer. */

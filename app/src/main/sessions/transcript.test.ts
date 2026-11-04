@@ -1342,6 +1342,19 @@ describe('a tool that was denied or cancelled', () => {
   })
 })
 
+describe('the permission mode of a session', () => {
+  it('is the one the init says, then the one set, with a note for a change and none for the same', () => {
+    const t = new Transcript({ now: () => 1000 })
+    t.message(init({ permissionMode: 'default' }))
+    expect(t.meta().permissionMode).toBe('default')
+    t.modeSet('default')
+    expect(t.items().filter((i) => i.kind === 'note' && i.text.startsWith('Edits'))).toEqual([])
+    t.modeSet('acceptEdits')
+    expect(t.meta().permissionMode).toBe('acceptEdits')
+    expect(t.items().at(-1)).toMatchObject({ kind: 'note', text: 'Edits: accept edits', tone: 'quiet' })
+  })
+})
+
 describe('the effort of a session', () => {
   it('is the one it was started with, then the one set, with a note for each change and none for the same', () => {
     const metas: ChatMeta[] = []
