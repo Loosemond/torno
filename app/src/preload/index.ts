@@ -119,6 +119,9 @@ const bridge: TornoBridge = {
     saveThumbnail: (objectId, revision, png, of) => ipcRenderer.send('show:saveThumbnail', objectId, revision, png, of),
     onChanged: (cb) => subscribe<void>('show:changed', () => cb())
   },
+  git: {
+    status: (objectId) => invoke('git:status', objectId)
+  },
   export: {
     plan: (req) => invokePlain('export:plan', req),
     save: (req) => invokePlain('export:save', req),

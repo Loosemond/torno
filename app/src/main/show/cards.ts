@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path'
 import type { BuildState } from '../../shared/build'
 import { standingOf, unmetDimensions } from '../../shared/dimension'
 import type { DimensionMark, Mark } from '../../shared/marks'
+import type { GitState } from '../../shared/git'
 import type { ObjectCard, ThumbnailOf } from '../../shared/show'
 import type { ObjectInfo } from '../../shared/workspace'
 import { FOLDER, writeOwn } from '../own'
@@ -36,6 +37,8 @@ export interface CardDeps {
   sourcesMtimeMs(dir: string): Promise<number | null>
   /** How many bytes a file has; null when there is none. */
   size(path: string): Promise<number | null>
+  /** What git says of an object's sources (`gitState`); null for none. Left out: git is not asked. */
+  git?(dir: string): Promise<GitState | null>
 }
 
 /**
@@ -86,6 +89,8 @@ async function cardOf(deps: CardDeps, obj: ObjectInfo, commonOf: (dir: string) =
   if (thumb && (await deps.size(join(obj.dir, FOLDER, THUMB_PNG)).catch(() => null)) !== (meta as { bytes?: unknown }).bytes) thumb = null
 
   const card: ObjectCard = { id: obj.id, name: obj.name, opened, thumb, marks: marks && { open: marks.filter((m) => m.status !== 'resolved').length, drafts: marks.filter((m) => m.status === 'draft').length }, dimensions: null, session: deps.session(obj.id) }
+  const git = obj.model === null ? null : await deps.git?.(obj.dir).catch(() => null)
+  if (git) card.git = git
   if (obj.problem !== undefined) {
     // The folder by its name: the card is of that folder, and where it is on this machine is for whoever asks.
     card.problem = obj.problem.split(obj.dir).join(obj.name)

@@ -353,6 +353,8 @@ layers, with every defect it has in its tooltip, and the line at the bottom
 counts such parts ("1 part has a defect"). The agent is told the same after its
 edit (What the agent is told).
 
+When the project is in a git work tree, the status line and the card say what has changed since the last commit: "3 files changed since `a1b2c3d`", with the files in the tooltip (the `.py` files and the others of the project's folder, and `common/`; not `.torno/`), or "No changes since `a1b2c3d`". It is read when the project is opened, when a build ends, and when the window is focused again. torno only reads: it runs `git status` with `--no-optional-locks`, which leaves the index as it is, gives it five seconds, and never commits, adds or changes anything. Without git, or outside a repository, nothing is said. Commits are the agent's: ask for one in the chat (the Marks panel offers a request, see Marks).
+
 The pointer is told what it is on: a face (`lid/F12`), or an edge within reach
 of it (`lid/E3`), with a line from the kernel on what that is, such as
 `plane, normal +Z, z = 20, 1180 mm²`. Hidden parts are never picked. While the
@@ -1254,6 +1256,7 @@ filters by name, the arrows move, `Enter` opens, `Esc` goes back. A card has:
   was never built in torno says `No picture yet`. The card says when the
   picture was made, what it leaves out (`cut by its section`), and `A source
   has changed since` when a `.py` file of the object or of `common/` is newer.
+- **What git says**, in a work tree: `3 files changed since a1b2c3d` (the files in its tooltip) or `No changes since a1b2c3d`.
 - **How the build stands**, for a project opened in this run: `Built, r6`,
   building, or failed, with the picture of the last build that worked dimmed.
   Otherwise `Not opened in this run`.

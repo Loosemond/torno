@@ -14,6 +14,7 @@ import type { ObjectCard, ThumbnailOf } from '../shared/show'
 import type { ViewState } from '../shared/view'
 import type { ObjectInfo, RecentFolder, WorkspaceInfo } from '../shared/workspace'
 import { Builds, buildTimeout, watchFolder } from './builds'
+import { gitStateRecently } from './git'
 import { type ExportDeps, exportFile, exportPlan, forgetExportScans } from './export/build'
 import { loadAssets } from './export/html'
 import { type ModelDeps, checkModelFile, makeModelFile } from './export/model'
@@ -188,7 +189,8 @@ function cards(): Promise<ObjectCard[]> {
     },
     readFile: (path) => readFile(path, 'utf8'),
     sourcesMtimeMs: newestPython,
-    size: (path) => stat(path).then((s) => s.size, () => null)
+    size: (path) => stat(path).then((s) => s.size, () => null),
+    git: (dir) => gitStateRecently(dir)
   })
 }
 
@@ -908,6 +910,11 @@ export function registerIpc(
   // The page of objects. Asking for the cards, or for a picture on file, reads and does nothing else: no
   // object is opened or built for it. The window hands over the pictures it drew of the builds it was sent.
   handle('show:cards', () => cards())
+  // What git says of an object's sources, for the status line and the Marks panel. Read only (`main/git.ts`).
+  handle('git:status', (_event, objectId: string) => {
+    const obj = findObject(String(objectId))
+    return obj && obj.model !== null ? gitStateRecently(obj.dir) : Promise.resolve(null)
+  })
   handle('show:thumbnail', async (_event, objectId: string) => {
     const obj = findObject(String(objectId))
     const png = obj ? await thumbnailOnFile(obj.dir) : null

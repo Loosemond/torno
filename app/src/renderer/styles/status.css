@@ -75,6 +75,15 @@
   white-space: nowrap;
 }
 
+/* What the sources stand at in the version history: quiet, and cut before anything else in the line is. */
+.status-git {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .status-dimensions {
   padding: 0;
   border: 0;

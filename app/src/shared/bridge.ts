@@ -1,5 +1,6 @@
 import type { BuildState } from './build'
 import type { AgentChoice, ChatAnswer, ChatHistory, ChatCommand, ChatItem, ChatMeta, ChatModel, Effort } from './chat'
+import type { GitState } from './git'
 import type { ExportPlan, ExportRequest, ExportSaved } from './exportdata'
 import type { Described, MeasureProbe, MeasuredOnce } from './geometry'
 import type { InstructionFile } from './instructions'
@@ -208,6 +209,10 @@ export interface TornoBridge {
     saveThumbnail(objectId: string, revision: number, png: Uint8Array, of: ThumbnailOf): void
     /** Something a card says may have changed. */
     onChanged(cb: () => void): () => void
+  }
+  /** What git says of an object's sources, read and never written; null where there is no git, no repository, or no answer in time. */
+  git: {
+    status(objectId: string): Promise<GitState | null>
   }
   /** One HTML file of an object or of several, that opens by itself, or a STEP, STL or 3MF file of one: see `main/export`. Calls reject with a plain message. */
   export: {

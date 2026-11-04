@@ -60,6 +60,19 @@ describe('cardsOf', () => {
     expect(b).toEqual({ id: 'b', name: 'b', opened: false, thumb: { at: '2026-10-08T21:14:03.000Z', layout: 'assembly', behind: true }, marks: { open: 2, drafts: 1 }, dimensions: null, lastRun: { dimensions: 1, failed: 1 }, session: null })
   })
 
+  it('carries what git says of an object that has a model, and nothing where it says nothing', async () => {
+    const state = { head: 'a1b2c3d', branch: 'main', files: ['a/a.py'], changed: 1 }
+    const asked: string[] = []
+    const [a, b, c] = await cardsOf(deps({ git: async (dir) => (asked.push(dir), dir === '/ws/a' ? state : null) }))
+    expect(a.git).toEqual(state)
+    expect('git' in b).toBe(false)
+    // An object with no model is not asked about.
+    expect('git' in c).toBe(false)
+    expect(asked).toEqual(['/ws/a', '/ws/b'])
+    const [failed] = await cardsOf(deps({ git: () => Promise.reject(new Error('boom')) }))
+    expect('git' in failed).toBe(false)
+  })
+
   it('says a marks file could not be read, and carries a problem', async () => {
     const [, , c] = await cardsOf(deps())
     // The folder by its name: where it is on this machine is for whoever asks (`problemAt`, a tooltip).
