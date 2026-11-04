@@ -23,9 +23,9 @@
     <span>torno</span>
   </a>
   <nav aria-label="Site">
-    <a href="demo/">Live project</a>
+    <a class="nav-cta" href="#run">Run it</a>
     <a href="manual/">Manual</a>
-    <a href="https://github.com/luisg0nc/torno">GitHub</a>
+    <a class="nav-gh" href="https://github.com/luisg0nc/torno"><svg class="gh" viewBox="0 0 16 16" width="18" height="18" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>GitHub</a>
   </nav>
 </header>
 
@@ -37,8 +37,8 @@
     <p class="lede">You point at the part. The agent writes the build123d code. torno builds it every time you save,
       and checks the numbers on the real geometry.</p>
     <p class="actions">
-      <a class="button primary" href="demo/">Open a live project</a>
-      <a class="button" href="#run">Run it</a>
+      <a class="button primary big" href="#run">Run it</a>
+      <a class="button big gh-button" href="https://github.com/luisg0nc/torno"><svg class="gh" viewBox="0 0 16 16" width="18" height="18" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>Collaborate on GitHub</a>
     </p>
     <p class="note">New and early. Linux and macOS. Apache-2.0.</p>
   </div>
@@ -156,12 +156,6 @@
     The <a href="manual/#what-goes-well-and-what-does-not">manual</a> has the lists.</p>
 </section>
 
-<section class="try reveal" aria-labelledby="try-title">
-  <h2 id="try-title">See one in your browser</h2>
-  <p class="section-lede">A bracket with two marks, exported from torno as one HTML file. Nothing to install.</p>
-  <p class="actions"><a class="button primary" href="demo/">Open a live project</a>
-    <a class="button" href="manual/">Read the manual</a></p>
-</section>
 
 <section class="run reveal" id="run" aria-labelledby="run-title">
   <h2 id="run-title">Requirements and run</h2>
@@ -186,6 +180,34 @@ pnpm install
 scripts/torno ~/projects</code></pre>
       <p class="aside">The launcher rebuilds the app when the sources change. On the first screen,
         "Open the example" opens a small project in a temporary copy. More in <a href="manual/#run">Run</a>.</p>
+    </div>
+  </div>
+</section>
+
+<section class="join reveal" id="join" aria-labelledby="join-title">
+  <h2 id="join-title">Run it, or help build it</h2>
+  <div class="join-cols">
+    <div class="join-card">
+      <h3>Run it</h3>
+      <p>Four commands. Needs Node.js, pnpm, uv and Claude Code, as listed above.</p>
+      <div class="cmd">
+<pre><code id="cmd">git clone https://github.com/luisg0nc/torno.git
+cd torno
+pnpm install
+scripts/torno ~/projects</code></pre>
+        <button type="button" class="copy" data-copy="cmd" hidden>Copy</button>
+      </div>
+      <p class="actions"><a class="button primary" href="manual/#run">Read how to run it</a></p>
+    </div>
+    <div class="join-card">
+      <h3>Collaborate on GitHub</h3>
+      <p>torno is new, and it has rough edges. Good places to start:</p>
+      <ul>
+        <li><a href="https://github.com/luisg0nc/torno/issues">Open an issue</a> for a bug, or a part it got wrong</li>
+        <li>Read <a href="https://github.com/luisg0nc/torno/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a></li>
+        <li>Send a pull request. They are welcome</li>
+      </ul>
+      <p class="actions"><a class="button big gh-button" href="https://github.com/luisg0nc/torno"><svg class="gh" viewBox="0 0 16 16" width="18" height="18" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>Collaborate on GitHub</a></p>
     </div>
   </div>
 </section>
