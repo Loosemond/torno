@@ -66,6 +66,11 @@ const bridge: TornoBridge = {
     onSaveView: (cb) => subscribe('view:saveView', cb),
     saveViewReply: (id, result) => ipcRenderer.send('view:saveViewReply', id, result)
   },
+  asks: {
+    list: () => invokePlain('asks:list'),
+    onChanged: (cb) => subscribe('asks:changed', cb),
+    answer: (id, answer) => ipcRenderer.send('asks:answer', id, answer)
+  },
   marks: {
     list: (objectId) => invokePlain('marks:list', objectId),
     add: (objectId, mark) => invokePlain('marks:add', objectId, mark),

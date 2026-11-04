@@ -76,6 +76,10 @@ interface Session {
   logFailed: boolean
   /** A chat session: the requests of the CLI's that wait for the person. */
   asks: Map<string, AgentAsk>
+  /** How many questions of torno's own (`ask`, main/asks.ts) wait for the person: the status is `needs_input` while there are any. */
+  held: number
+  /** The status a session had when the first question of torno's own was put: the one it goes back to, as it was working or idle then. */
+  beforeHold?: SessionStatus
   /** A chat session: what the CLI printed or posted last (it grows with every line and hook), to tell a moment of quiet from a change. */
   activity: number
   /** A chat session: waits a moment after a `result` that left prompts untaken, to see whether the CLI begins on them. */
@@ -429,6 +433,7 @@ export class Sessions {
       logging: Promise.resolve(),
       logFailed: false,
       asks: new Map(),
+      held: 0,
       activity: 0,
       stderr: [],
       heard: false,
@@ -795,7 +800,7 @@ export class Sessions {
     s.agent.answer(requestId, response)
     s.chat?.transcript.answered(requestId, response.behavior === 'allow' ? 'allowed' : 'denied', response.behavior === 'allow' ? answersText(response.updatedInput) : response.message)
     this.emit('asked', { sessionId, requestId, answered: true })
-    if (s.asks.size === 0) this.advance(s, 'answered')
+    if (s.asks.size === 0 && s.held === 0) this.advance(s, 'answered')
   }
 
   /**
@@ -957,7 +962,7 @@ export class Sessions {
     if (!session.asks.delete(requestId)) return
     session.chat?.transcript.cancelled(requestId)
     this.emit('asked', { sessionId: session.id, requestId, answered: false })
-    if (session.asks.size === 0) this.advance(session, 'answered')
+    if (session.asks.size === 0 && session.held === 0) this.advance(session, 'answered')
   }
 
   /**
@@ -1052,8 +1057,38 @@ export class Sessions {
     }
   }
 
+  /**
+   * The agent put a question of torno's own to the person (`ask`): the session shows `needs_input` until the
+   * function returned is called (once). The hooks do not say it: the call is one tool, open as long as the
+   * person takes, and nothing is posted meanwhile. A session that is not there holds nothing.
+   */
+  holdAsk(objectId: string): () => void {
+    const session = this.of(objectId)
+    if (!session) return () => {}
+    session.held += 1
+    if (session.held === 1) {
+      session.beforeHold = session.status
+      this.advance(session, 'ask')
+    }
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      session.held -= 1
+      if (session.held !== 0 || session.asks.size !== 0) return
+      // Back to what it was: working, as the call that asked is still open, unless the turn has ended meanwhile.
+      const back = session.beforeHold === 'idle' || session.beforeHold === 'starting' ? session.beforeHold : undefined
+      if (back && session.status === 'needs_input') {
+        session.status = back
+        this.emit('status', { sessionId: session.id, objectId: session.object.id, status: back })
+      } else this.advance(session, 'answered')
+    }
+  }
+
   private advance(session: Session, event: string, body?: unknown): void {
-    const next = reduceStatus(session.status, event, body)
+    let next = reduceStatus(session.status, event, body)
+    // A tool of the turn that ends while a question waits (they may run side by side) is no answer to it.
+    if (next === 'working' && session.status === 'needs_input' && session.held > 0 && event !== 'answered') next = 'needs_input'
     if (next === session.status) return
     session.status = next
     this.emit('status', { sessionId: session.id, objectId: session.object.id, status: next })

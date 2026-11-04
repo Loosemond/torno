@@ -1,3 +1,4 @@
+import type { AskAnswer, OpenAsk } from './ask'
 import type { BuildState } from './build'
 import type { AgentChoice, ChatAnswer, ChatHistory, ChatCommand, ChatItem, ChatMeta, ChatModel, Effort } from './chat'
 import type { ExportPlan, ExportRequest, ExportSaved } from './exportdata'
@@ -108,6 +109,12 @@ export interface TornoBridge {
     /** The agent proposes a view: the window keeps it among the saved views of the object it shows, marked as proposed, and says what it kept. */
     onSaveView(cb: (m: { id: number; request: SaveViewRequest }) => void): () => void
     saveViewReply(id: number, result: SaveViewResult | { error: string }): void
+  }
+  /** What the agent asks the person to choose (`ask`): the questions open now, each told again when the list changes, and the answer to one. */
+  asks: {
+    list(): Promise<OpenAsk[]>
+    onChanged(cb: (asks: OpenAsk[]) => void): () => void
+    answer(id: number, answer: AskAnswer): void
   }
   /** The marks of an object, kept by main in <object>/.torno/marks.json. Calls reject with a plain message. */
   marks: {

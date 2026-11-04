@@ -130,7 +130,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `save_view` are in `mcp/viewTools.ts`; those that place and resolve marks in
   `mcp/markTools.ts`; those that read the part in `mcp/readTools.ts`; those
   that ask about scans in `mcp/scanTools.ts`): `scene`, `look`, `marks`,
-  `describe`, `highlight`, `show`, `save_view`, `add_mark`, `resolve_mark`,
+  `describe`, `highlight`, `ask`, `show`, `save_view`, `add_mark`, `resolve_mark`,
   `measure`, `section`, `check`, `diff`, `try_fillet`, `scans`, `scan_clash`, `scan_deviation`.
   `diff` compares two of the last two successful builds (`Builds.scenes`; the blob of the older is not kept; each
   part by `partDiff` of `sanity.ts`)
@@ -897,6 +897,23 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `--plugin-dir` is left out (`LaunchContext.skills`). **A turn that could not authenticate** (#117: `-p` under `--bare` reads no login, and the CLI says `--bare` will become its default) is known by one typed field alone, an assistant message's `error: "authentication_failed"` (the Agent SDK's `SDKAssistantMessage.error`; not yet seen from a real CLI), never by the words of the message or of the `result`, and never by `apiKeySource` `none`, which a login reports too: a `warn` note once a session after what the CLI said, `LOGIN_FAILED` ("Claude Code's chat could not use your login: …"), with `action: 'terminal'`, the window's button that writes `view` `terminal` and starts a terminal session resuming the conversation, live chat or ended (`readLog` drops any other `action`). It moves no status. What is known before any session (`main/ready.ts`, The first screen) is the one place torno
   runs `claude --version` and `claude auth status`; a session says what it can of itself through its `init`. Nothing
   of the person's settings is read, and of the instruction files Claude Code reads only the paths and sizes are.
+- **`ask`, the question of torno's own** (`mcp/askTool.ts`, `main/asks.ts`, `shared/ask.ts`, `ui/QuestionCard.tsx`): `ask
+  {question, options: [{label, refs}], pick?}` puts a card to the person and waits for what they choose, as data: the
+  option (label and refs), or the one face or edge they select in the view when `pick`, or "not answered". Refs are
+  checked as `highlight`'s are (`checkedRefs`: marks and groups turned into refs, all or nothing); at most 6 options of 20
+  refs, one question per object at a time (a second is refused). It is not an `AgentAsk`: nothing of the CLI's is
+  in it, so it is no transcript item. `Asks` keeps the open questions and tells the window the whole list on every
+  change (`asks:changed`; `asks:list` for a window just begun; `asks:answer` back, checked by `answerOf` against the
+  options of that question); the window never says more than an index or a ref. **Status:** a session shows
+  `needs_input` while it has one open, by `Sessions.holdAsk` (a count, `Session.held`), the one status the hooks do not
+  say, since the call is a single tool open as long as the person takes and nothing is posted meanwhile. A
+  `PostToolUse` of another tool meanwhile does not make it `working`; when the last is answered the status goes
+  back to what it was. The question ends with the first of: an answer, 10 minutes (`ASK_LIMIT_MS`: "not answered"), the
+  client hanging up, the turn ending (the session turns `idle`: Claude Code's cancel of one call does not reach a
+  server without sessions, so the end of the turn is what ends it), the session ending, the window closing or the
+  workspace being left. While it waits the tool sends a progress notification every 30 s (`ASK_PROGRESS_MS`) when the
+  client gave a progress token, since Claude Code ends an MCP call quiet for 5 minutes. An answer says when the model was built again
+  meanwhile; a picked ref is looked up in the last build. It changes nothing in the person's view beyond lighting refs.
 - Asks (`control_request` `can_use_tool`) wait in `Session.asks`, are answered only through `Sessions.respond` and
   show the status `needs_input` while open. They end when the CLI cancels the request (`control_cancel_request`,
   which it sends right after an `interrupt`; the card reads "Cancelled: the turn was stopped", `why`), at any

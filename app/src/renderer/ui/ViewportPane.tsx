@@ -34,6 +34,7 @@ import { NARROW_BELOW } from '../viewport/overlay'
 import { meshOf } from '../viewport/scans'
 import { Viewport } from '../viewport/Viewport'
 import { AgentLine } from './AgentLine'
+import { QuestionCard } from './QuestionCard'
 import { AlignBar } from './AlignBar'
 import { goToRow } from './BuildStatus'
 import { hoverMark } from './markHover'
@@ -615,6 +616,7 @@ export function ViewportPane() {
           <AlignBar />
           <RegionBar />
           <AgentLine />
+          <QuestionCard where="view" />
           <ToolHint />
           <NotePopover viewport={viewport} />
         </>

@@ -220,6 +220,25 @@ describe('a session', () => {
     await expect.poll(() => statuses.get(sessionId)?.at(-1)).toBe('idle')
   })
 
+  // #132: a question of torno's own (`ask`) is open as long as the person takes, and no hook says so.
+  it('shows needs_input while a question of torno\'s own is held, whatever the hooks of other tools say, and works again after', async () => {
+    const { sessionId } = await sessions.start(object('bracket'), {})
+    await expect.poll(() => said(sessionId)).toContain('READY')
+    sessions.write(sessionId, 'hook PreToolUse\r')
+    await expect.poll(() => statuses.get(sessionId)?.at(-1)).toBe('working')
+    const release = sessions.holdAsk('bracket')
+    expect(statuses.get(sessionId)?.at(-1)).toBe('needs_input')
+    // A tool that ran side by side with it ends: that is no answer.
+    sessions.write(sessionId, 'hook PostToolUse\r')
+    await expect.poll(() => said(sessionId)).toContain('PostToolUse')
+    expect(statuses.get(sessionId)?.at(-1)).toBe('needs_input')
+    release()
+    release()
+    expect(statuses.get(sessionId)?.at(-1)).toBe('working')
+    // None for an object with no session.
+    expect(() => sessions.holdAsk('nothing')()).not.toThrow()
+  })
+
   it("consumes the drafts of the prompt's own object, once, and of no other", async () => {
     drafts = new Map([
       ['bracket', ['M1', 'M2']],

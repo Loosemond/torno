@@ -177,16 +177,15 @@ export async function endsOf(deps: ToolDeps, objectId: string, scene: Scene, rev
   return ends
 }
 
-export async function highlightTool(deps: ToolDeps, objectId: string, args: HighlightArgs): Promise<ToolResult> {
-  const found = onScreen(deps, objectId)
-  if ('content' in found) return found
-  const layout = layoutFor(deps, objectId, found.scene, args.layout)
-  if (typeof layout !== 'string') return layout
-
+/**
+ * Refs as an agent gave them (a mark's number, a group's name, a ref), turned into refs of the layout and checked
+ * against the last build; or the error to answer with, naming all that is wrong (`what`: "highlighted", "asked").
+ */
+export async function checkedRefs(deps: ToolDeps, objectId: string, found: { scene: Scene; revision: number }, layout: string, given: readonly string[], what: string): Promise<string[] | ToolResult> {
   const refs: string[] = []
   const wrong: string[] = []
   let marks: Mark[] | undefined
-  for (const ref of args.refs) {
+  for (const ref of given) {
     let named = ref
     if (MARK_ID.test(ref)) {
       if (!marks) {
@@ -218,7 +217,18 @@ export async function highlightTool(deps: ToolDeps, objectId: string, args: High
     else if (!refs.includes(named)) refs.push(named)
   }
   // All or nothing: a question about three faces is not asked of two.
-  if (wrong.length > 0) return failure(`nothing was highlighted: ${wrong.join('; ')}`)
+  if (wrong.length > 0) return failure(`nothing was ${what}: ${wrong.join('; ')}`)
+  return refs
+}
+
+export async function highlightTool(deps: ToolDeps, objectId: string, args: HighlightArgs): Promise<ToolResult> {
+  const found = onScreen(deps, objectId)
+  if ('content' in found) return found
+  const layout = layoutFor(deps, objectId, found.scene, args.layout)
+  if (typeof layout !== 'string') return layout
+
+  const refs = await checkedRefs(deps, objectId, found, layout, args.refs, 'highlighted')
+  if (!Array.isArray(refs)) return refs
 
   const note = args.note?.trim().slice(0, MAX_NOTE)
   let done: HighlightResult

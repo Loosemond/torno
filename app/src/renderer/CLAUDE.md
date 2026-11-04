@@ -650,6 +650,13 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   is; otherwise, and after that question, `applyView('terminal', true)`, which ends a live session, writes the view and
   starts a terminal session resuming the conversation whether the chat was live or had ended, and also when the
   choice already was the terminal. A note's `action` other than `terminal` is dropped when a log is read (`readLog`).
+- **The agent's question** (`ask`; `state/asks.ts` follows main's list, `ui/QuestionCard.tsx` draws it): a card with
+  the question, a button for each answer (its label, its refs in the monospace face), and "None of these". The pointer
+  or the keys' focus on a button lights its refs by `peek`, as a ref chip does, and only when the layout shown is the
+  question's. With `pick` the card offers "Answer with `lid/F12`" while exactly one face or edge is selected in the
+  view (selecting is the Select tool's, unchanged), else says to select one. It stands above the box of the chat
+  (`where="chat"`) and, where the chat is not in sight (a terminal session, or the dock put away), over the foot of the
+  view (`where="view"`), never both. It answers once (the buttons go off) and goes when main takes the question down.
 - Refs are chips (`RefChip`, `refs.ts` `refInfo`): hover lights the ref through `peek` in `state/agent.ts`, which
   is not an agent highlight (no agent line, no locked tools) and is drawn in the accent on a layer of its own
   (`point` in `viewport/highlight.ts`, `Viewport.setPointed`), never in a mark's colour, whoever made the mark it is

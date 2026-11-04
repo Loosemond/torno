@@ -22,6 +22,7 @@ import { addDimensionTold } from './marks/measure'
 import type { NearestAnchor } from './marks/reanchor'
 import { maskReadsOf, maskStampOf, meshesOf } from './marks/regions'
 import { MarkStore } from './marks/store'
+import { Asks } from './asks'
 import { mountMcp } from './mcp/server'
 import { DEFAULT_SIZE } from './mcp/schemas'
 import { onNotOwn } from './own'
@@ -225,6 +226,8 @@ function createWindow(): BrowserWindow {
   win.on('closed', () => {
     if (unanswered) clearTimeout(unanswered)
     ipcMain.off('window:closeAnswer', onAnswer)
+    // Nobody is left to answer what is open.
+    asks.end()
     app.off('before-quit', onQuit)
   })
 
@@ -257,6 +260,12 @@ function createWindow(): BrowserWindow {
 }
 
 let sessions: Sessions | null = null
+
+/** The questions of the agents that wait for the person (`ask`): the window is told the list, and a session shows `needs_input` while one is open. */
+const asks = new Asks(
+  (list) => BrowserWindow.getAllWindows()[0]?.webContents.send('asks:changed', list),
+  (objectId) => sessions?.holdAsk(objectId) ?? (() => {})
+)
 
 /** The marks of the objects of the open workspace, whose folders are those of the last scan. */
 // A region is held against the mesh its scan has whenever the marks are listed (`meshesOf`).
@@ -363,6 +372,8 @@ const toolDeps: ToolDeps = {
   show(_objectId, req) {
     return theWindow().then((win) => requestShow(win, req))
   },
+  ask: (objectId, req, signal) => asks.ask(objectId, req, signal),
+  asking: (objectId) => asks.has(objectId),
   highlight(objectId, layout, refs, note) {
     return theWindow().then((win) => requestHighlight(win, { objectId, layout, refs, ...(note ? { note } : {}) }))
   },
@@ -512,6 +523,8 @@ void app.whenReady().then(async () => {
   // A session that asks while the window is not in use draws the eye to it, once for each ask (`Attention`).
   const attention = new Attention()
   sessions.on('status', (m) => {
+    // A question lasts as long as the turn: a client that stops waiting does not always hang up, so the end of the turn ends it.
+    if (m.status === 'exited' || m.status === 'idle') asks.end(m.objectId)
     const win = BrowserWindow.getAllWindows()[0]
     if (!win || win.isDestroyed() || !attention.moved(m.sessionId, m.status, win.isFocused())) return
     // A hidden test window is not flashed: the rule is what is tested (`attention.test.ts`).
@@ -537,6 +550,7 @@ void app.whenReady().then(async () => {
     forget: async (root) => listed((await changeConfig((config) => ({ ...config, recent: recentWithout(config.recent, root) }))).recent),
     example: exampleFrom === null ? undefined : exampleFolder,
     sessions,
+    asks,
     marks,
     onBuild: (state) => {
       stateFiles.changed(state.objectId)
@@ -552,6 +566,7 @@ void app.whenReady().then(async () => {
     onSceneFile: (objectId) => stateFiles.changed(objectId),
     // What was waiting to be written was of objects of the workspace that is left.
     onWorkspaceClosed: () => {
+      asks.end()
       instructionFiles.forget()
       stateFiles.forget()
       verdicts.forget()

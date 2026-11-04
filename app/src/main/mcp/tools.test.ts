@@ -10,6 +10,8 @@ import type { SavedView } from '../../shared/views'
 import type { ObjectInfo } from '../../shared/workspace'
 import type { NearestAnchor } from '../marks/reanchor'
 import { probe } from '../../test/diagnosisFixtures'
+import { Asks } from '../asks'
+import { askTool } from './askTool'
 import { addMarkTool, highlightTool, resolveMarkTool } from './markTools'
 import { TOOLS, refusedKeys } from './schemas'
 import { describeTool, marksTool, type ToolDeps } from './tools'
@@ -184,7 +186,7 @@ const textOf = (result: { content: Array<{ type: string; text?: string }> }): st
 
 describe('the tool descriptions', () => {
   it('say in two or three sentences each what the tool returns and when to use it', () => {
-    expect(Object.keys(TOOLS)).toEqual(['scene', 'look', 'marks', 'describe', 'highlight', 'show', 'save_view', 'add_mark', 'resolve_mark', 'measure', 'section', 'check', 'diff', 'try_fillet', 'scans', 'scan_clash', 'scan_deviation'])
+    expect(Object.keys(TOOLS)).toEqual(['scene', 'look', 'marks', 'describe', 'highlight', 'ask', 'show', 'save_view', 'add_mark', 'resolve_mark', 'measure', 'section', 'check', 'diff', 'try_fillet', 'scans', 'scan_clash', 'scan_deviation'])
     for (const tool of Object.values(TOOLS)) {
       expect(tool.description).toMatch(/^Returns /)
       const sentences = tool.description.match(/[.?!]"?(\s|$)/g)!.length
@@ -2008,5 +2010,126 @@ describe('groups of parts', () => {
     const result = await highlightTool(deps, 'bracket', { refs: ['flat/F1'] })
     expect(textOf(result)).toBe("nothing was highlighted: no part 'flat' in layout assembly (parts: flat-a, flat-b, tall-a, key); flat is a group: its parts are flat-a, flat-b")
     expect(deps.w.highlights).toEqual([])
+  })
+})
+
+describe('ask', () => {
+  const options = [
+    { label: 'The top face', refs: ['base/F5'] },
+    { label: 'The post', refs: ['post', 'M1'] },
+    { label: 'Neither', refs: [] }
+  ]
+  /** A fake world whose questions go to a real `Asks`, as they do in the app. */
+  function asking(over: Partial<ToolDeps> = {}) {
+    const told: number[] = []
+    const held: string[] = []
+    const asks = new Asks((list) => told.push(list.length), (id) => (held.push(`hold ${id}`), () => held.push(`release ${id}`)))
+    const deps = fake({ ask: (id, req, signal) => asks.ask(id, req, signal), asking: (id) => asks.has(id), ...over })
+    return { deps, asks, told, held }
+  }
+  /** The tool checks its refs before it asks: let it get as far as the question. */
+  const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 5))
+  const json = (result: Parameters<typeof textOf>[0]): Record<string, unknown> => JSON.parse(textOf(result))
+
+  it('waits for the person, and returns the option chosen with its refs', async () => {
+    const { deps, asks, told, held } = asking()
+    const waiting = askTool(deps, 'bracket', { question: 'Which one?', options })
+    await settle()
+    const [open] = asks.open()
+    expect(open).toMatchObject({ objectId: 'bracket', question: 'Which one?', pick: false, layout: 'assembly', revision: 3 })
+    expect(open.options).toEqual([
+      { label: 'The top face', refs: ['base/F5'] },
+      { label: 'The post', refs: ['post', 'base/F5'] },
+      { label: 'Neither', refs: [] }
+    ])
+    expect(held).toEqual(['hold bracket'])
+    asks.answer(open.id, { kind: 'option', index: 1 })
+    expect(json(await waiting)).toEqual({ answered: true, kind: 'option', index: 1, label: 'The post', refs: ['post', 'base/F5'], layout: 'assembly', revision: 3 })
+    expect(held).toEqual(['hold bracket', 'release bracket'])
+    expect(told).toEqual([1, 0])
+  })
+
+  it('returns a face the person picked, when it is allowed, and ignores a pick when it is not', async () => {
+    const { deps, asks } = asking()
+    const waiting = askTool(deps, 'bracket', { question: 'Which face?', options: [], pick: true })
+    await settle()
+    const id = asks.open()[0].id
+    asks.answer(id, { kind: 'option', index: 0 })
+    asks.answer(id, { kind: 'pick', ref: 'post/F1' })
+    expect(json(await waiting)).toEqual({ answered: true, kind: 'pick', ref: 'post/F1', layout: 'assembly', revision: 3 })
+
+    const closed = asking()
+    const no = askTool(closed.deps, 'bracket', { question: 'Which?', options })
+    await settle()
+    closed.asks.answer(closed.asks.open()[0].id, { kind: 'pick', ref: 'post/F1' })
+    expect(closed.asks.open()).toHaveLength(1)
+    closed.asks.answer(closed.asks.open()[0].id, { kind: 'declined' })
+    expect(json(await no)).toEqual({ answered: false, reason: 'not answered: the user chose none of the options' })
+  })
+
+  it('says when what was picked is not in the last build, and when the model was built again meanwhile', async () => {
+    const { deps, asks } = asking()
+    const waiting = askTool(deps, 'bracket', { question: 'Which?', options: [], pick: true })
+    await settle()
+    asks.answer(asks.open()[0].id, { kind: 'pick', ref: 'post/F9' })
+    expect(json(await waiting).note).toContain('post has 3 faces')
+
+    let revision = 3
+    const live = asking({ scene: () => ({ revision, scene: SCENE }) })
+    const again = askTool(live.deps, 'bracket', { question: 'Which?', options })
+    await settle()
+    revision = 4
+    live.asks.answer(live.asks.open()[0].id, { kind: 'option', index: 0 })
+    expect(json(await again).note).toContain('r3 to r4')
+  })
+
+  it('ends with "not answered" at its time limit, and tells its client it is alive meanwhile', async () => {
+    const { deps, asks, held } = asking({ askLimits: { limitMs: 90, progressMs: 25 } })
+    const progress: Array<[number, string]> = []
+    const result = await askTool(deps, 'bracket', { question: 'Which?', options }, { progress: async (n, message) => void progress.push([n, message]) })
+    expect(json(result)).toEqual({ answered: false, reason: 'not answered: the user did not answer within 90 ms' })
+    expect(progress.length).toBeGreaterThanOrEqual(2)
+    expect(progress.map(([n]) => n)).toEqual(progress.map((_, i) => i + 1))
+    expect(asks.open()).toEqual([])
+    expect(held).toEqual(['hold bracket', 'release bracket'])
+  })
+
+  it('ends when the client gives the call up, or the window goes', async () => {
+    const { deps, asks } = asking()
+    const cancel = new AbortController()
+    const waiting = askTool(deps, 'bracket', { question: 'Which?', options }, { signal: cancel.signal })
+    await settle()
+    cancel.abort()
+    expect(json(await waiting)).toEqual({ answered: false, reason: 'not answered: the turn was stopped' })
+    expect(asks.open()).toEqual([])
+
+    const second = askTool(deps, 'bracket', { question: 'Which?', options })
+    await settle()
+    asks.end()
+    expect(json(await second)).toEqual({ answered: false, reason: 'not answered: the torno window was closed or the session ended' })
+  })
+
+  it('refuses a ref the build does not have, too many options, no options, and a second question', async () => {
+    const { deps, asks } = asking()
+    const bad = await askTool(deps, 'bracket', { question: 'Which?', options: [{ label: 'A', refs: ['base/F5'] }, { label: 'B', refs: ['lid/F1', 'post/F3'] }] })
+    expect(bad.isError).toBe(true)
+    expect(textOf(bad)).toBe("nothing was asked: no part 'lid' in layout assembly (parts: base, post); post has 3 faces, F0 to F2: there is no F3")
+    const seven = Array.from({ length: 7 }, (_, n) => ({ label: `o${n}`, refs: [] }))
+    expect(textOf(await askTool(deps, 'bracket', { question: 'Which?', options: seven }))).toBe('nothing was asked: 7 options, at most 6')
+    expect(textOf(await askTool(deps, 'bracket', { question: 'Which?', options: [] }))).toBe('nothing was asked: give at least one option, or pick: true')
+    expect(textOf(await askTool(deps, 'bracket', { question: ' ', options }))).toBe('nothing was asked: give the question')
+    expect(textOf(await askTool(deps, 'bracket', { question: 'Which?', options: [{ label: '', refs: [] }] }))).toBe('nothing was asked: option 1 has no label')
+    expect(asks.open()).toEqual([])
+
+    const first = askTool(deps, 'bracket', { question: 'Which?', options })
+    await settle()
+    expect(textOf(await askTool(deps, 'bracket', { question: 'Again?', options }))).toContain('already waiting')
+    asks.end()
+    await first
+  })
+
+  it('is refused for an object that is not the one open in the window', async () => {
+    const { deps } = asking({ openObjectId: () => 'helmet-stand' })
+    expect(textOf(await askTool(deps, 'bracket', { question: 'Which?', options }))).toBe('bracket is not the project open in the torno window (open: helmet-stand). Ask the user to open it.')
   })
 })
