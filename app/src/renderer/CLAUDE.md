@@ -159,6 +159,15 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   Its parts follow, indented, with `data-in-group`; a folded group draws none (`actions.setFolded`, kept in the
   scene file as `folded`, and dropped for a group the model no longer has). The parts in no group come last. A
   model without groups draws the list as it always was (`e2e/groups.spec.ts`).
+- A part's row is also the way to the part (#94, `ui/Layers.tsx`): the pointer or the keys' focus on it is `peek([name])`
+  (no highlight of the agent's, no locked tools; a row that goes while it is lit takes the light away), its name is a
+  button that selects the part as a ref (`setSelection([name])`) and, double clicked, brings it into view
+  (`actions.framePart`, `Viewport.framePart`: where it is drawn, the camera not turned), the target is "Show only"
+  (`soloLayers(layout, [name])`) and the title says `N hidden · Show all` while a part of the layout is off. After the
+  name, a muted count of the open marks on the part in the layout shown (`ui/layerMarks.ts` `marksByPart`; `--fail` when
+  one is a check that fails on the build); a click lists only the marks on that part in the Marks panel
+  (`store.marksOnPart`, the window's alone and dropped with the object; a chip `Only marks on lid` with a cross
+  above the list; `goToRow` clears it). It filters what the list shows and nothing else: the agent is told every mark.
 - A part whose build says its shape is broken (`partDefects` of `shared/sanity.ts`: not valid, inside out, not
   closed, mesh disagrees) has its first defect in a word after its name (`.layer-defect`, `--fail`, `+N` for the
   others) and every one in the row's title; the status line counts the layout's broken parts after its parts

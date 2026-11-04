@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { type Mark, type MarkPatch, markAnchors } from '../../shared/marks'
+import { type Mark, type MarkPatch, markAnchors, markEndParts } from '../../shared/marks'
 import { actions, layerOf, useStore } from '../state/store'
 import { ChecksSummary } from './ChecksSummary'
 import { MarkRow } from './MarkRow'
@@ -27,6 +27,7 @@ export function MarksPanel() {
   const revision = useStore((s) => (s.scene ? s.revision : 0))
   const active = useStore((s) => s.activeMark)
   const problem = useStore((s) => s.marksProblem)
+  const onPart = useStore((s) => s.marksOnPart)
   const [showResolved, setShowResolved] = useState(false)
   // What main said when it refused a change, until the next one goes through.
   const [refused, setRefused] = useState<string | null>(null)
@@ -87,7 +88,9 @@ export function MarksPanel() {
       }}
     />
   )
-  const { checks, toSend, fromAgent, withAgent, toReview, resolved } = groupMarks(marks, revision)
+  // Cut to one part by a click on its count in the layers: a view of the list only, the agent is told every mark.
+  const listed = onPart === null ? marks : marks.filter((m) => m.kind !== 'region' && markEndParts(m).includes(onPart))
+  const { checks, toSend, fromAgent, withAgent, toReview, resolved } = groupMarks(listed, revision)
   /** A group of the list under its heading, when it has marks. */
   const group = (name: string, of: Mark[], hint?: string) =>
     of.length > 0 && (
@@ -127,6 +130,16 @@ export function MarksPanel() {
       )}
       {/* Outside the scroll of the list: the counts stay in view, and each goes to its first check. */}
       <ChecksSummary marks={marks} revision={revision} />
+      {onPart !== null && (
+        <p className="marks-filter" data-part="marks-filter">
+          Only marks on <span className="num">{onPart}</span>
+          <button type="button" className="icon-button" aria-label="Show all marks" title="Show all marks" onClick={() => actions.listMarksOnPart(null)}>
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" aria-hidden="true">
+              <path d="m4.5 4.5 7 7m0-7-7 7" />
+            </svg>
+          </button>
+        </p>
+      )}
       <div className="marks-body">
         {undo !== null && (
           <p className="marks-undo" role="status">
@@ -144,13 +157,14 @@ export function MarksPanel() {
             </button>
           </p>
         )}
+        {marks.length > 0 && listed.length === 0 && <p className="section-note">No marks on <span className="num">{onPart}</span>.</p>}
         {marks.length === 0 && (
           <div className="marks-empty">
             <p>Point at the part to leave a note for the agent.</p>
             <p>A mark goes with your next prompt, and stays here until the agent resolves it.</p>
           </div>
         )}
-        {marks.length > 0 && checks.length + toSend.length + fromAgent.length + withAgent.length + toReview.length === 0 && <p className="section-note">Every mark is resolved.</p>}
+        {listed.length > 0 && checks.length + toSend.length + fromAgent.length + withAgent.length + toReview.length === 0 && <p className="section-note">Every mark is resolved.</p>}
         {group('Checks', checks)}
         {group('To send', toSend, 'with your next prompt')}
         {group('From the agent', fromAgent)}

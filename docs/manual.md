@@ -308,7 +308,13 @@ title says what matters (`Layers 12 · 3 hidden`, `Scans 1 · unaligned`). Marks
 it keeps room for five rows at least, and the sections above give way first. Drag the line
 above Marks up for more (`Up` and `Down` with it in focus), double click it for the shares
 again. What is folded and where the line is are kept by the window, not in the folder. The
-layers (parts) of the open project each have a visibility switch. Parameters lists the fields of
+layers (parts) of the open project each have a visibility switch, and for a model of ten parts or twenty they
+are also the way to the part: the pointer on a row lights the part in the view, a click on its name selects it (as
+a click with Select would, so "Insert" and "Note" work on it) and a double click brings it into view, the target on
+the row shows only that part, and when some parts are switched off the title says `3 hidden · Show all`. After the
+name, a muted number counts the open marks on the part (in the colour of a failing check when one of them is
+one); a click on it lists only those marks in Marks, under a line `Only marks on lid` with a cross that brings the
+rest back. That is a view of the list: the agent is told every mark as before. Parameters lists the fields of
 the model's `Params` (folded to its title at first; a model with none has no section): each
 field's name, its default in the monospace face (four digits at most, the whole value on hover) and
 its comment as the model has it, and, for a default the model works out (an expression, not a
@@ -1820,6 +1826,10 @@ On the screen:
   marks, and their titles say how many parts and scans there are. Drag the line above Marks up and down, and double
   click it: it moves without lag, the sections above give way down to their titles, and the shares come back.
   Start torno again: what was folded, and where the line was, are as you left them. Legible in light and dark.
+- **Layers of a model with many parts.** Open a project of ten parts or more: the pointer on a layer row lights that
+  part in the view in the accent (and nothing else changes), the target shows it alone, `Show all` in the title brings
+  the rest back, and the count of marks on a part lists only its marks. The rows must not crowd: name, count, and on
+  hover the opacity, the target and the eye, at the width of the column.
 - **Parameters.** In a project whose model has a `Params` dataclass with comments and one default that is an
   expression, unfold Parameters under the layers: a row for each field in the model's order, the value in the
   monospace face, the comment as written (cut to two lines, whole on hover), "worked out in the model" on the expression's.

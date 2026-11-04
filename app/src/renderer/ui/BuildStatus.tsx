@@ -32,6 +32,8 @@ export function defectsSaid(parts: readonly Part[]): string {
  * build no longer has is only made active.
  */
 export function goToRow(id: string): void {
+  // A list cut to one part may not hold its row.
+  actions.listMarksOnPart(null)
   actions.selectMark(id)
   actions.setActiveMark(id)
   // Its row is there already, whichever layout is shown: an open mark is never folded away.

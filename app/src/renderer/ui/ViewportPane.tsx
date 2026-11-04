@@ -357,6 +357,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     if (s.markFocus !== prev.markFocus && s.activeMark) viewport.focusMark(s.activeMark)
     else if (s.markReveal !== prev.markReveal && s.activeMark) viewport.revealMark(s.activeMark)
     if (s.scanFramed !== prev.scanFramed && s.scanFramed) viewport.frameScan(s.scanFramed.id)
+    if (s.partFramed !== prev.partFramed && s.partFramed) viewport.framePart(s.partFramed.name)
   })
 
   // After the store's own subscription above: by then the viewport has the scans as they now are.

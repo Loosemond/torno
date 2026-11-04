@@ -457,8 +457,63 @@ button.param-button:focus-visible {
 }
 
 .layer-group:hover .layer-solo,
+.layer-row:hover .layer-solo,
 .layer-solo:focus-visible {
   opacity: 1;
+}
+
+/* The name of a part is a button that selects it: it looks as the name always did. */
+.layer-name {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: var(--text-small);
+  text-align: left;
+}
+
+.layer-row[data-selected] .layer-name {
+  color: var(--accent);
+}
+
+/* How many marks are open on the part: quiet, and in the colour of a verdict that fails when one of them is a check that does. */
+.layer-marks {
+  flex: none;
+  min-width: 18px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.layer-marks[data-failing] {
+  color: var(--fail);
+}
+
+.layer-marks[aria-pressed='true'] {
+  background: var(--accent-wash);
+}
+
+/* "3 hidden · Show all", after the title of the layers. */
+.layers-hidden {
+  flex: none;
+  padding-right: var(--space-4);
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+/* A chip above the marks while they are cut to one part. */
+.marks-filter {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 2px var(--space-4);
+  color: var(--muted);
+  font-size: var(--text-small);
 }
 
 /* Opacity: out of the way until the row is pointed at, unless it has been set. */
