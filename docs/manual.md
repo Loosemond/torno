@@ -932,7 +932,10 @@ a chip turns the camera, as anywhere else.
 
 - A mark you change after it was sent (its note, or a shape's place, size,
   kind or intent) is a draft again, and is told once more as `(changed)`.
-- The Marks list is grouped by who acts next: **To send** (yours, "with your
+- The Marks list is grouped by who acts next: **Checks** (every dimension that
+  has an expected value and is not resolved, sent or not: the failing first,
+  then those with no value of the build, then those that pass; a draft one says
+  `to send` in its row), **To send** (yours, "with your
   next prompt"), **From the agent** (marks it left for you to read or answer;
   **Answer in chat** puts the mark's id in the prompt, and the tick says
   you have seen it), **To review**, **With the agent** (your sent marks), then

@@ -33,4 +33,27 @@ describe('groupMarks', () => {
     expect(ids(g.resolved)).toEqual(['M3'])
     expect(ids(g.toSend)).toEqual(['M4'])
   })
+
+  const check = (id: string, extra: Partial<Mark> = {}): Mark =>
+    mark(id, 'sent', { kind: 'dimension', measure: 'distance', value: 40, expected: 40, verdict: 'pass', measuredRevision: 5, ...extra } as Partial<Mark>)
+
+  it('puts the dimensions that have something expected in Checks: failing first, then not measured, then passing, whatever their status', () => {
+    const g = groupMarks(
+      [
+        check('M1'),
+        check('M2', { verdict: 'fail', value: 38 } as Partial<Mark>),
+        check('M3', { status: 'draft' }),
+        check('M4', { measuredRevision: 4 } as Partial<Mark>),
+        check('M5', { verdict: 'fail', value: 38 } as Partial<Mark>),
+        check('M6', { status: 'resolved' }),
+        check('M7', { expected: undefined, verdict: undefined } as Partial<Mark>),
+        mark('M8', 'draft')
+      ],
+      5
+    )
+    expect(ids(g.checks)).toEqual(['M2', 'M5', 'M4', 'M1', 'M3'])
+    expect(ids(g.withAgent)).toEqual(['M7'])
+    expect(ids(g.toSend)).toEqual(['M8'])
+    expect(ids(g.resolved)).toEqual(['M6'])
+  })
 })

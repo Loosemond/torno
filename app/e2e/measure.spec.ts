@@ -292,6 +292,9 @@ test('with an expected value the hole fails: the row says so, and the chip in th
   expect(dimension(root, 'M2')).toMatchObject({ expected: 8.5, value: 8 })
   await expect(row('M2', page).locator('.mark-value')).toHaveAttribute('data-verdict', 'fail')
   await expect(fields.locator('.dimension-verdict')).toHaveText('Fails: 0.5 under')
+  // The summary heading the marks counts it, and its count goes to the check.
+  await expect(page.locator('.checks-summary')).toHaveText(/^Checks on r\d+: 1 fails$/)
+  await expect(page.getByRole('list', { name: 'Checks' }).locator('.mark-row[data-mark="M2"]')).toHaveCount(1)
   // The row, open and with the pointer on it: its value, its verdict and the way to a note, none of them cut.
   await row('M2', page).hover()
   const note = row('M2', page).locator('.mark-note')
@@ -408,7 +411,11 @@ test('a dimension is given to the agent with the next prompt like any mark, and 
   await fields.getByRole('textbox', { name: 'Expected' }).fill('6')
   await fields.getByRole('textbox', { name: 'Expected' }).press('Enter')
   await expect(fields.locator('.dimension-verdict')).toHaveText('Passes')
-  await expect(page.getByRole('list', { name: 'To send' }).locator('.mark-row[data-mark="M1"]')).toHaveCount(1)
+  // With something expected of it, it is a check: under Checks, and says it is yet to be sent.
+  await expect(page.getByRole('list', { name: 'Checks' }).locator('.mark-row[data-mark="M1"]')).toHaveCount(1)
+  await expect(page.getByRole('list', { name: 'To send' })).toHaveCount(0)
+  await expect(row('M1', page).locator('.mark-status')).toHaveText('to send')
+  await expect(page.locator('.checks-summary')).toContainText('1 pass')
   expect(dimension(root, 'M1')).toMatchObject({ status: 'draft', sentBefore: true, expected: 6, verdict: 'pass' })
 })
 
