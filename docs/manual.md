@@ -1015,6 +1015,11 @@ is ringed on the part and in the agent's pictures, its chip saying by how much
 it misses after the cross (`40 mm ✗ 2 under`), and the line at the bottom
 counts those that fail and those with no value.
 
+When the project has checks, a line heads the Marks list: `Checks on r12: 3 pass
+· 1 fails · 1 not measured`. Each count is a button that goes to the first such
+check. A dimension with no expected value is not counted: it was kept to be
+read, and stays in the group its status puts it in.
+
 - Once sent, its row says **pinned**: it is one of the checks the agent is
   told about with every prompt until it passes. Changing what is expected or
   the tolerance makes it a draft again, sent as `(changed)`.

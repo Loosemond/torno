@@ -76,15 +76,32 @@ export function standingOf(mark: DimensionMark, revision: number | undefined): D
 }
 
 /**
- * The dimensions among some marks that the build `revision` does not meet:
- * those that fail what is expected of them, and those with no value of that
- * build (not measured on it, or not measurable). Resolved ones are no longer
- * checks of the part, and are in neither.
+ * The open dimensions among some marks by how the build `revision` stands to them: those that fail what is
+ * expected of them, those with no value of that build (not measured on it, or not measurable), and those that
+ * pass. Resolved ones are no longer checks of the part, and are in none. The first two are the ones the build
+ * does not meet.
  */
-export function unmetDimensions(marks: readonly Mark[], revision: number | undefined): { failing: DimensionMark[]; unmeasured: DimensionMark[] } {
+export function unmetDimensions(marks: readonly Mark[], revision: number | undefined): { failing: DimensionMark[]; unmeasured: DimensionMark[]; passing: DimensionMark[] } {
   const open = marks.filter((m): m is DimensionMark => m.kind === 'dimension' && m.status !== 'resolved')
   const standing = (m: DimensionMark): DimensionStanding => standingOf(m, revision)
-  return { failing: open.filter((m) => standing(m) === 'fail'), unmeasured: open.filter((m) => standing(m) === 'unmeasured' || standing(m) === 'unmeasurable') }
+  return {
+    failing: open.filter((m) => standing(m) === 'fail'),
+    unmeasured: open.filter((m) => standing(m) === 'unmeasured' || standing(m) === 'unmeasurable'),
+    passing: open.filter((m) => standing(m) === 'pass')
+  }
+}
+
+/**
+ * Whether a mark is a check of the part: an open dimension with something expected of it. One with nothing
+ * expected was kept to be read, not to be checked.
+ */
+export function isCheck(mark: Mark): mark is DimensionMark {
+  return mark.kind === 'dimension' && mark.status !== 'resolved' && mark.expected !== undefined
+}
+
+/** The checks among some marks (`isCheck`) by how the build `revision` stands to them (`unmetDimensions`). */
+export function checksOf(marks: readonly Mark[], revision: number | undefined): { failing: DimensionMark[]; unmeasured: DimensionMark[]; passing: DimensionMark[] } {
+  return unmetDimensions(marks.filter(isCheck), revision)
 }
 
 /** The verdict a dimension has on the build `revision`: none without a value of that build. */

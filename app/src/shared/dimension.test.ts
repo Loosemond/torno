@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { valueAgainstExpected, dimensionText, exactText, notMeasuredText, shownDimension, isOffEdge, isUnmeasured, offEdgeReason, lastValue, measuredValue, offBy, standingOf, unmeasuredText, unmetDimensions, verdictOf, verdictOn } from './dimension'
+import { valueAgainstExpected, dimensionText, exactText, notMeasuredText, shownDimension, isOffEdge, isUnmeasured, offEdgeReason, lastValue, measuredValue, offBy, standingOf, unmeasuredText, unmetDimensions, checksOf, isCheck, verdictOf, verdictOn } from './dimension'
 import type { DimensionMark, Mark } from './marks'
 
 const dim = (over: Partial<DimensionMark> = {}): DimensionMark =>
@@ -128,9 +128,26 @@ describe('how a dimension stands on a build', () => {
       dim({ id: 'M6', status: 'draft', expected: 8.5, verdict: 'fail' }),
       { id: 'M7', kind: 'pin', status: 'sent' } as Mark
     ]
-    const { failing, unmeasured } = unmetDimensions(marks, 3)
+    const { failing, unmeasured, passing } = unmetDimensions(marks, 3)
     expect(failing.map((m) => m.id)).toEqual(['M1', 'M6'])
     expect(unmeasured.map((m) => m.id)).toEqual(['M3', 'M4'])
+    expect(passing.map((m) => m.id)).toEqual(['M2'])
+  })
+
+  it('checksOf counts only the dimensions that have something expected of them', () => {
+    const marks = [
+      dim({ id: 'M1', expected: 8.5, verdict: 'fail' }),
+      dim({ id: 'M2', expected: 8, verdict: 'pass' }),
+      dim({ id: 'M3' }),
+      dim({ id: 'M4', measuredRevision: 2, expected: 8 }),
+      dim({ id: 'M5', anchorState: 'orphaned' }),
+      dim({ id: 'M6', status: 'resolved', expected: 8, verdict: 'pass' })
+    ]
+    const { failing, unmeasured, passing } = checksOf(marks, 3)
+    expect(failing.map((m) => m.id)).toEqual(['M1'])
+    expect(passing.map((m) => m.id)).toEqual(['M2'])
+    expect(unmeasured.map((m) => m.id)).toEqual(['M4'])
+    expect(marks.filter(isCheck).map((m) => m.id)).toEqual(['M1', 'M2', 'M4'])
   })
 })
 

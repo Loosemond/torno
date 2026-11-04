@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { type Mark, type MarkPatch, markAnchors } from '../../shared/marks'
 import { actions, layerOf, useStore } from '../state/store'
+import { ChecksSummary } from './ChecksSummary'
 import { MarkRow } from './MarkRow'
 import { groupMarks } from './markGroups'
 import { type ReviewStep, ResolvedSummary } from './ResolvedSummary'
@@ -124,6 +125,8 @@ export function MarksPanel() {
           {refused}
         </p>
       )}
+      {/* Outside the scroll of the list: the counts stay in view, and each goes to its first check. */}
+      <ChecksSummary marks={marks} revision={revision} />
       <div className="marks-body">
         {undo !== null && (
           <p className="marks-undo" role="status">
