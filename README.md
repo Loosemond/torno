@@ -177,8 +177,29 @@ notarized). More in
 
 ### Your first five minutes
 
-The manual has a [walk-through](docs/manual.md#five-minutes-with-torno) that takes you through building,
-turning, exploding, pinning, measuring, cutting and asking the agent, on the test models.
+Press **Open the example** on the first screen. It is an enclosure for a sensor board, with a lid that rattles. The
+manual has a [walk-through](docs/manual.md#five-minutes-with-torno) on it: turning, pinning, measuring, cutting and
+asking the agent to fix the fit. It works the same from a packaged app.
+
+## Working with Claude Code in torno
+
+A few habits that save time.
+
+- **Point, don't describe.** Pin the face and write the note. The agent gets the face's ref and your words, not
+  "the left side near the top".
+- **Give measured sizes.** Put what you have measured in the brief or the first prompt. A size the agent guesses is
+  the usual reason a part does not fit.
+- **Make a dimension a standing test.** Measure the wall or the gap, type the value it should have, and it says
+  *passes* or *fails* after every build, whoever made the change.
+- **Ask for two or three rough blockouts before details.** Compare the shapes first. Fillets and holes can wait.
+- **Ask for measured sizes back.** "What is the wall under the lid?" is answered from the B-rep, exactly. Say so
+  when you want the number and not a look.
+- **Run `/mcp__torno__review` before you call it done.** The agent goes through every open mark and every unmet
+  dimension against the current build.
+- **One project, a few parts.** Split a big assembly into projects. Use [saved views](docs/manual.md#explode-and-saved-views)
+  to come back to the same angle.
+
+The [manual](docs/manual.md#the-agent) says what the agent is given and told.
 
 ## Documentation
 

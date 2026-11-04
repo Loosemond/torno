@@ -180,69 +180,76 @@ environment is made in `~/.config/torno/kernel-env`, never inside the package. T
 
 ## Five minutes with torno
 
-This walk-through uses the small models torno is tested with, on a copy, so
-nothing of yours is touched. Every step of it was done as written, in a window
-that was not shown; step 7 with a stand-in for the agent.
+This walk-through uses the example that torno carries, in a temporary copy, so
+nothing of yours is touched. It needs nothing from the repository, so it works
+the same in a packaged app. The example is an enclosure for a sensor board: a
+body, a lid and a clip. The lid rattles, which is what you will fix.
 
-1. Make a workspace from the test models and open it:
+1. Start torno with no folder (`scripts/torno`, or open the app) and press
+   "Open the example" on the first screen. The window opens on a page of
+   cards with one project, `enclosure`. The copy is removed when torno quits,
+   and the window says so under the workspace's name.
 
-   ```sh
-   cp -r kernel/tests/fixtures/ws /tmp/torno-tour
-   scripts/torno /tmp/torno-tour
-   ```
-
-   The window opens on a page of cards, one per project. None has a picture
-   yet: a picture is made when a project is built here. Some of these projects
-   are there to fail; leave them.
-
-2. Click `hollow`. It is built (a second or two; longer the very first time,
+2. Click `enclosure`. It is built (a second or two; longer the very first time,
    while uv makes torno's own Python environment, which the status line says:
-   "Making torno's Python environment, first time only") and drawn: a tub and its
-   lid. Drag to turn it, drag with the right button to pan, scroll to zoom,
-   `F` to fit. `1` to `4` are the iso, front, right and top views. The window
-   says how the pointer moves the view once, in a line at the foot of the view
-   that goes at your first move of the camera, and keeps it, with the keys, in
-   the sheet of keys (`?`), where the pointer is the first group. Point at a
-   tool in the palette for what it does; with a tool in hand that same line
-   says what it waits for next.
+   "Making torno's Python environment, first time only") and drawn: the body,
+   the lid on it and the clip round the front. Drag to turn it, drag with the
+   right button to pan, scroll to zoom, `F` to fit. `1` to `4` are the iso,
+   front, right and top views. The window says how the pointer moves the view
+   once, in a line at the foot of the view that goes at your first move of the
+   camera, and keeps it, with the keys,
+   in the sheet of keys (`?`), where the pointer is the first group. Point at a tool in the palette for what it
+   does; with a tool in hand that same line says what it waits for next.
 
-3. Press `E`. The lid lifts off the tub: the parts are drawn apart, for
-   looking only. Press `E` again to put them together.
+3. Read what is there. The Marks list has three marks the example came with:
+   `M1`, a pin on the lid for a label; `M2`, an arrow at the cable notch, which
+   says the notch is too narrow for the plug; and `M3`, a dimension: the gap
+   between the lid's lip and the wall, which should be 0.2 mm. Its row says
+   `Fails`, because the gap is 0.35 mm. Click a row and the view goes to it.
+   The line at the bottom counts it (`1 dimension fails`). Open `brief.md` in
+   the project's folder to read what the person who made it asked for.
 
-4. Press `P` and click the top of the lid. A pin is left there, numbered
-   `M1`, and its note opens: type "too thin here" and press Enter. The pin is
-   red: it is yours. Press `Esc` to put the Pin tool down.
+4. Press `E`. The parts are drawn apart, for looking only. Press `E` again to
+   put them together.
 
-5. Press `M`, hold the pointer on the top of the lid and press `T`: the wall
-   under the pointer is measured by the kernel, exactly, `2 mm`, and stays on
-   the part as the dimension `M2`. Click its row in the Marks list and type
-   `2` under "Should be", then Enter: the row says `Passes`. Type `3`
-   instead and it says `Fails: 1 under`, and the line at the bottom counts it
-   (`1 dimension fails`). Enter gave the keys back to the view: press `Esc` to
-   put the tool down.
+5. Under the bar of views, click "Lid fit". The camera moves to the lip, the clip
+   is hidden and a section is cut through the lid and the body, so that you see
+   the gap. "Cable side" looks at the notch from behind. "+ Save view" keeps how
+   you are looking under a name of your own.
 
-6. Press `X`. A plane cuts the parts in half at once, open towards you, so
-   that you see the post inside the tub; a bar appears under the view. Drag
-   the arrow on the plane, or use the arrow keys, to move it. "Off" in the bar
-   takes the cut away, and `Esc` puts the tool down.
+6. Press `P` and click the top of the body, near a corner. A pin is left there,
+   numbered `M4`, and its note opens: type "rounder here" and press Enter. The
+   pin is red: it is yours. Press `Esc` to put the Pin tool down.
 
-7. In the pane on the right, write "what did I mark?" in the box and press Enter
-   (it starts a session and sends the prompt; "New session" starts one without): your two marks go with the prompt, as
-   text: the face, the point, your note, the measured value and whether it
-   passes. From then on they show as sent. The agent can ask torno for a
+7. Press `M`, hold the pointer on the outer wall of the body and press `T`: the
+   wall under the pointer is measured by the kernel, exactly, `2.4 mm`, and
+   stays on the part as a dimension. Type `2.4` under "Should be" and press
+   Enter: the row says `Passes`. Enter gave the keys back to the view: press
+   `Esc` to put the tool down.
+
+8. Press `X`. A plane cuts the parts in half at once, open towards you; a bar
+   appears under the view. Drag the arrow on the plane, or use the arrow keys,
+   to move it. "Off" in the bar takes the cut away, and `Esc` puts the tool down.
+
+9. In the pane on the right, type "make the notch 14 mm wide and the gap 0.2 mm"
+   and press Enter. A session starts with your prompt, and your marks go with
+   it as text: the face, the point, your note, the measured value and whether
+   it passes. From then on they show as sent. The agent can ask torno for a
    picture (`look`), a measurement (`measure`) and a cut (`section`), and it
-   edits `hollow/hollow.py`; every save is built and drawn.
+   edits `enclosure.py`; every save is built and drawn. When it is done, `M3`
+   says `Passes`. Then send `/mcp__torno__review`, which has the agent go
+   through every open mark against the build.
 
-8. Under the bar of views, "+ Save view" keeps how you are looking at the
-   part under a name. "Export…" at the bottom right (or `Ctrl+Shift+E`)
-   writes one HTML file that someone without torno can open: it needs
-   nothing else.
+10. "Export…" at the bottom right (or `Ctrl+Shift+E`) writes one HTML file that
+    someone without torno can open: it needs nothing else.
 
-9. Press `?` for every key, and `W` for the page of projects. Then open your
-   own folder with the folder button at the top left.
+11. To keep what you made, press "Keep this as a folder…" under the
+    workspace's name and choose a name. Otherwise it is removed when torno
+    quits. Press `?` for every key, and `W` for the page of projects. Then open
+    your own folder with the folder button at the top left.
 
-To clean up: close torno and `rm -r /tmp/torno-tour`. Torno wrote only in
-`/tmp/torno-tour/hollow/.torno/`.
+Torno wrote only in the temporary copy, and in the one folder you chose if you
+kept it.
 
 ## Projects and builds
 
