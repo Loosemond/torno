@@ -168,6 +168,16 @@ assert abs(top.center().Z - 2.5) < 1e-9 and len(plate.faces().filter_by(Axis.Z))
 Select by position and kind, never by a face's number: torno's refs (`lid/F12`) are for talking about a model, and
 must never be written into it.
 
+## Holes and blends
+
+Before you move, resize or add to the holes of a part, call `mcp__torno__features` (`{"part": "lid", "kinds":
+["hole"]}`): it lists the holes of the last build with their diameter, axis, where each opens (a face ref), depth,
+through or blind, and a counterbore or countersink, as the B-rep has them, so you need not describe their faces one
+by one or read the numbers off the code. A diameter it gives is exact; a depth it marks `≈` is not. With `kinds`
+`["fillet", "chamfer"]` it lists the fillets (radius, outside edge or inside corner, the edges they run along) and
+chamfers (setback), so you can see the radius a fillet has before you change it, then `try_fillet` the new one; with
+`"pattern"` it says which holes lie in a row, a grid or on a circle at equal steps, and the step.
+
 To pick the face or edge a ref names, describe the ref, paste its `selector` (an expression on `part`, such as
 `part.faces().filter_by(Axis.Z).sort_by(Axis.Z)[-1]`), and look at the result. The kernel evaluated it on the last
 build and it gave exactly that shape, so it is right for this build only: `robust: "by geometry"` is made of a

@@ -292,6 +292,13 @@ const tryFilletInput = {
   layout: z.string().optional().describe('The layout the part is in, as listed by scene. Default: the one on screen.')
 }
 
+// Loose: what is not a list of kinds reaches the tool, which says what it takes (`featuresTool`).
+const featuresInput = {
+  part: loose(z.string()).optional().describe('The name of a part, as listed by scene: "lid".'),
+  kinds: loose(z.array(z.enum(['hole', 'boss', 'fillet', 'chamfer', 'pattern']))).optional().describe('What to look for: hole, boss, fillet, chamfer, pattern (holes or bosses alike at equal steps on a line, in a grid or on a circle). Default: all of them.'),
+  layout: z.string().optional().describe('The layout the part is in, as listed by scene. Default: the one on screen.')
+}
+
 const resolveMarkInput = {
   id: z.string().describe('The number of the mark: M3.'),
   note: z.string().optional().describe('What was done about it, in a line, for the user.')
@@ -477,6 +484,13 @@ export const TOOLS = {
       "Returns JSON and a reading of a fillet (or a chamfer) of radius mm of some edges of a part, tried by the kernel on the last build that worked and thrown away: works, and when it does not, why: the edges that fail alone, else the pairs that fail (those that share a face first, with how far apart they are), and the largest radius that works for them all and for each edge that fails alone, bisected to 0.001 mm within the query's 30 s (complete false when time ran out), each edge named by its ref of that build, with its ends in the frame of the layout. It changes nothing: the model is yours to edit, and a ref may name another edge after it changes. Call it before you edit a fillet or a chamfer again after one failed, with the edges the build's error names (a ref where it is one of the last build), instead of lowering the radius blind or wrapping it in try.",
     inputSchema: tryFilletInput
   },
+  features: {
+    title: 'List features of a part',
+    annotations: READ_ONLY,
+    description:
+      "Returns JSON and a reading of the holes, bosses, fillets, chamfers and patterns of a part of the last build that worked, found on its B-rep: for each hole its diameter, axis (pointing into the part), entry point, the face it opens in, depth, whether it is through or blind (and its bottom), and any counterbore, countersink or rounded mouth; for each boss its diameter, height and base; for each fillet its radius, sweep and length, whether it rounds an outside edge or an inside corner, and the faces and edges it joins; for each chamfer its setback (or setbacks, when uneven) in the same way; for each pattern of holes or bosses alike how many there are and whether they lie in a row, a grid or on a circle, with the step; with the faces each is made of, as refs that describe and highlight take. Diameters, radii, angles, axes and depths between planes and round faces are exact, a depth taken between freeform faces says it is not (exact false, ≈ in the reading), and only analytic faces count: cylinders, cones and tori that go all the way round for holes and bosses, blends tangent to both faces for fillets, so slot ends are counted as arcs and told as neither (at most 100 of a kind are listed, the rest counted). Use it to answer how many holes there are, of what size and how deep, what the fillets are, and before you edit any of them, instead of describing faces one by one.",
+    inputSchema: featuresInput
+  },
   scans: {
     title: 'List scans',
     annotations: READ_ONLY,
@@ -519,6 +533,7 @@ export const SERVER_INSTRUCTIONS = `torno's server reads and measures the CAD pa
 - diff: what changed between the last two successful builds: parts added or removed, volume, size and face counts.
 - expect: say before an edit what it should change (volume, faces, size, a measurement, parts unchanged); the build after it is checked against that.
 - try_fillet: try a fillet or chamfer of some edges on the last build and throw it away: whether it works, the largest radius that does, which edges or pairs fail.
+- features: the holes (diameter, depth, through or blind, counterbore, countersink), bosses, fillets (radius), chamfers (size) and patterns (4 holes on a square, a bolt circle) of a part, exact, with the faces they are made of.
 - scans: the scans the person imported, and how each is aligned to the model.
 - scan_clash: what of a scan is inside a part, as clusters with their depth.
 - scan_deviation: how far a part, or some of its faces, lie from a scan (min, mean, max, percentiles).

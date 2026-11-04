@@ -1048,7 +1048,7 @@ is running or has failed. A tool given a key it does not take is refused,
 naming the keys it takes.
 
 The tools that only read (`scene`, `look`, `marks`, `describe`, `measure`, `section`, `check`, `diff`,
-`try_fillet`, `scans`, `scan_clash`, `scan_deviation`) say so, and Claude Code may call several at once. The server also tells Claude
+`try_fillet`, `features`, `scans`, `scan_clash`, `scan_deviation`) say so, and Claude Code may call several at once. The server also tells Claude
 Code at the start, in a few lines, what each tool is for. Claude Code's tool search keeps an MCP server's tools out
 of the model's sight until it searches for them; five are loaded from the start because nearly every turn uses
 them: `scene`, `look`, `marks`, `describe` and `measure`. The others are found by that search.
@@ -1070,6 +1070,7 @@ them: `scene`, `look`, `marks`, `describe` and `measure`. The others are found b
 | `mcp__torno__diff` | What changed between the last two successful builds (or the two revisions given as `from` and `to`): for each layout the parts added and removed, and for each part its volume (and its change in percent), box size and min corner before and after, with whether each is exact, and its face, edge and solid counts, a hint that refs may name other faces now. The answer to an edit gives the same of each part that changed. Only the last two builds are kept. |
 | `mcp__torno__expect` | Called before an edit: what it should change, as checks (a part's `volume`, `faces`, `edges` or `size` as a `value` or a `change` with a `tolerance`; a `measure` with the number it `expected`; `unchanged` parts). The next successful build is held against it, and the answer to the edit says in a line how many checks were met and which were not, with the numbers (`≈` where the kernel's is not exact). Kept in memory for that one build, told once, no mark, and it never holds a turn back. A ref to a face of a part whose face count changed is told as moved and not measured. `scene` gives the last verdict. |
 | `mcp__torno__try_fillet` | Tries a fillet (or a chamfer, `kind: 'chamfer'`) of `radius` mm of some edges of a part (`part`, `edges` as refs such as `lid/E3`) on the last good build and throws it away: whether it works, and when it does not, the edges that fail alone or in pairs and the largest radius that works, as a failed build's error says it. It changes nothing. |
+| `mcp__torno__features` | The holes, bosses, fillets, chamfers and patterns of a part, found on its geometry (`part`, and `kinds` to ask for some of `hole`, `boss`, `fillet`, `chamfer`, `pattern`): for a hole its diameter, axis, where it opens and the face it opens in, depth, whether it is through or blind (and its bottom), and a counterbore, countersink or rounded mouth; for a boss its diameter and height; for a fillet its radius, sweep and length and whether it rounds an outside edge or an inside corner; for a chamfer its size; for a pattern how many holes or bosses alike there are and whether they lie in a row, a grid or on a circle, with the step; each with the faces it is made of and the faces and edges it joins, as refs `highlight` takes. Diameters, radii, angles and axes are exact, and so are depths between planes and round faces; a depth taken between freeform faces says it is not (`≈`). Holes and bosses need a cylinder, cone or torus that goes all the way round: a slot end is neither a hole nor a fillet. |
 | `mcp__torno__scans` | The scans of the project and how each is aligned. |
 | `mcp__torno__scan_clash` | What of a scan is inside a part. |
 | `mcp__torno__scan_deviation` | How far a part lies from a scan. |
@@ -1086,7 +1087,7 @@ them when you type `/`:
 | Command | What it asks the agent |
 |---|---|
 | `/mcp__torno__review` | Go through every open mark and every unmet dimension against the current build: measure, look, and resolve the marks that are done. |
-| `/mcp__torno__printable` | Check the `print` layout for 3D printing: thin walls, overhangs, closed meshes, and whether it fits your bed, given as an argument (`/mcp__torno__printable 256x256x256`, in mm). |
+| `/mcp__torno__printable` | Check the `print` layout for 3D printing: thin walls, overhangs, closed meshes, holes too narrow to print, and whether it fits your bed, given as an argument (`/mcp__torno__printable 256x256x256`, in mm). |
 | `/mcp__torno__explain` | Describe the model for someone new to it: its parts, its `Params` and how the parts relate. |
 
 ## Marks

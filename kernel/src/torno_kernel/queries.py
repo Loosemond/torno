@@ -74,6 +74,10 @@ def run(
         from . import export
 
         return export.export(shapes, args, kept) if name == "export" else export.export_check(shapes, args, kept)
+    if name == "features":
+        from . import features
+
+        return features.features(shapes, args, kept)
     if name == "try_fillet":
         return try_fillet(shapes, args)
     if name == "match_edges":
@@ -93,7 +97,7 @@ def run(
     raise QueryError(
         "bad_request",
         f"unknown query {name!r}; the queries are describe, nearest, measure, section, check, "
-        "scan_clash, scan_deviation, scan_section, export, export_check, try_fillet and match_edges",
+        "scan_clash, scan_deviation, scan_section, export, export_check, features, try_fillet and match_edges",
     )
 
 
