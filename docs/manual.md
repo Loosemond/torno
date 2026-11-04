@@ -2,6 +2,7 @@
 
 Everything torno does, in the order a first-time user meets it: what it needs, how to start it, a walk-through,
 then the reference. The [README](../README.md) is the short introduction.
+The same text, with a table of contents at the side, is at [luisg0nc.github.io/torno/manual](https://luisg0nc.github.io/torno/manual/).
 
 Torno is a desktop workbench for making CAD parts with an AI coding agent: the
 agent writes build123d Python in a terminal inside the window, torno builds the
@@ -892,7 +893,7 @@ typed goes with the prompt you type next.
 
 Every mark has a number (`M1`, `M2`, never reused), a note, and a row in the
 Marks list. Yours are drawn in red, the agent's in green. A mark is a **draft**
-until it has been carried to the agent (see [Choosing an agent](#choosing-an-agent)),
+until it has been carried to the agent (see [The agent](#the-agent)),
 then **sent**, then **resolved** by you or by the agent, with a line on what
 was done. Clicking a row makes its mark the active one and opens the row; the
 camera goes to the view the mark was placed from only when the mark is out of
