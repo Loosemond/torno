@@ -19,6 +19,8 @@ export interface MeasuredOnce {
   value: number
   how: string
   revision: number
+  /** The two points the value was taken between, in the object frame, when the kernel gave them: the line is drawn between them. */
+  points?: [Vec3, Vec3]
 }
 
 /**

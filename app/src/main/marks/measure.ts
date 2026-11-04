@@ -210,7 +210,7 @@ export async function measureOnce(deps: MeasureDeps, objectId: string, probe: Me
   measurableOnLast(deps, objectId, checked)
   const measured = await measureDimension(deps, objectId, checked, checked.revision)
   if (measured.refused !== undefined) throw new Refusal(measured.refused)
-  return { value: measured.value!, how: measured.how!, revision: checked.revision }
+  return { value: measured.value!, how: measured.how!, revision: checked.revision, ...(measured.points ? { points: measured.points } : {}) }
 }
 
 /**

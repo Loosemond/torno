@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import type { Vec3 } from '../../shared/marks'
 import { type AlignPoint, drawAlignPoints } from './alignPoints'
 import { type BrushRing, drawBrushRing } from './brushRing'
+import { drawHeldValue } from './heldValue'
 import type { MarkLayer } from './marks/MarkLayer'
 import type { Placed } from './marks/labels'
 import { markPoints } from './marks/markObjects'
@@ -37,6 +38,8 @@ export class OverlayPass {
   readonly canvas: HTMLCanvasElement | null
   alignPoints: AlignPoint[] = []
   brush: BrushRing | null = null
+  /** The value of the last measurement, at the middle of its line: a readout, in ink, in no picture. */
+  held: { at: Vec3; text: string } | null = null
   /** The chips of the marks as the last frame placed and drew them: what the pointer is on is read from these, not worked out again. */
   private chips: Placed[] = []
 
@@ -67,6 +70,7 @@ export class OverlayPass {
     // Not while the parts are drawn apart: a point picked on the model would be drawn where its part is not.
     if (host.exploded?.()) return
     drawAlignPoints(ctx, this.alignPoints, host.camera(), size, { accent: style.accent, paper: style.paper })
+    drawHeldValue(ctx, this.held, host.camera(), size, { ink: style.ink, paper: style.paper })
     drawBrushRing(ctx, this.brush, host.camera(), size, { mark: style.user, paper: style.paper })
   }
 

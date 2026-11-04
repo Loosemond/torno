@@ -287,6 +287,18 @@ describe('the draw tool', () => {
     }
   })
 
+  it('on a standard view in perspective, says beside the parts that Ortho draws a profile on the plane', () => {
+    const { ctx, said } = fake()
+    ctx.camera = { ...FRONT, ortho: false }
+    routePointer(drawTool(), { ...pointer('move', 30, 5), buttons: 0 }, ctx)
+    expect(said.at(-1)).toBe('Ortho to draw a profile on the XZ plane (O)')
+    // Turned off the axis, there is nothing to say.
+    const turned = fake()
+    turned.ctx.camera = { ...FRONT, ortho: false, position: [60, -80, 40] }
+    routePointer(drawTool(), { ...pointer('move', 30, 5), buttons: 0 }, turned.ctx)
+    expect(turned.said).toEqual([])
+  })
+
   it('on a locked view, says beside the parts which plane a stroke would be on, and how to turn the view', () => {
     const { ctx, said } = fake({ locked: 'front' })
     const tool = drawTool()

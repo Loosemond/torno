@@ -800,6 +800,30 @@ test('on a locked view with Draw in hand the pointer is told which plane a strok
   await expect(tool('Draw')).toHaveAttribute('aria-pressed', 'true')
 })
 
+test('with Draw in hand a standard view in perspective is taken in orthographic, so it is locked; the pointer says how otherwise, and turning the view gives perspective back', async () => {
+  await page.getByRole('button', { name: 'Perspective', exact: true }).click()
+  await page.keyboard.press('1')
+  await atRest()
+  await expect(tool('Draw')).toHaveAttribute('aria-pressed', 'true')
+  expect((await state()).lockedView).toBeNull()
+  // Front chosen with Draw in hand: orthographic at once, so locked.
+  await page.getByRole('button', { name: 'Front', exact: true }).click()
+  await expect.poll(async () => (await state()).lockedView).toBe('front')
+  expect((await state()).ortho).toBe(true)
+  await expect(lockOf('front')).toHaveAttribute('data-locked', '')
+  // Turning the view gives perspective back.
+  const box = (await canvas().boundingBox())!
+  await page.mouse.move(box.x + box.width - 30, box.y + box.height - 80)
+  await page.keyboard.down('Alt')
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width - 70, box.y + box.height - 90)
+  await page.mouse.move(box.x + box.width - 110, box.y + box.height - 100)
+  await page.mouse.up()
+  await page.keyboard.up('Alt')
+  await expect.poll(async () => (await state()).lockedView).toBeNull()
+  await expect.poll(async () => (await state()).ortho).toBe(false)
+})
+
 test('on a free view a stroke across the top of the base lies on the surface', async () => {
   await page.keyboard.press('1') // iso: not a view to lock on
   await atRest()

@@ -927,7 +927,7 @@ The tools, each with its key (all keys are under [Keys](#keys)):
 | `V` | Select | Click selects a face or an edge, Shift-click adds or takes out, `Esc` clears. "Insert" puts the selected refs in the session's prompt without sending it; "Note" leaves a mark on each. |
 | `P` | Pin | Click a part: a pin there, and its note opens beside it. A pin on an edge is a pin on that edge: the pointer snaps to an edge within reach, and the agent is told which edge it is and the two faces that meet there. |
 | `A` | Arrow | Drag from a part: an arrow of that length. With Shift it runs along the surface normal or a principal axis. |
-| `D` | Draw | Press and draw. On a locked view (an orthographic front, back, left, right, top or bottom, not turned since; a padlock shows on its button) the stroke is a profile in millimetres on the plane that faces you. On any other view it lies on the surface. Alt-drag turns the camera with this tool in hand. |
+| `D` | Draw | Press and draw. On a locked view (an orthographic front, back, left, right, top or bottom, not turned since; a padlock shows on its button) the stroke is a profile in millimetres on the plane that faces you. With Draw in hand a standard view you choose is taken in orthographic, so it is locked at once, and perspective comes back when you turn the view; in perspective the pointer says "Ortho to draw a profile on the XZ plane". On any other view it lies on the surface. Alt-drag turns the camera with this tool in hand. |
 | `S` | Shape | Click places a box, cylinder, sphere or plane, to add, remove, keep out or refer to. A gizmo moves it (`G`), turns it (`R`) or sizes it (`T`), and its row has the exact numbers. |
 | `X` | Section | Cuts the parts by a plane. See [Section](#section). |
 | `M` | Measure | Measures; `Enter` keeps a dimension. See [Measuring and dimensions](#measuring-and-dimensions). |
@@ -1025,7 +1025,9 @@ refuses (an angle to a sphere), its reason is read out at the
 pointer. `Esc` drops a first click; the tool stays in hand.
 
 **A measurement leaves nothing.** The kernel's value is read out at the pointer
-and stays in the strip as `Last: 6 mm between planes` until the next
+and stays in the strip as `Last: 6 mm between planes` (a distance adds
+`Δx`, `Δy` and `Δz`, from the kernel's two points) and drawn in the view in ink,
+between those points, with its value at the middle, until the next
 measurement, `Esc` with nothing under way, another tool, a new build or another
 project. It is no mark, and the agent is not told of it: not with the next
 prompt, not in `state.md`, not in a picture. To keep it, press `Enter` or
