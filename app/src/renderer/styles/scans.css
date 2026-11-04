@@ -49,7 +49,7 @@
 input.scan-name-field {
   height: 22px;
   padding: 0 var(--space-1);
-  border: var(--divider);
+  border: var(--field-border);
   border-radius: var(--radius-control);
   background: var(--panel);
   color: var(--ink);

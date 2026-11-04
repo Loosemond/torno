@@ -742,7 +742,7 @@ button.ref-chip {
   field-sizing: content;
   resize: none;
   padding: 6px var(--space-2);
-  border: var(--divider);
+  border: var(--field-border);
   border-radius: var(--radius-control);
   background: var(--panel);
   color: var(--ink);

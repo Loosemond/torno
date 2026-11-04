@@ -31,7 +31,7 @@ export type KeyScope = 'global' | 'window' | 'viewport' | 'measure' | 'section' 
  * in this order.
  */
 export const TOOL_KEYS = [
-  { name: 'select', label: 'Select', key: 'V', group: 'inspect', does: 'Select: click a face, an edge or a part', next: null },
+  { name: 'select', label: 'Select', key: 'V', group: 'inspect', does: 'Select: click a face or an edge, double-click for its part; Shift-click adds or takes out. The choice by the selection says what a click takes', next: null },
   { name: 'measure', label: 'Measure', key: 'M', group: 'inspect', does: 'Measure: two clicks, or a double click on a round thing; nothing is kept unless you keep it', next: 'Measure: click the first end, or double click something round', then: 'Measure: click the second end' },
   { name: 'section', label: 'Section', key: 'X', group: 'inspect', does: 'Section: cut the parts by a plane', next: 'Section: drag the handle to move the plane' },
   { name: 'pin', label: 'Pin', key: 'P', group: 'mark', does: 'Pin: click a point and leave a note', next: 'Pin: click the part, then write a note' },
@@ -113,6 +113,9 @@ export function capsOf(keys: readonly string[]): string[] {
 const ROWS = [
   row('keys', ['?'], 'This sheet of keys, outside a field and the terminal', 'Everywhere', 'window'),
   row('session.focus', ['Ctrl+`'], 'To the session, and from it back to the view', 'Everywhere', 'global'),
+  row('region.next', ['F6'], 'To the next part of the window: projects, view, session, status line', 'Everywhere', 'global'),
+  row('region.previous', ['Shift+F6'], 'To the part before', 'Everywhere', 'global'),
+  row('dock.toggle', ['Ctrl+Shift+D'], 'Show or hide the session pane', 'Everywhere', 'global'),
   row('export', ['Ctrl+Shift+E'], 'Export to one HTML file, or to STEP, STL or 3MF: the open project, or from the page of projects any of them', 'Everywhere', 'global'),
   row('rebuild', ['Ctrl+Shift+B'], 'Rebuild: build the open project again, as the button in the status line does', 'Everywhere', 'global'),
   row('reload', ['F5', 'Ctrl+R'], 'Reload the window, under the dev server only', 'Everywhere', 'dev', true),

@@ -202,6 +202,7 @@ button {
 .left,
 .dock {
   position: absolute;
+  z-index: 1; /* above the viewport, which comes after the left column in the DOM (reading order) */
   top: 0;
   bottom: var(--status-h);
   display: flex;
@@ -298,6 +299,7 @@ button {
    way, so it does not move when the dock goes. */
 .dock-toggle {
   position: absolute;
+  z-index: 2;
   top: 6px;
   right: var(--space-2);
   display: grid;
