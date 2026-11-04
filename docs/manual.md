@@ -2,7 +2,7 @@
 
 Everything torno does, in the order a first-time user meets it: what it needs, how to start it, a walk-through,
 then the reference. The [README](../README.md) is the short introduction.
-The same text, with a table of contents at the side, is at [luisg0nc.github.io/torno/manual](https://luisg0nc.github.io/torno/manual/).
+The same text, with a table of contents at the side, is at [torno.luisg.me/manual](https://torno.luisg.me/manual/).
 
 Torno is a desktop workbench for making CAD parts with an AI coding agent: the
 agent writes build123d Python in a terminal inside the window, torno builds the
