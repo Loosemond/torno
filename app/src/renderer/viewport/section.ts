@@ -74,6 +74,24 @@ export function atOffset(plane: SectionPlane, box: Box, mm: number): SectionPlan
   return movedAlongNormal(plane, to - sectionOffset(plane, box))
 }
 
+/**
+ * Where a plane is as the person reads and types it, the way the agent is told: across an axis its coordinate in
+ * the object frame (`y = 20`), else its offset along the normal from the middle of the parts.
+ */
+export function placeOf(plane: SectionPlane, box: Box): { axis: Axis | null; value: number } {
+  const along = axisForm(plane)
+  return along ? { axis: along.axis, value: along.at } : { axis: null, value: sectionOffset(plane, box) }
+}
+
+/** The plane at a place (see `placeOf`): a coordinate when it is across an axis, else an offset. Kept within the box. */
+export function atPlace(plane: SectionPlane, box: Box, value: number): SectionPlane {
+  const along = axisForm(plane)
+  if (!along || !Number.isFinite(value)) return atOffset(plane, box, value)
+  const i = AXES.indexOf(along.axis)
+  // The offset along the normal that puts the plane at that coordinate: the normal is ±the axis.
+  return atOffset(plane, box, along.sign * (value - centreOf(box)[i]))
+}
+
 /** The axis a normal runs along and which way, or null for a plane across none. */
 export function axisOf(normal: Vec3): { axis: Axis; sign: 1 | -1 } | null {
   const along = axisForm({ origin: [0, 0, 0], normal })

@@ -6,7 +6,7 @@ import { useAgentHighlight } from '../state/agent'
 import { actions, useStore } from '../state/store'
 import { setTool, useTool } from '../state/tools'
 import { sectionNudge, setFromFace, useFromFace } from '../tools/sectionTool'
-import { atOffset, axisOf, flipped, sectionExtent, sectionOffset, typedOffset, type Axis } from '../viewport/section'
+import { atOffset, atPlace, axisOf, flipped, placeOf, sectionExtent, sectionOffset, typedOffset, type Axis } from '../viewport/section'
 import { giveKeysBack } from './typing'
 import type { Viewport } from '../viewport/Viewport'
 
@@ -25,7 +25,7 @@ const AXES: Axis[] = ['x', 'y', 'z']
  *
  * A plane that leaves nothing of the parts that are switched on (one kept
  * from another layout, or from before a part shrank) says so, with a way back
- * to the middle.
+ * to the middle (the Middle button).
  */
 export function SectionBar({ viewport }: { viewport: Viewport }) {
   const section = useStore((s) => s.section)
@@ -45,12 +45,14 @@ export function SectionBar({ viewport }: { viewport: Viewport }) {
   const box = useMemo(() => viewport.sectionBox(), [viewport, scene, layout])
   const extent = section ? sectionExtent(box, section.normal) : { min: 0, max: 0 }
   const offset = section ? sectionOffset(section, box) : 0
+  // What the number says: the plane's place in the object frame across an axis, else how far along its normal.
+  const place = section ? placeOf(section, box) : { axis: null, value: 0 }
 
   // The slider and the number are the DOM's own while they are being changed: nothing of a drag is React's.
   useEffect(() => {
     if (slider.current) slider.current.value = String(offset)
-    if (field.current && document.activeElement !== field.current) field.current.value = section ? number(offset) : ''
-  }, [offset, section, extent.min, extent.max])
+    if (field.current && document.activeElement !== field.current) field.current.value = section ? number(place.value) : ''
+  }, [offset, place.value, section, extent.min, extent.max])
 
   // The plane as the screen draws it, also while its handle is dragged in the viewport: the number and the slider
   // follow it there, and are the kept plane's again when the drag is let go or put back. The slider is left alone
@@ -59,9 +61,8 @@ export function SectionBar({ viewport }: { viewport: Viewport }) {
     () =>
       viewport.onSectionMoved((plane) => {
         if (!plane) return
-        const now = sectionOffset(plane, box)
-        if (slider.current && !previewing.current) slider.current.value = String(now)
-        if (field.current && document.activeElement !== field.current) field.current.value = number(now)
+        if (slider.current && !previewing.current) slider.current.value = String(sectionOffset(plane, box))
+        if (field.current && document.activeElement !== field.current) field.current.value = number(placeOf(plane, box).value)
       }),
     [viewport, box]
   )
@@ -106,10 +107,10 @@ export function SectionBar({ viewport }: { viewport: Viewport }) {
     const input = field.current
     if (!input || !section) return
     // Left as it was written: the field shows four digits of an offset that may have more, and that is no request.
-    if (input.value.trim() === number(offset)) return
-    const mm = typedOffset(input.value, offset)
-    if (mm !== null) actions.setSection(atOffset(section, box, mm))
-    else input.value = number(offset)
+    if (input.value.trim() === number(place.value)) return
+    const mm = typedOffset(input.value, place.value)
+    if (mm !== null) actions.setSection(atPlace(section, box, mm))
+    else input.value = number(place.value)
   }
   // Above the selection and what the agent points at, which have the bottom edge.
   const raised = (selected ? 1 : 0) + (pointedOut ? 1 : 0)
@@ -156,14 +157,29 @@ export function SectionBar({ viewport }: { viewport: Viewport }) {
         className="section-slider"
         type="range"
         aria-label="Offset along the normal"
-        title="Where the plane is along its normal, from the middle of the parts"
+        title="Where the plane is along its normal. The tick is the middle of the parts"
         min={extent.min}
         max={extent.max}
         step="any"
         defaultValue={offset}
         disabled={!section}
       />
-      <label className="section-offset" data-disabled={section ? undefined : ''}>
+      {section && offset !== 0 && (
+      <button
+        type="button"
+        className="bar-button"
+        title="Put the plane through the middle of the parts"
+        onClick={() => section && actions.setSection(atOffset(section, box, 0))}
+      >
+        Middle
+      </button>
+      )}
+      <label className="section-offset" data-along={place.axis ?? undefined} data-disabled={section ? undefined : ''}>
+        {place.axis && (
+          <span className="num section-axis-letter" data-axis={place.axis} aria-hidden="true">
+            {place.axis} =
+          </span>
+        )}
         <input
           ref={field}
           className="num"
@@ -171,14 +187,14 @@ export function SectionBar({ viewport }: { viewport: Viewport }) {
           inputMode="decimal"
           spellCheck={false}
           autoComplete="off"
-          aria-label="Offset in millimetres"
+          aria-label="Plane position in millimetres"
           defaultValue={section ? number(offset) : ''}
           disabled={!section}
           onFocus={(e) => e.currentTarget.select()}
           onBlur={typed}
           onKeyDown={(e) => {
             if (pressed(e, 'field.keep')) typed()
-            else if (pressed(e, 'field.leave')) e.currentTarget.value = number(offset)
+            else if (pressed(e, 'field.leave')) e.currentTarget.value = number(place.value)
             else return
             e.preventDefault()
             e.stopPropagation()
@@ -186,7 +202,7 @@ export function SectionBar({ viewport }: { viewport: Viewport }) {
           }}
         />
         <span className="num" aria-hidden="true">
-          mm
+          mm{place.axis ? '' : ' along the normal'}
         </span>
       </label>
       <span className="viewbar-rule" aria-hidden="true" />
@@ -211,9 +227,6 @@ export function SectionBar({ viewport }: { viewport: Viewport }) {
           <span className="sectionbar-note" role="status">
             Everything is on the cut side
           </span>
-          <button type="button" className="bar-button" title="Put the plane through the middle of the parts" onClick={() => actions.setSection(atOffset(section, box, 0))}>
-            Reset
-          </button>
         </>
       )}
     </div>
