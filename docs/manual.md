@@ -920,6 +920,11 @@ a chip turns the camera, as anywhere else.
   resolved 2 marks." **Review** opens each, saying "Resolved by the agent"
   with the agent's line, with **OK** (it goes under "Resolved") and
   **Reopen** (it is a draft again); **OK all** says you have seen them all.
+- Once you have seen marks the agent resolved, and files of the project differ from the last commit (see Projects and
+  builds), a line under the marks offers **Ask Claude Code to commit**. It puts a request in the message box of the chat
+  ("Commit the changes for M4 and M6 of this project with a message saying what changed. Add only this project's
+  files."), opens the session pane, and never sends it: you read it first. The agent commits under your
+  permission rules; torno itself never commits. Not offered with a terminal session or none.
 - A mark on a part that is switched off in the layers is not drawn, in the
   window or in the agent's pictures; its row stays and says "its part is
   hidden".

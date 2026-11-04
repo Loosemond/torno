@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { type Mark, type MarkPatch, markAnchors } from '../../shared/marks'
 import { actions, layerOf, useStore } from '../state/store'
+import { AskToCommit } from './AskToCommit'
 import { MarkRow } from './MarkRow'
 import { groupMarks } from './markGroups'
 import { ResolvedSummary } from './ResolvedSummary'
@@ -122,6 +123,7 @@ export function MarksPanel() {
             <ResolvedSummary key={objectId} marks={toReview} row={row} acknowledgeAll={() => done(window.torno.marks.acknowledge(objectId, toReview.map((m) => m.id)))} />
           </>
         )}
+        <AskToCommit />
         {resolved.length > 0 && (
           <>
             <button type="button" className="marks-fold" aria-expanded={showResolved} onClick={() => setShowResolved((shown) => !shown)}>
