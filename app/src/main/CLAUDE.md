@@ -877,6 +877,11 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   the session's model in `modelUsage`; unchanged when the result has no tokens, as a `/compact`'s has none);
   the `turn` item takes the tokens the `result` counts as `usage` (`TurnUsage`: `usage` summed, `num_turns` as `requests`,
   and `modelUsage` per model; numbers only, so it is in the chat's log; none when the result counts none);
+  a `warn` note `NO_HOOKS` says once per session that the hooks do not arrive: a prompt of ours the CLI started
+  (`command_lifecycle`, not a `/` command) with no `UserPromptSubmit` by `hookWaitMs` (8 s) or the end of its turn, in a
+  session where none has come (a setting that limits `httpHookAllowedEnvVars` makes every hook 404). It never moves
+  the status; the stand-in's `FAKE_AGENT_NO_HOOKS=1` plays it. The terminal view cannot tell it: the manual's
+  troubleshooting names it.
   `api_retry` sets `retrying` (`{ attempt }`) until a `stream_event`, an `assistant`, a `user` or a `result` comes.
   Notes: a `warn` when torno's tools are `failed` (with the text of the entry of `mcp_server_errors` that is
   `torno`'s own: a `name`, `plugin`, `plugin_name` or `server` field that is `torno`, or a string that is or begins

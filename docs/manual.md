@@ -1612,6 +1612,15 @@ build is not built again until a source changes.
   future release. "Use the terminal" runs
   `claude` as you run it, under your login; `claude auth status` in a terminal
   says whether you are signed in.
+- **The chat says "Claude Code's hooks did not reach torno".** A prompt began
+  and the hook that carries your marks and the check of the Stop never came, in
+  this session. Torno gives the CLI a secret per session in `TORNO_SESSION`, and
+  each hook reads it from the environment; a setting of yours or of your
+  organisation that limits which variables hooks may read
+  (`httpHookAllowedEnvVars`) makes every hook fail unless it lists
+  `TORNO_SESSION`. Add it there, or take the limit off, and start the session
+  again. The note changes nothing else; in the terminal view the same fault
+  shows only as a status that never moves.
 - **A build takes minutes.** It is the model that takes them: see "What it
   costs" above. `TORNO_BUILD_TIMEOUT` raises the limit of 600 s.
 - **The agent says to press Rebuild, or a build failed for no reason of the

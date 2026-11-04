@@ -1690,6 +1690,29 @@ describe('the transcript of a chat session', () => {
     expect(c.items().find((i) => i.kind === 'user' && i.text === 'say after')).toMatchObject({ state: 'sent' })
   })
 
+  it('says once that the hooks do not reach torno when the agent posts none, and moves no status', async () => {
+    process.env.FAKE_AGENT_NO_HOOKS = '1'
+    try {
+      const c = await start()
+      await c.send('say one')
+      await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
+      await c.send('say two')
+      await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(2)
+      const notes = c.items().filter((i) => i.kind === 'note' && i.text.startsWith("Claude Code's hooks did not reach torno"))
+      expect(notes).toHaveLength(1)
+      expect(notes[0]).toMatchObject({ tone: 'warn' })
+    } finally {
+      delete process.env.FAKE_AGENT_NO_HOOKS
+    }
+  })
+
+  it('says nothing of hooks when they arrive', async () => {
+    const c = await start()
+    await c.send('say one')
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
+    expect(c.items().some((i) => i.kind === 'note' && i.text.includes('hooks did not reach'))).toBe(false)
+  })
+
   it('closes what is open when the session ends: the request is not answered, the queued prompt not sent', async () => {
     const c = await start()
     await c.send('ask Bash {"command":"ls"}')
