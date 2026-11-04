@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ObjectCard } from '../../shared/show'
-import { buildLine, cardChips, matching, pictureLine, stepCard } from './cards'
+import { ago, buildLine, ordered, cardChips, matching, pictureLine, stepCard } from './cards'
 
 const card = (over: Partial<ObjectCard> = {}): ObjectCard => ({ id: 'tub', name: 'tub', opened: true, build: { status: 'ok', revision: 3, stale: false }, thumb: null, marks: { open: 0, drafts: 0 }, dimensions: null, session: null, ...over })
 
@@ -10,6 +10,23 @@ describe('what a card says of its build', () => {
     expect(buildLine(card({ build: { status: 'building', revision: 3, stale: true } }))).toEqual({ text: 'Building…', standing: 'building' })
     expect(buildLine(card({ build: { status: 'idle', revision: 0, stale: false } }))).toEqual({ text: 'Not built yet', standing: 'idle' })
     expect(buildLine(card({ opened: false, build: undefined }))).toEqual({ text: 'Not opened in this run' })
+  })
+
+  it('says when the model was saved for an object not opened in this run, from the files alone', () => {
+    const now = Date.parse('2026-11-04T12:00:00Z')
+    const said = buildLine(card({ opened: false, build: undefined, sourcesMtimeMs: now - 3 * 3_600_000 }), now)
+    expect(said).toEqual({ text: 'Model saved 3 h ago', title: 'Not opened in this run' })
+    expect(ago(30_000)).toBe('just now')
+    expect(ago(5 * 60_000)).toBe('5 min ago')
+    expect(ago(26 * 3_600_000)).toBe('1 day ago')
+    expect(ago(90 * 86_400_000)).toBe('3 months ago')
+    expect(ago(800 * 86_400_000)).toBe('2 years ago')
+  })
+
+  it('orders by the last save of the model, the unsaved last', () => {
+    const [a, b, c] = [card({ id: 'a', sourcesMtimeMs: 5 }), card({ id: 'b' }), card({ id: 'c', sourcesMtimeMs: 9 })]
+    expect(ordered([a, b, c], 'recent').map((x) => x.id)).toEqual(['c', 'a', 'b'])
+    expect(ordered([a, b, c], 'name')).toEqual([a, b, c])
   })
 
   it('says a failure with its first line, in the colour of one, and that a build was let go', () => {

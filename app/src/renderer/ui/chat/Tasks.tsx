@@ -1,7 +1,7 @@
 import { memo, useMemo } from 'react'
 import type { ChatItem } from '../../../shared/chat'
 import { numbered } from '../numbered'
-import { type Task, progress, tasksNow } from './tasks'
+import { type Task, progress, tasksNow } from './taskList'
 
 /** The agent's tasks as a checklist: a mark for each state, what it is doing in the words of "doing" while it does it. */
 function Checklist({ list }: { list: readonly Task[] }) {

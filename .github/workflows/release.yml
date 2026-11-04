@@ -1,0 +1,101 @@
+name: Release
+
+# On a tag `v*`: runs the checks, builds the macOS app and the Linux packages, and uploads them with the demo
+# recording to a DRAFT release for the tag. The notes are written by hand and the draft is published by the owner.
+# `workflow_dispatch` is a dry run: it builds and uploads the files as a run artifact and makes no release.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: kernel/uv.lock
+      - run: pnpm install --frozen-lockfile
+      - run: uv sync --frozen
+        working-directory: kernel
+      - run: pnpm -C app typecheck
+      - run: pnpm test
+      - run: uv run --no-sync pytest -q
+        working-directory: kernel
+      - run: pnpm test:kernel
+
+  build:
+    name: Build (${{ matrix.name }})
+    needs: [checks]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS
+            os: macos-latest
+            script: dist:mac
+            files: app/dist/*.zip
+          - name: Linux
+            os: ubuntu-latest
+            script: dist:linux
+            files: |
+              app/dist/*.AppImage
+              app/dist/*.tar.gz
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/Library/Caches/electron
+            ~/.cache/electron-builder
+            ~/Library/Caches/electron-builder
+          key: electron-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm ${{ matrix.script }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: torno-${{ matrix.name }}
+          path: ${{ matrix.files }}
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Draft release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create the draft and upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" --draft --verify-tag --title "$TAG" \
+            --notes "Notes to be written by hand before this draft is published." \
+            dist/* docs/images/demo.mp4

@@ -107,6 +107,10 @@ describe.each([['light', tokens(css.slice(0, dark))], ['dark', { ...tokens(css.s
     for (const ground of ['--panel', '--surface']) expect([ground, contrast(t['--scroll-thumb'], t[ground]) >= 3]).toEqual([ground, true])
     expect(contrast(t['--scroll-thumb'], t['--panel'])).toBeLessThan(contrast(t['--muted'], t['--panel']))
   })
+  it('tells a field from its ground: the edge of an input is 3:1 on the panel and on the ground', () => {
+    for (const ground of ['--panel', '--surface']) expect([ground, contrast(t['--field-edge'], t[ground]) >= 3]).toEqual([ground, true])
+    expect(t['--field-edge']).not.toBe(t['--hairline'])
+  })
   it('reads what is selected in the terminal: it is set in ink on the selection, whatever colour it had', () => {
     expect(contrast(t['--ink'], t['--term-selection'])).toBeGreaterThanOrEqual(7)
     const pane = readFileSync(resolve(__dirname, '../renderer/ui/SessionPane.tsx'), 'utf8')

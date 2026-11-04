@@ -12,9 +12,13 @@ import numpy as np
 
 from . import extent, printable, tess, topo
 from .measure import volume_doubt
-from .queries import QueryError, need_part, need_solid, volume_of
+from .queries import QueryError, need_layout, need_part, need_solid, volume_of
 
-KINDS = ("overlap", "clearance", "mesh", "overhang", "thin", "bed")
+KINDS = ("overlap", "clearance", "interference", "mesh", "overhang", "thin", "bed")
+# What ``interference`` may take, s, of the 30 a query has; past it the pairs left are told as not measured.
+INTERFERENCE_BUDGET = 20.0
+# At most so many pairs of each sort are told; the rest are counted.
+MAX_PAIRS = 100
 # Vertices of the mesh within this of each other are one, mm: the rule slicers and viewers weld by.
 WELD = 1e-4
 # No more open edges than this are located.
@@ -44,6 +48,12 @@ def check(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any] | N
       ring's hole): it is the same verdict ``overlap`` gives. Of a part that is not a
       solid the distance is told and ``overlapping`` is null. ``how`` says
       which of these it is. ``reversed`` names, as of ``overlap``, the parts with a solid inside out.
+    - ``interference``: every pair of the layout's solid parts, with no ``a`` or ``b``: the pairs that share volume
+      (``interfering``, each with ``volume``, ``volumeExact``, ``bbox`` and ``bboxExact`` as ``overlap`` tells them,
+      largest first), the pairs that only touch (``touching``) and how many are ``clear``. Pairs whose boxes are apart
+      are clear without a cut. The others are cut in the order of how much their boxes overlap, within
+      ``INTERFERENCE_BUDGET`` seconds; ``sampling`` says how many were ``measured`` and whether it is ``complete``.
+      Parts that are not solids are named in ``notSolid`` and left out; ``reversed`` as of ``overlap``.
     - ``mesh``: whether the mesh of the part is ``watertight``: its vertices
       welded where they are within 0.0001 mm, how many edges are then of one
       triangle only (``openEdges``), the middles of at most twenty of them
@@ -67,6 +77,10 @@ def check(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any] | N
         if not isinstance(layout, str):
             raise QueryError("bad_request", "check bed needs args.layout, a string")
         return printable.bed(shapes, layout, args.get("size"), held)
+    if kind == "interference":
+        if not isinstance(layout, str):
+            raise QueryError("bad_request", "check interference needs args.layout, a string")
+        return _interference(shapes, layout, held)
     if not isinstance(layout, str) or not isinstance(a, str):
         raise QueryError(
             "bad_request", "check needs args.layout and args.a, the name of a part of it, both strings"
@@ -106,6 +120,83 @@ def check(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any] | N
     not_solid = [name for name, shape in ((a, first), (b, second)) if not topo.solids(shape)]
     told = _clearance(_topods(first), _topods(second), f"{a} and {b}", shared, not_solid)
     return {**told, "reversed": inside_out} if inside_out else told
+
+
+def _interference(shapes: dict[str, Any], layout: str, held: dict[Any, Any]) -> dict[str, Any]:
+    """Which parts of ``layout`` share volume, which only touch, and how many pairs are clear."""
+    import time
+
+    from OCP.BRepBndLib import BRepBndLib
+    from OCP.Bnd import Bnd_Box
+
+    need_layout(shapes, layout)
+    prefix = f"{layout}:"
+    names = [k[len(prefix) :] for k in shapes if k.startswith(prefix)]
+    solid = [n for n in names if topo.solids(shapes[prefix + n])]
+    not_solid = [n for n in names if n not in solid]
+    inside_out = [n for n in solid if volume_of(shapes[prefix + n], prefix + n, held).reversed]
+    boxes = {}
+    for n in solid:
+        box = Bnd_Box()
+        BRepBndLib.Add_s(_topods(shapes[prefix + n]), box, False)
+        boxes[n] = box
+
+    def reach(box: Any) -> tuple[list[float], list[float]]:
+        low, high = box.CornerMin(), box.CornerMax()
+        return [low.X(), low.Y(), low.Z()], [high.X(), high.Y(), high.Z()]
+
+    total = len(solid) * (len(solid) - 1) // 2
+    near = []  # (overlap of the boxes, a, b) for the pairs whose boxes are not apart
+    for i, a in enumerate(solid):
+        for b in solid[i + 1 :]:
+            if boxes[a].IsVoid() or boxes[b].IsVoid() or boxes[a].IsOut(boxes[b]):
+                continue
+            (l1, h1), (l2, h2) = reach(boxes[a]), reach(boxes[b])
+            size = 1.0
+            for k in range(3):
+                size *= max(0.0, min(h1[k], h2[k]) - max(l1[k], l2[k]))
+            near.append((size, a, b))
+    near.sort(key=lambda t: -t[0])
+    started = time.monotonic()
+    interfering, touching, measured = [], [], 0
+    for _, a, b in near:
+        if time.monotonic() - started > INTERFERENCE_BUDGET:
+            break
+        one, other = _topods(shapes[prefix + a]), _topods(shapes[prefix + b])
+        pair = ("shared", layout, *sorted((a, b)))
+        if pair not in held:
+            held[pair] = _shared(one, other, f"{a} and {b}")
+        both = held[pair]
+        measured += 1
+        if both["volume"] >= _SHARED:
+            interfering.append({"a": a, "b": b, **{k: both[k] for k in ("volume", "volumeExact", "bbox", "bboxExact")}})
+        elif _touches(one, other):
+            touching.append({"a": a, "b": b})
+    interfering.sort(key=lambda t: -t["volume"])
+    unmeasured = len(near) - measured
+    told: dict[str, Any] = {
+        "layout": layout,
+        "parts": len(solid),
+        "pairs": total,
+        "interfering": interfering[:MAX_PAIRS],
+        "touching": touching[:MAX_PAIRS],
+        "clear": total - len(interfering) - len(touching) - unmeasured,
+        "sampling": {"measured": measured, "of": len(near), "complete": unmeasured == 0},
+    }
+    if len(interfering) > MAX_PAIRS or len(touching) > MAX_PAIRS:
+        told["listCut"] = True
+    if not_solid:
+        told["notSolid"] = not_solid
+    if inside_out:
+        told["reversed"] = inside_out
+    return told
+
+
+def _touches(one: Any, other: Any) -> bool:
+    from OCP.BRepExtrema import BRepExtrema_DistShapeShape
+
+    extrema = BRepExtrema_DistShapeShape(one, other)
+    return bool(extrema.IsDone() and extrema.NbSolution() >= 1 and extrema.Value() <= _TOUCHING)
 
 
 def _topods(shape: Any) -> Any:

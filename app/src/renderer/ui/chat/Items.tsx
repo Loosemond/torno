@@ -1,5 +1,5 @@
-import { memo, useMemo, useState } from 'react'
-import { type ChatItem, pulledFromTorno } from '../../../shared/chat'
+import { memo, useMemo, useRef, useState } from 'react'
+import type { ChatItem } from '../../../shared/chat'
 import { drawn } from '../../state/chat'
 import { numbered } from '../numbered'
 import { AskCard } from './AskCard'
@@ -13,7 +13,9 @@ import { useChatOffers } from './offers'
 import { ToolCard } from './ToolCard'
 import { type Entry, foldRuns } from './fold'
 import { TasksCard } from './Tasks'
-import { isTaskTool, listsAt } from './tasks'
+import { isTaskTool, listsAt } from './taskList'
+import { TurnEnd } from './TurnEnd'
+import { netParts, turnSummary, type TurnAccount } from './turnSummary'
 
 type Of<K extends ChatItem['kind']> = Extract<ChatItem, { kind: K }>
 
@@ -94,22 +96,11 @@ const User = memo(function User({ item }: { item: Of<'user'> }) {
   )
 })
 
-function Turn({ item }: { item: Of<'turn'> }) {
-  const pulled = pulledFromTorno(item.pulled)
-  const head = item.stopped ? 'Stopped' : item.ok ? `Done in ${item.seconds < 10 ? item.seconds.toFixed(1) : Math.round(item.seconds)} s` : `Failed${item.error ? `: ${item.error}` : ''}`
-  return (
-    <p className="chat-item chat-turn" data-kind="turn" data-ok={item.ok && !item.stopped ? '' : undefined}>
-      {numbered(head)}
-      {pulled && <> · {numbered(pulled)}</>}
-    </p>
-  )
-}
-
 /**
  * One item of the transcript. Memoized: an item that did not change (the pane keeps its object) is not drawn again
  * for what else changes; `beat` is passed only to the items that show a dot, a constant to the rest.
  */
-export const ItemView = memo(function ItemView({ item, beat }: { item: ChatItem; beat: boolean }) {
+export const ItemView = memo(function ItemView({ item, beat, account }: { item: ChatItem; beat: boolean; account?: TurnAccount }) {
   counting(item.id)
   switch (item.kind) {
     case 'user':
@@ -142,7 +133,7 @@ export const ItemView = memo(function ItemView({ item, beat }: { item: ChatItem;
     case 'ask':
       return <AskCard item={item} />
     case 'turn':
-      return <Turn item={item} />
+      return <TurnEnd item={item} account={account} />
     case 'note':
       return item.action === 'terminal' ? (
         <TerminalOffer item={item} />
@@ -210,6 +201,26 @@ export function ChatItems({ items, beat }: { items: ChatItem[]; beat: boolean })
   // What is drawn on its own: a context whose prompt or card is here is drawn under that one.
   const entries = useMemo(() => foldRuns(order.filter((item) => !(item.kind === 'context' && ids.has(item.forUser))), new Set(under.keys())), [order, ids, under])
   const lists = useMemo(() => listsAt(order), [order])
+  // What each turn did, kept as the same object while it says the same, so that a turn already drawn is not drawn again.
+  const kept = useRef(new Map<string, { said: string; account: TurnAccount }>())
+  const accounts = useMemo(() => {
+    const out = new Map<string, TurnAccount>()
+    let turn: ChatItem[] = []
+    for (const item of order) {
+      if (item.kind !== 'turn') {
+        turn.push(item)
+        continue
+      }
+      const account = { summary: turnSummary(turn), net: netParts(turn) }
+      const said = JSON.stringify(account)
+      const was = kept.current.get(item.id)
+      const same = was?.said === said ? was.account : account
+      kept.current.set(item.id, { said, account: same })
+      out.set(item.id, same)
+      turn = []
+    }
+    return out
+  }, [order])
   return (
     <>
       {entries.map((entry, at) => {
@@ -222,7 +233,7 @@ export function ChatItems({ items, beat }: { items: ChatItem[]; beat: boolean })
         const listed = list && list.length > 0 ? list : undefined
         return (
           <div key={item.id} className="chat-group" data-id={item.id}>
-            {item.kind === 'tool' && item.name === 'TodoWrite' && listed ? <TasksCard list={listed} /> : <ItemView item={item} beat={underWay(item) ? beat : true} />}
+            {item.kind === 'tool' && item.name === 'TodoWrite' && listed ? <TasksCard list={listed} /> : <ItemView item={item} beat={underWay(item) ? beat : true} account={accounts.get(item.id)} />}
             {under.get(item.id)?.map((context) => (context.forTool ? <BuildLine key={context.id} item={context} /> : <Added key={context.id} item={context} />))}
             {listed && !(item.kind === 'tool' && item.name === 'TodoWrite') && <TasksCard list={listed} />}
           </div>

@@ -215,6 +215,14 @@ describe('show', () => {
     expect(replies).toEqual([{ id: 9, result: { caption: 'view top · layout print · parts post · perspective', objectId: 'bracket', revision: 3, stale: false, layout: 'print', scans: [] } }])
   })
 
+  it('makes the bar say the projection of a camera it shows, orthographic or perspective', () => {
+    expect(store.getState().ortho).toBe(false)
+    show({ view: { ...CAMERA, ortho: true, zoom: 2 }, viewName: 'Flat' })
+    expect(store.getState().ortho).toBe(true)
+    show({ view: CAMERA, viewName: 'Round' })
+    expect(store.getState().ortho).toBe(false)
+  })
+
   it('is not an edit of the person\'s: the scene file goes on saying what they had chosen', () => {
     actions.setLayer('post', { opacity: 0.5 })
     const edits = store.getState().edits

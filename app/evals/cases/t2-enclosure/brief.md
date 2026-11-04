@@ -1,0 +1,1 @@
+A box to print in two parts: a tub with outside 70 x 50 x 30 mm and 2 mm walls and floor, and a lid 2 mm thick with a lip that fits inside the tub with 0.2 mm of clearance all round. Parts named "tub" and "lid", the lid shown in place on the tub.

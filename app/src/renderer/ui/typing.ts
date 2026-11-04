@@ -5,7 +5,7 @@
  * pointer took up there gives the keys back when it is done with: the pane's edge once dragged, its agent
  * picker once chosen in (`chosen`).
  */
-export const TYPING = 'input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="button"]), textarea, select, [contenteditable], [data-region="session"]'
+export const TYPING = 'input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="button"]), textarea, select, [contenteditable], [data-region="session"], .left-edge'
 
 /**
  * A field is done with (Enter kept what was typed, Escape left it as it was): the keys go back to the view.

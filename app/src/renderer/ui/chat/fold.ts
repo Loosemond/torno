@@ -1,5 +1,5 @@
 import type { ChatItem } from '../../../shared/chat'
-import { isTaskTool } from './tasks'
+import { isTaskTool } from './taskList'
 
 // A turn of thirty `Read`, `Grep` and `Bash` calls is thirty lines. Once the turn is over, a run of three or more of
 // the agent's own tools that finished is drawn as one line, "Read 3 files, Grep ×2, Bash", to open. Drawing only: the

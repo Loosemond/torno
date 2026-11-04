@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import type { Part } from '../../shared/scene'
 import { sectionOf, snappedSection } from '../../shared/view'
 import { buildPart } from './partMesh'
-import { SectionCut, atOffset, axisOf, capColour, cutOutline, describeSection, keepsNothing, nearSegmentOnScreen, flipped, movedAlongNormal, planeFromFace, planeRect, sectionExtent, sectionOffset, typedOffset } from './section'
+import { SectionCut, atOffset, atPlace, placeOf, axisOf, capColour, cutOutline, describeSection, keepsNothing, nearSegmentOnScreen, flipped, movedAlongNormal, planeFromFace, planeRect, sectionExtent, sectionOffset, typedOffset } from './section'
 
 /** A plane across an axis of a box, at a share of the way along it: what the tests cut by. */
 function planeOnAxis(axis: 'x' | 'y' | 'z', box: { min: number[]; max: number[] }, t = 0.5): { origin: [number, number, number]; normal: [number, number, number] } {
@@ -63,6 +63,20 @@ describe('the offset the bar shows', () => {
     const diagonal = sectionExtent({ min: [0, 0, 0], max: [10, 10, 0] }, [Math.SQRT1_2, Math.SQRT1_2, 0])
     expect(diagonal.max).toBeCloseTo(Math.hypot(10, 10) / 2)
     expect(diagonal.min).toBeCloseTo(-Math.hypot(10, 10) / 2)
+  })
+
+  it('says where a plane across an axis is in the object frame, as the agent is told, and takes a typed place', () => {
+    const box = { min: [0, 0, 0], max: [30, 40, 10] }
+    const middle = { origin: [15, 20, 5] as [number, number, number], normal: [0, -1, 0] as [number, number, number] }
+    expect(placeOf(middle, box)).toEqual({ axis: 'y', value: 20 })
+    expect(atPlace(middle, box, 12)).toEqual({ origin: [15, 12, 5], normal: [0, -1, 0] })
+    expect(atPlace({ ...middle, normal: [0, 1, 0] }, box, 12).origin[1]).toBe(12)
+    // Kept within the parts.
+    expect(atPlace(middle, box, 99).origin[1]).toBe(40)
+    // A plane across no axis keeps the offset along its normal.
+    const slanted = { origin: [15, 20, 5] as [number, number, number], normal: [Math.SQRT1_2, Math.SQRT1_2, 0] as [number, number, number] }
+    expect(placeOf(slanted, box)).toEqual({ axis: null, value: 0 })
+    expect(atPlace(slanted, box, 2)).toEqual(atOffset(slanted, box, 2))
   })
 
   it('is the signed distance of the plane from the centre of the box, along the normal', () => {
@@ -278,6 +292,24 @@ describe('SectionCut', () => {
   /** What of a part is drawn besides its own surface and edges: the passes of its cut face. */
   const extras = (built: ReturnType<typeof buildPart>) => built.group.children.filter((child) => child !== built.mesh && child !== built.edges)
   const rim = (built: ReturnType<typeof buildPart>) => extras(built).find((child) => (child as THREE.LineSegments).isLineSegments) as THREE.LineSegments | undefined
+
+  it('hatches the cut face of a solid part in its edge colour, and a part that is no solid has no cut face to hatch', () => {
+    const { cut, post } = bracket()
+    cut.look(post, '#7B93B4', 1, '#102030')
+    cut.set({ origin: [0, 0, 12.5], normal: [0, 0, 1] }, SCENE)
+    const face = extras(post).find((o) => (o as THREE.Mesh).isMesh && (o as THREE.Mesh<THREE.BufferGeometry, THREE.Material>).material.userData.hatch) as THREE.Mesh
+    expect(face).toBeDefined()
+    const { colour, gap } = (face.material as THREE.Material).userData.hatch
+    expect('#' + colour.getHexString()).toBe('#102030')
+    expect(gap.value).toBe(6)
+    // An open shell is cut open: no cut face, so none to hatch.
+    const open = solid('shell', [-5, -5, 0], [5, 5, 10])
+    open.part.valid = false
+    const shell = buildPart(open.part, open.blob)
+    cut.add(shell)
+    cut.set({ origin: [0, 0, 5], normal: [0, 0, 1] }, SCENE)
+    expect(extras(shell).some((o) => (o as THREE.Mesh<THREE.BufferGeometry, THREE.Material>).material?.userData?.hatch)).toBe(false)
+  })
 
   it('draws nothing of a part the plane only touches: no sheet where it rested, and it is not there to be pointed at', () => {
     const { cut, base, post } = bracket()

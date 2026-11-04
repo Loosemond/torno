@@ -1,0 +1,58 @@
+{
+  "object": "smoke",
+  "prompts": [
+    "ask AskUserQuestion {\"questions\": [{\"question\": \"How long is the block?\", \"header\": \"Length\", \"multiSelect\": false, \"options\": [{\"label\": \"20 mm\", \"description\": \"short\"}, {\"label\": \"30 mm\", \"description\": \"long\"}]}]}",
+    "write smoke.py from dataclasses import dataclass\\nfrom build123d import Box, Cylinder, Pos\\n@dataclass(frozen=True)\\nclass Params:\\n    pass\\ndef assembly(p):\\n    return {'block': Box(30, 20, 10) - Cylinder(3, 10)}\\n",
+    "say Is this what you wanted?"
+  ],
+  "answers": {
+    "long": "30 mm",
+    "wanted": "Yes, thanks.",
+    "default": "I don't know: choose, and say what you chose."
+  },
+  "turns": 4,
+  "turnSeconds": 60,
+  "checks": [
+    {
+      "id": "parts",
+      "kind": "parts",
+      "names": [
+        "block"
+      ]
+    },
+    {
+      "id": "block-x",
+      "kind": "size",
+      "part": "block",
+      "axis": "x",
+      "expect": 30,
+      "tol": 0.001
+    },
+    {
+      "id": "hole",
+      "kind": "hole",
+      "part": "block",
+      "diameter": 6,
+      "through": true
+    },
+    {
+      "id": "mcp-volume",
+      "kind": "mcp",
+      "tool": "measure",
+      "args": {
+        "kind": "volume",
+        "a": "block"
+      },
+      "path": "value",
+      "expect": 5717.256661,
+      "tol": 0.01
+    },
+    {
+      "id": "fails",
+      "kind": "size",
+      "part": "block",
+      "axis": "z",
+      "expect": 99
+    }
+  ]
+}

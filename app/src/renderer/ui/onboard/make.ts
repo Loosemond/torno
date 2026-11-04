@@ -1,4 +1,4 @@
-import type { CreateRequest, OnboardDraft, Onboarded } from '../../../shared/bridge'
+import type { CreateRequest, OnboardDraft, Onboarded, PromptPreviewDraft } from '../../../shared/bridge'
 import type { AgentChoice } from '../../../shared/chat'
 import type { Draft, Held } from '../../state/onboard'
 import { extensionOf } from './images'
@@ -33,6 +33,24 @@ export type Outcome =
   /** Made and open; `problem` is why the first prompt was not sent, and then it is held for the composer. */
   | { kind: 'done'; objectId: string; problem?: string; /** False when the window could not show the object (another was chosen meanwhile). */ shown?: false }
 
+/** What `create` will name the photos and the doodles of the draft: photo-<n> with the extension of the file, doodle-<n>.png. */
+export function referenceFiles(draft: Draft): OnboardDraft['items'] {
+  return [
+    ...draft.photos.map((p, n) => ({ file: `reference/photo-${n + 1}${extensionOf(p.path)}`, note: p.note, image: p.image })),
+    ...draft.doodles.map((d, n) => ({ file: `reference/doodle-${n + 1}.png`, note: d.note, image: d.png }))
+  ]
+}
+
+/** The draft as `objects.previewPrompt` takes it: no picture, only whether there is one. */
+export function previewDraft(draft: Draft): PromptPreviewDraft {
+  return {
+    description: draft.description.trim(),
+    items: referenceFiles(draft).map((i) => ({ file: i.file, note: i.note, picture: (i.image?.byteLength ?? 0) > 0 })),
+    scans: draft.scans.map((s) => ({ path: s.path, note: s.note })),
+    objects: draft.objects.map((o) => ({ id: o.id, note: o.note }))
+  }
+}
+
 let running = false
 
 /** The message of `objects:create` for an object that is on the disk whatever else went wrong. */
@@ -57,10 +75,7 @@ export async function makeObject(draft: Draft, deps: MakeDeps, choice: AgentChoi
       objects: draft.objects.map((o) => ({ id: o.id, note: o.note }))
     }
     // What `onboard` names is what `create` wrote: photo-<n> with the extension of the file, doodle-<n>.png.
-    const items: OnboardDraft['items'] = [
-      ...draft.photos.map((p, n) => ({ file: `reference/photo-${n + 1}${extensionOf(p.path)}`, note: p.note, image: p.image })),
-      ...draft.doodles.map((d, n) => ({ file: `reference/doodle-${n + 1}.png`, note: d.note, image: d.png }))
-    ]
+    const items = referenceFiles(draft)
     let objectId: string
     try {
       objectId = (await deps.create(request)).objectId

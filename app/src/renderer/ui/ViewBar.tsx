@@ -2,6 +2,7 @@ import { VIEW_KEYS, hint, pressed, which } from '../../shared/keys'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ViewName } from '../../shared/view'
 import { actions, explodeNow, store, useStore } from '../state/store'
+import { toolStore } from '../state/tools'
 import type { Viewport } from '../viewport/Viewport'
 import { ExplodeBar, ExplodeToggle, toggleExplode } from './ExplodeControl'
 import { TYPING } from './typing'
@@ -20,6 +21,12 @@ function setOrtho(viewport: Viewport, ortho: boolean): void {
   actions.setOrtho(ortho)
 }
 
+/**
+ * Whether the projection was made orthographic for Draw by a standard view, and is to be given back once that view is
+ * turned: `taken` after the choice, `locked` once the view has settled locked (until then it is on its way).
+ */
+type Borrowed = 'none' | 'taken' | 'locked'
+
 /** The palette floating at the top of the viewport: layout, standard views, projection, fit, explode; under it the explode bar, while it is on, and the strip of saved views. */
 export function ViewBar({ viewport }: { viewport: Viewport }) {
   const layouts = useStore((s) => s.scene?.layouts ?? NONE)
@@ -27,6 +34,23 @@ export function ViewBar({ viewport }: { viewport: Viewport }) {
   const ortho = useStore((s) => s.ortho)
   const locked = useStore((s) => s.lockedView)
   const [moreOpen, setMoreOpen] = useState(false)
+  const borrowed = useRef<Borrowed>('none')
+  // A standard view chosen while Draw is in hand is taken in orthographic, so that it is locked at once (a profile on its plane).
+  const goTo = (view: ViewName): void => {
+    if (toolStore.getState().tool === 'draw' && !store.getState().ortho) {
+      setOrtho(viewport, true)
+      borrowed.current = 'taken'
+    }
+    viewport.setView(view, true)
+  }
+  useEffect(() => {
+    if (borrowed.current === 'taken' && locked !== null) borrowed.current = 'locked'
+    else if (borrowed.current === 'locked' && locked === null) {
+      // The view was turned: perspective as the person had it.
+      borrowed.current = 'none'
+      setOrtho(viewport, false)
+    }
+  }, [locked, viewport])
   const more = useRef<HTMLDivElement>(null)
   const bars = useRef<HTMLDivElement>(null)
   // How the parts of the layout shown are drawn apart, as kept: each change of it, by whatever path, is judged once
@@ -61,9 +85,12 @@ export function ViewBar({ viewport }: { viewport: Viewport }) {
       if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return
       if (e.target instanceof Element && e.target.closest(TYPING)) return
       const named = MAIN_VIEWS[which(e, 'views')]
-      if (named) viewport.setView(named.view, true)
-      else if (pressed(e, 'fit')) viewport.fit()
-      else if (pressed(e, 'ortho')) setOrtho(viewport, !store.getState().ortho)
+      if (named) goTo(named.view)
+      else if (pressed(e, 'fit')) viewport.fit({ selection: true })
+      else if (pressed(e, 'ortho')) {
+        borrowed.current = 'none'
+        setOrtho(viewport, !store.getState().ortho)
+      }
       // After the tool in hand, which was offered the key first (the viewport pane listens before this bar does).
       else if (pressed(e, 'explode')) toggleExplode()
       else return
@@ -120,7 +147,7 @@ export function ViewBar({ viewport }: { viewport: Viewport }) {
             data-locked={v.view === locked ? '' : undefined}
             aria-current={v.view === locked ? 'true' : undefined}
             title={v.view === locked ? `${v.label} view (${v.key}). ${LOCKED}` : `${v.label} view (${v.key})`}
-            onClick={() => viewport.setView(v.view, true)}
+            onClick={() => goTo(v.view)}
           >
             {v.view === locked && <LockIcon />}
             {v.label}
@@ -151,7 +178,7 @@ export function ViewBar({ viewport }: { viewport: Viewport }) {
                   data-locked={v.view === locked ? '' : undefined}
                   aria-current={v.view === locked ? 'true' : undefined}
                   onClick={() => {
-                    viewport.setView(v.view, true)
+                    goTo(v.view)
                     setMoreOpen(false)
                   }}
                 >
@@ -166,16 +193,22 @@ export function ViewBar({ viewport }: { viewport: Viewport }) {
       <span className="viewbar-rule" aria-hidden="true" />
 
       <div className="viewbar-group" role="group" aria-label="Projection">
-        <button type="button" className="bar-button" aria-pressed={!ortho} title={`Perspective (${hint('ortho')})`} onClick={() => setOrtho(viewport, false)}>
+        <button type="button" className="bar-button" aria-pressed={!ortho} title={`Perspective (${hint('ortho')})`} onClick={() => {
+            borrowed.current = 'none'
+            setOrtho(viewport, false)
+          }}>
           Perspective
         </button>
-        <button type="button" className="bar-button" aria-pressed={ortho} title={`Orthographic (${hint('ortho')})`} onClick={() => setOrtho(viewport, true)}>
+        <button type="button" className="bar-button" aria-pressed={ortho} title={`Orthographic (${hint('ortho')})`} onClick={() => {
+            borrowed.current = 'none'
+            setOrtho(viewport, true)
+          }}>
           Ortho
         </button>
       </div>
       <span className="viewbar-rule" aria-hidden="true" />
 
-      <button type="button" className="bar-button" title={`Fit the parts in view (${hint('fit')})`} onClick={() => viewport.fit()}>
+      <button type="button" className="bar-button" title={`Fit the selection in view, or the parts (${hint('fit')})`} onClick={() => viewport.fit({ selection: true })}>
         Fit
       </button>
       <span className="viewbar-rule" aria-hidden="true" />

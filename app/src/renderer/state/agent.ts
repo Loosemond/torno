@@ -138,6 +138,8 @@ export function show(viewport: Pick<Viewport, 'setView' | 'getCamera' | 'pointer
     framed = focusCamera(req.focus, req.view ?? 'current', viewport.cameraGoal?.() ?? viewport.getCamera(), (viewport.canvas ? viewport.canvas.clientWidth / viewport.canvas.clientHeight : 0) || 4 / 3)
     viewport.setView(framed, true)
   } else if (req.view !== undefined) viewport.setView(req.view, true)
+  // The bar of views says the projection the camera is going to, not the one it had until it settles.
+  if (typeof req.view === 'object' && req.view.ortho !== store.getState().ortho) actions.setOrtho(req.view.ortho)
   // A saved view put on screen is the one that is on in the strip, while the screen shows what it holds.
   if (req.viewName !== undefined) actions.viewShown(req.viewName)
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ChatItem } from '../../../shared/chat'
-import { listsAt, progress, tasksNow } from './tasks'
+import { listsAt, progress, tasksNow } from './taskList'
 
 type Tool = Extract<ChatItem, { kind: 'tool' }>
 let n = 0

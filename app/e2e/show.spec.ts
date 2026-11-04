@@ -69,7 +69,9 @@ test('the page of objects shows a card each, builds nothing, and opens one with 
   expect((await state()).page).toBe('objects')
   await expect(page.locator('.card')).toHaveCount((await state()).workspace!.objects.length)
   await expect(page.getByRole('region', { name: /^Projects of torno-e2e-show-/ })).toBeVisible()
-  await expect(card('hollow')).toContainText('Not opened in this run')
+  // Not built in this run: it says when its model was saved, read from the files; the plain fact is the tooltip.
+  await expect(card('hollow')).toContainText(/Model saved .* ago|just now|Not opened in this run/)
+  await expect(page.locator('.show-head')).toBeVisible()
   await expect(card('hollow')).toContainText('No picture yet')
   // With no picture to show, the picture's room is a third as tall as it is wide, and its three lines fit in it.
   const room = (await card('hollow').locator('.card-picture').boundingBox())!

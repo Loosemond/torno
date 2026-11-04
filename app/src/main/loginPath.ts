@@ -62,17 +62,17 @@ export function shellPath(shell: string, timeoutMs = SHELL_TIMEOUT_MS): Promise<
 }
 
 /**
- * On macOS, outside a test: sets `process.env.PATH` to the login shell's, with the fallbacks. A start from the
- * Finder, the Dock or `open` has launchd's PATH, in which neither `uv` nor `claude` is. Everything torno starts
- * takes its environment from `process.env`.
+ * On macOS and Linux, outside a test: sets `process.env.PATH` to the login shell's, with the fallbacks. A start
+ * from the Finder, the Dock or `open` has launchd's PATH, and one from a launcher's desktop entry the session's,
+ * in which neither `uv` nor `claude` need be. Everything torno starts takes its environment from `process.env`.
  */
 export async function applyLoginPath(
   platform: NodeJS.Platform = process.platform,
   env: NodeJS.ProcessEnv = process.env,
   timeoutMs = SHELL_TIMEOUT_MS
 ): Promise<void> {
-  if (platform !== 'darwin' || env.TORNO_TEST === '1') return
-  const shell = env.SHELL || '/bin/zsh'
+  if ((platform !== 'darwin' && platform !== 'linux') || env.TORNO_TEST === '1') return
+  const shell = env.SHELL || (platform === 'darwin' ? '/bin/zsh' : '/bin/sh')
   const found = await shellPath(shell, timeoutMs)
   if (found === null) console.error(`torno: the login shell ${shell} gave no PATH; using the usual folders only`)
   env.PATH = mergedPath(found, env.PATH ?? '', homedir(), existsSync)

@@ -11,3 +11,6 @@ app/e2e/.results/
 .claude/worktrees/
 *.prof
 docs/images/raw/
+
+# The manual page the Pages workflow builds (app/scripts/build-manual.mjs)
+site/manual/

@@ -1,6 +1,8 @@
 import { actions, runningSession, useStore } from '../state/store'
+import type { Param } from '../../shared/scene'
 import { insertIntoSession } from './insertIntoSession'
 import { numbered } from './numbered'
+import { sourceCount } from '../../shared/params'
 import { paramRow, type ParamRow } from './paramRows'
 import { SectionTitle } from './SectionTitle'
 
@@ -22,6 +24,7 @@ export function ParamsPanel() {
   return (
     <section className="section params" aria-label="Parameters" data-folded={folded ? '' : undefined}>
       <SectionTitle section="params" title="Parameters" said={`${params.length}`} />
+      {!folded && <SourceCount params={params} />}
       {!folded && (
         <ul className="rows">
           {params.map((param) => (
@@ -30,6 +33,25 @@ export function ParamsPanel() {
         </ul>
       )}
     </section>
+  )
+}
+
+/**
+ * How many sizes the model's comments say are assumed, and how many say nothing of where they come from, with the
+ * names in the tooltip. The model's own claim: torno has checked none of it. Nothing when every size has a source.
+ */
+function SourceCount({ params }: { params: Param[] }) {
+  const { assumed, unsaid } = sourceCount(params)
+  if (assumed.length === 0 && unsaid.length === 0) return null
+  const said = [assumed.length > 0 ? `${assumed.length} assumed` : '', unsaid.length > 0 ? `${unsaid.length} with no source` : ''].filter(Boolean).join(', ')
+  const names = [
+    assumed.length > 0 ? `Assumed: ${assumed.map((p) => p.name).join(', ')}` : '',
+    unsaid.length > 0 ? `No source: ${unsaid.map((p) => p.name).join(', ')}` : ''
+  ].filter(Boolean).join('. ')
+  return (
+    <p className="params-sources" title={`${names}. As the model's comments say; torno has not checked them`}>
+      {numbered(said)}
+    </p>
   )
 }
 

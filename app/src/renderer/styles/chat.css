@@ -10,6 +10,27 @@
 }
 
 /* Positioned, so that a picture shown large and the button that brings the reader down lie over the transcript only. */
+/* The pane with no session: the end of the last conversation and the buttons above, the box at the foot. */
+.chat-start {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.chat-start-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  user-select: text;
+}
+
+.chat-start .session-actions {
+  margin-top: var(--space-3);
+}
+
 .chat-scroll {
   position: relative;
   flex: 1;
@@ -562,6 +583,109 @@ button.ref-chip {
   color: var(--ink);
 }
 
+.chat-turn-line {
+  margin: 0;
+}
+
+.chat-turn-line + .chat-turn-line {
+  margin-top: var(--space-1);
+}
+
+/* What the person may do with a turn: "See changes", and whatever else is offered for it, in a row. */
+.chat-turn-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+/* The question "Undo" asks once, and the reason when main refuses: in the row, in the muted face. */
+.chat-turn-undo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--muted);
+}
+
+.chat-turn-problem {
+  color: var(--muted);
+}
+
+/* The sheet of what a turn changed in the model's file, over the transcript as a picture shown large is. */
+.changes-sheet {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  color: var(--ink);
+  font-size: var(--text-size);
+}
+
+.changes-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: var(--divider);
+}
+
+.changes-title {
+  margin: 0;
+  font-size: var(--text-size);
+  font-weight: 600;
+}
+
+.changes-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 0;
+  padding: var(--space-3);
+  overflow: auto;
+}
+
+.changes-files,
+.changes-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.changes-name {
+  margin: 0;
+  font-family: var(--font-mono);
+}
+
+.changes-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.changes-file {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.changes-sheet .diff,
+.changes-whole {
+  max-height: none;
+}
+
+.changes-net ul {
+  margin: var(--space-1) 0 0;
+  padding-left: var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--text-small);
+}
+
 .chat-note[data-tone='warn'] {
   color: var(--warn);
 }
@@ -610,6 +734,29 @@ button.ref-chip {
   color: var(--muted);
 }
 
+/* Quiet chips of the next useful prompts above the box: they fill it, they do not send. */
+.chat-suggest {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.chat-suggest-chip {
+  padding: 2px var(--space-2);
+  border: var(--divider);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.chat-suggest-chip:hover {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+  color: var(--ink);
+}
+
 .chat-next {
   display: flex;
   flex-wrap: wrap;
@@ -635,7 +782,7 @@ button.ref-chip {
   field-sizing: content;
   resize: none;
   padding: 6px var(--space-2);
-  border: var(--divider);
+  border: var(--field-border);
   border-radius: var(--radius-control);
   background: var(--panel);
   color: var(--ink);
