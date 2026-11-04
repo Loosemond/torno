@@ -1026,6 +1026,13 @@ read, and stays in the group its status puts it in.
 - Once sent, its row says **pinned**: it is one of the checks the agent is
   told about with every prompt until it passes. Changing what is expected or
   the tolerance makes it a draft again, sent as `(changed)`.
+- torno remembers what each dimension measured on the last 20 builds of the run,
+  and its open row lists them, newest last: `r9 38.6 ✗ · r10 39.2 ✗ · r11 40 ✓ ·
+  r12 41.3 ✗`, with a line above it when a check has changed its mind: `fails
+  since r12; passed on r11`. That is the first thing to ask when a check fails:
+  did it pass before, and on which build did it stop? The memory is not kept
+  between runs (builds are numbered from 1 again), and each verdict is judged
+  against what is expected now. The agent is not told this way.
 - A **resolved** dimension is no longer measured. A dimension of yours that
   has an expected value is yours alone to resolve.
 - After every build, every dimension that is not resolved is measured again

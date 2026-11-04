@@ -526,6 +526,35 @@
   color: var(--muted);
 }
 
+/* How the check stands against its own past, and the values of the builds behind it: muted, as what is not of the build on show. */
+.dimension-since {
+  margin: 0;
+  color: var(--ink);
+}
+
+.dimension-since[data-state='fail'] {
+  color: var(--fail);
+}
+
+.dimension-history {
+  margin: 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.dimension-sample[data-verdict='fail'] .verdict-icon {
+  color: var(--fail);
+}
+
+.dimension-sample[data-verdict='pass'] .verdict-icon {
+  color: var(--ok);
+}
+
+.dimension-sample .verdict-icon {
+  margin-left: 3px;
+  vertical-align: -1px;
+}
+
 .dimension-verdict {
   display: flex;
   align-items: center;

@@ -492,7 +492,7 @@ export function registerIpc(
   readiness = opts.ready ?? null
   readiness?.on('changed', (m) => broadcast('ready:changed', m))
   marks = opts.marks ?? null
-  marks?.on('changed', (m) => broadcast('marks:changed', m))
+  marks?.on('changed', (m) => broadcast('marks:changed', { ...m, marks: requireMarks().shown(m.objectId, m.marks) }))
   marks?.on('problem', (m) => broadcast('marks:problem', m))
   marks?.on('changed', () => cardsChanged())
   // A mark added, or reopened, has not been checked against the build there is: no build is on its way to do it.
@@ -709,7 +709,7 @@ export function registerIpc(
   handle('chat:models', () => opts.knownModels?.list() ?? [...MODEL_ALIASES])
 
   // The renderer names the object; the store finds its folder, and rejects an object the workspace does not have.
-  handle('marks:list', (_event, objectId: string) => requireMarks().list(String(objectId)))
+  handle('marks:list', async (_event, objectId: string) => requireMarks().shown(String(objectId), await requireMarks().list(String(objectId))))
   // A mark made in the window is the person's. The agent's come through its tools, which call the store themselves.
   // What only main says of a mark is said here: how far its part is spread on the build it was placed on.
   // A dimension is measured as it is kept (`addDimension`): its value is the kernel's, never the window's.

@@ -575,6 +575,10 @@ test('a build that makes the plate 5 mm thick fails them: the rows, the status l
   await expect(row('M1', page)).toBeInViewport()
   await expect(row('M1', page).locator('.dimension-verdict')).toHaveText('Fails: 1 under')
   await expect(row('M1', page).locator('.dimension-how')).toHaveText('wall, along the normal, measured from what is under its ends now')
+  // The regression: it passed on r1 and fails since r2, with both values in the open row, and the summary counts both.
+  await expect(row('M1', page).locator('.dimension-since')).toHaveText('fails since r2; passed on r1')
+  await expect(row('M1', page).locator('.dimension-history')).toHaveText('r1 6 · r2 5')
+  await expect(page.locator('.checks-summary')).toHaveText('Checks on r2: 2 fail')
   await page.evaluate(() => (document.activeElement as HTMLElement).blur())
 
   // The agent is told of both with the prompt, and with the one after: they are not news that is told once.
@@ -608,6 +612,10 @@ test('built as it should be again, they pass: the status line is clear, and the 
   await expect(row('M1', page).locator('.mark-value')).toHaveText('6 mm')
   await expect(row('M1', page).locator('.mark-value')).toHaveAttribute('data-verdict', 'pass')
   await expect(statusLine().locator('.status-dimensions')).toHaveCount(0)
+  await expect(page.locator('.checks-summary')).toHaveText('Checks on r3: 2 pass')
+  await row('M1', page).click()
+  await expect(row('M1', page).locator('.dimension-since')).toHaveText('passes since r3; failed on r2')
+  await expect(row('M1', page).locator('.dimension-history')).toHaveText('r1 6 · r2 5 · r3 6')
   const context = await prompted()
   expect(context).toMatch(/Dimensions\(measuredonr\d+\):2pinneddimensionspassOpenmarks:M1,M2$/)
   expect(context).not.toContain('FAIL')

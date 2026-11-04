@@ -87,6 +87,11 @@ export type MeasureKind = 'distance' | 'angle' | 'radius' | 'diameter' | 'thickn
  * it is "pinned": it stays in the list, and is measured again on every build
  * (`measuredRevision` says on which its value was taken).
  */
+/** What the kernel said of a dimension on one build of this run: its value, or none when it had none there. */
+export interface DimensionSample {
+  revision: number
+  value?: number
+}
 export interface DimensionMark extends MarkBase {
   kind: 'dimension'
   measure: MeasureKind
@@ -100,6 +105,12 @@ export interface DimensionMark extends MarkBase {
   tolerance?: number        // default 0.05 mm, 0.1°
   verdict?: 'pass' | 'fail' // present when expected is set and value is known
   points?: [Vec3, Vec3]     // the two points the value was taken between, for drawing the dimension line
+  /**
+   * What it measured on each of the last builds of this run, oldest first (`withSample`). Main's alone, and only in
+   * its memory: it is told to the window with the marks and never written to marks.json, for revisions count from 1
+   * in every run. No caller supplies it, and the verdict of each sample is worked out from the expectation as it now is.
+   */
+  history?: DimensionSample[]
 }
 /**
  * A part of a scan the person painted, and named with its note: "wiring loom, can be pushed aside". Its

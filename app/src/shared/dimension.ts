@@ -1,5 +1,5 @@
 import { number } from './format'
-import type { DimensionMark, Mark, MeasureKind } from './marks'
+import type { DimensionMark, DimensionSample, Mark, MeasureKind } from './marks'
 
 /** How far off its expected value a dimension may be when nothing says: 0.05 mm, and 0.1° for an angle. */
 export function defaultTolerance(measure: MeasureKind): number {
@@ -237,4 +237,64 @@ export function valueAgainstExpected(mark: DimensionMark, revision: number | und
 export function offBy(value: number, expected: number): string {
   const by = value - expected
   return `${number(Math.abs(by))} ${by < 0 ? 'under' : 'over'}`
+}
+
+/** How many builds of a run a dimension remembers. */
+export const HISTORY_LENGTH = 20
+
+/**
+ * A history with what the kernel said on a build added to it: oldest first, a build once (the later word replaces
+ * the earlier), the last `HISTORY_LENGTH` kept. A new history; the one given is not changed.
+ */
+export function withSample(history: readonly DimensionSample[] | undefined, sample: DimensionSample): DimensionSample[] {
+  const kept = (history ?? []).filter((one) => one.revision !== sample.revision)
+  return [...kept, sample].sort((a, b) => a.revision - b.revision).slice(-HISTORY_LENGTH)
+}
+
+/** A sample of a dimension's history with its verdict, worked out from what is expected of it now. */
+export interface JudgedSample extends DimensionSample {
+  verdict?: 'pass' | 'fail'
+}
+
+/** The history of a dimension, each build with the verdict its value has against what is expected now. */
+export function samplesOf(mark: DimensionMark): JudgedSample[] {
+  return (mark.history ?? []).map((sample) => {
+    const verdict = verdictOf({ measure: mark.measure, value: sample.value, expected: mark.expected, tolerance: mark.tolerance })
+    return verdict ? { ...sample, verdict } : { ...sample }
+  })
+}
+
+/** Since which build a check has stood as it does on the build there is, and the last build before that it stood the other way. */
+export interface Since {
+  state: 'pass' | 'fail'
+  since: number
+  /** The last build before `since` that had the other verdict. */
+  other?: number
+  /** How many builds of the history it has stood so. */
+  builds: number
+}
+
+/**
+ * How a check stands against its own past, when that is worth saying: it has a verdict on the build `revision`
+ * (the last one in its history), and either it was the other way on an earlier build, or it fails and has on
+ * more than one. A build with no value neither breaks a run nor ends it.
+ */
+export function since(mark: DimensionMark, revision: number | undefined): Since | undefined {
+  if (mark.status === 'resolved' || revision === undefined) return undefined
+  const judged = samplesOf(mark).filter((sample) => sample.verdict !== undefined)
+  const last = judged[judged.length - 1]
+  if (!last || last.revision !== revision || !last.verdict) return undefined
+  let run = judged.length
+  while (run > 0 && judged[run - 1].verdict === last.verdict) run -= 1
+  const builds = judged.length - run
+  const other = run > 0 ? judged[run - 1].revision : undefined
+  if (other === undefined && !(last.verdict === 'fail' && builds > 1)) return undefined
+  return { state: last.verdict, since: judged[run].revision, ...(other === undefined ? {} : { other }), builds }
+}
+
+/** `fails since r12; passed on r11`, `passes since r5; failed on r4`, `fails since r2; never passed this run`. */
+export function sinceText(s: Since): string {
+  const now = s.state === 'fail' ? 'fails' : 'passes'
+  if (s.other === undefined) return `${now} since r${s.since}; never passed this run`
+  return `${now} since r${s.since}; ${s.state === 'fail' ? 'passed' : 'failed'} on r${s.other}`
 }

@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from 'node:util'
-import { type Anchor, type AnchorState, type DimensionMark, type Mark, type MarkPatch, type MarksFile, type Measurement, type NewMark, type Replacement, type RegionMark, type Vec3, MAIN_ONLY_KEYS, MEASURED_KEYS, REGION_KEYS, markAnchors, translated } from '../../shared/marks'
+import { type Anchor, type AnchorState, type DimensionMark, type Mark, type MarkPatch, type MarksFile, type DimensionSample, type Measurement, type NewMark, type Replacement, type RegionMark, type Vec3, MAIN_ONLY_KEYS, MEASURED_KEYS, REGION_KEYS, markAnchors, translated } from '../../shared/marks'
+import { withSample } from '../../shared/dimension'
 import { type RegionStats, maskStem } from '../../shared/regions'
 
 /** What main says of a region: what it is, which mesh of its scan it is of, and which painting of it its mask holds. */
@@ -82,6 +83,11 @@ export class MarkStore {
   private problems = new Map<string, string>()
   /** By object id: the mark removed last, kept for `restore`. */
   private deleted = new Map<string, { mark: Mark; mask?: Uint8Array }>()
+  /**
+   * By object folder, then mark id: what the kernel said of each dimension on the builds of this run
+   * (`DimensionMark.history`). In memory only, never in marks.json: revisions count from 1 in every run.
+   */
+  private histories = new Map<string, Map<string, DimensionSample[]>>()
   /** Counts `forget`: what was read before one is not kept after it. */
   private epoch = 0
   private listeners: { [E in keyof MarkEvents]: Array<(m: MarkEvents[E]) => void> } = { changed: [], problem: [], unchecked: [] }
@@ -104,7 +110,36 @@ export class MarkStore {
     this.epoch += 1
     this.deleted.clear()
     this.files.clear()
+    this.histories.clear()
     this.unread.clear()
+  }
+
+  /**
+   * The marks as the window is shown them: each dimension with what it measured on the builds of this run
+   * (`history`). The marks given are not changed. The agent is not told this way.
+   */
+  shown(objectId: string, marks: readonly Mark[]): Mark[] {
+    const dir = this.deps.dirOf(objectId)
+    const of = dir === undefined ? undefined : this.histories.get(dir)
+    return marks.map((mark) => {
+      const history = mark.kind === 'dimension' ? of?.get(mark.id) : undefined
+      return history && history.length > 0 ? ({ ...mark, history: history.map((sample) => ({ ...sample })) } as Mark) : mark
+    })
+  }
+
+  /** What the kernel said of a dimension on its build, kept with the others of this run. */
+  private remember(objectId: string, mark: Mark | undefined): void {
+    const dir = this.deps.dirOf(objectId)
+    if (dir === undefined || mark?.kind !== 'dimension' || mark.measuredRevision === undefined) return
+    const of = this.histories.get(dir) ?? new Map<string, DimensionSample[]>()
+    of.set(mark.id, withSample(of.get(mark.id), mark.value === undefined ? { revision: mark.measuredRevision } : { revision: mark.measuredRevision, value: mark.value }))
+    this.histories.set(dir, of)
+  }
+
+  /** A dimension is measured through other ends than it was: what it measured before is of something else. */
+  private forgetHistory(objectId: string, id: string): void {
+    const dir = this.deps.dirOf(objectId)
+    if (dir !== undefined) this.histories.get(dir)?.delete(id)
   }
 
   /**
@@ -229,11 +264,16 @@ export class MarkStore {
         if (!added) throw new Refusal('that is not a mark: its kind is unknown, or a field is missing or not a finite number')
         file.next += 1
         file.marks.push(added)
+        this.remember(objectId, added)
         return added
       },
       [],
       kind(mark) === 'region' && region ? (added) => region.before(added.id) : undefined
-    )
+    ).catch((e: unknown) => {
+      // There is no mark: its number is given to the next, which does not inherit what this one measured.
+      if (kind(mark) === 'dimension') this.forgetHistory(objectId, `M${this.files.get(this.deps.dirOf(objectId) ?? '')?.next ?? 0}`)
+      throw e
+    })
   }
 
   /**
@@ -501,7 +541,10 @@ export class MarkStore {
         if (!moved) continue
         // An end of a dimension is somewhere else, or on something else: what it measured was measured through the
         // ends it had. Its value is of no build any more, until it is measured through these.
-        if (mark.kind === 'dimension' && moved.kind === 'dimension' && !isDeepStrictEqual(through(mark), through(moved))) delete moved.measuredRevision
+        if (mark.kind === 'dimension' && moved.kind === 'dimension' && !isDeepStrictEqual(through(mark), through(moved))) {
+          delete moved.measuredRevision
+          this.forgetHistory(objectId, id)
+        }
         file.marks[at] = moved
         any = true
       }
@@ -530,6 +573,7 @@ export class MarkStore {
       const now = withMeasurement(mark, result)
       if (!now || isDeepStrictEqual(now, mark)) return UNCHANGED
       file.marks[at] = now
+      this.remember(objectId, now)
       return now
     }).then((now) => (now === UNCHANGED ? null : now))
   }
@@ -554,6 +598,7 @@ export class MarkStore {
         const now = withMeasurement(mark, result)
         if (!now || isDeepStrictEqual(now, mark)) continue
         file.marks[at] = now
+        this.remember(objectId, now)
         any = true
       }
       return any ? undefined : UNCHANGED
