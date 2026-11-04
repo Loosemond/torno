@@ -327,6 +327,21 @@ test('with an expected value the hole fails: the row says so, and the chip in th
   expect(dimension(root, 'M2')).not.toHaveProperty('tolerance')
 })
 
+test('resolving a check asks first; "Keep checking" leaves it measured', async () => {
+  await row('M2', page).hover()
+  const resolve = row('M2', page).getByRole('button', { name: 'Resolve M2', exact: true })
+  await expect(resolve).toHaveAttribute('title', 'Resolve: it is no longer measured')
+  await resolve.click()
+  const ask = row('M2', page).getByRole('alertdialog', { name: 'Stop checking M2' })
+  await expect(ask).toContainText('Stop checking M2? It is no longer measured.')
+  // Nothing has changed yet.
+  expect(dimension(root, 'M2')).toMatchObject({ status: expect.not.stringMatching(/resolved/), expected: 8.5 })
+  await ask.getByRole('button', { name: 'Keep checking' }).click()
+  await expect(ask).toHaveCount(0)
+  expect(dimension(root, 'M2')).toMatchObject({ expected: 8.5, verdict: 'fail' })
+  expect(dimension(root, 'M2')?.status).not.toBe('resolved')
+})
+
 test('the picture for the agent shows both dimensions, and none of them without the marks', async () => {
   const withMarks = await picture(page, 'marks', true)
   const without = await picture(page, 'bare', false)

@@ -439,6 +439,11 @@ test("add_mark places the agent's own marks, by ref and by point, which the user
 
   const row = page.locator('.mark-row[data-mark="M2"]')
   await expect(row).toHaveAttribute('data-author', 'agent')
+  // Its own group, for the person to read or answer; the person's sent M1 stays with the agent.
+  await expect(page.getByRole('list', { name: 'From the agent' }).locator('.mark-row[data-mark="M2"]')).toHaveCount(1)
+  await expect(page.getByRole('list', { name: 'With the agent' }).locator('.mark-row[data-mark="M1"]')).toHaveCount(1)
+  await expect(page.getByRole('list', { name: 'With the agent' }).locator('.mark-row[data-mark="M2"]')).toHaveCount(0)
+  await expect(row.getByRole('button', { name: 'Resolve M2' })).toHaveAttribute('title', 'Seen: resolve it')
   // --agent-mark, outlined: the user's own are filled with --user-mark.
   await expect(row.locator('.mark-chip')).toHaveCSS('border-top-color', 'rgb(40, 129, 86)')
   await expect(row.locator('.mark-chip')).toHaveCSS('color', 'rgb(40, 129, 86)')
@@ -544,7 +549,7 @@ test('resolve_mark resolves a mark, which the user sees as resolved by the agent
   await expect(awaiting).toHaveAttribute('data-awaiting', '')
   await expect(awaiting.locator('.mark-resolution-note')).toHaveText('Resolved by the agent: made the corner 2 mm thicker')
   await awaiting.getByRole('button', { name: 'OK', exact: true }).click()
-  await expect(marks.locator('.marks-review')).toHaveCount(0)
+  await expect(marks.locator('.marks-review')).toContainText('Reviewed 1: 1 OK')
   await expect(marks.locator('.mark-row[data-mark]')).toHaveCount(3)
   await marks.getByRole('button', { name: /Resolved/ }).click()
   const resolved = marks.getByRole('list', { name: 'Resolved marks' }).locator('[data-mark="M1"]')

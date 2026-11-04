@@ -24,7 +24,7 @@ import { toArrayBuffer } from './kernel/frames'
 import { forgetViews, reportView, resolveRequest } from './look'
 import { type AskedAnchor, type Retrying, asPlaced, asReplaced, checkMarks, followMarks, nearestReply, retrying } from './marks/reanchor'
 import { addDimension, dueAfterEdit, measureOnce, remeasure } from './marks/measure'
-import { type RegionDeps, addRegion, convertScan, removeMark, repaintRegion, tendRegions } from './marks/regions'
+import { type RegionDeps, addRegion, convertScan, removeMark, repaintRegion, restoreMark, tendRegions } from './marks/regions'
 import type { MarkStore } from './marks/store'
 import { kernelDir, kernelRun } from './paths'
 import { Refusal, refusable } from './refusal'
@@ -63,7 +63,7 @@ function handle(channel: string, fn: (event: Electron.IpcMainInvokeEvent, ...arg
 //           object:open, object:rebuild, object:sceneFile,
 //           session:current, session:start, session:trust, session:instructions, session:revealInstruction, session:stop, session:chooseView,
 //           chat:history, chat:reference, chat:send, chat:interrupt, chat:setModel, chat:setEffort, chat:models,
-//           marks:list, marks:add, marks:update, marks:acknowledge, marks:remove, marks:replace, marks:problem (also sent to the renderer),
+//           marks:list, marks:add, marks:update, marks:acknowledge, marks:remove, marks:restore, marks:replace, marks:problem (also sent to the renderer),
 //           marks:dismissProblem, geometry:describe, geometry:measure,
 //           scans:list, scans:pick, scans:import, scans:convert, scans:rename, scans:remove, scans:align, scans:mesh,
 //           scans:problem (also sent to the renderer), scans:dismissProblem, scans:reimport, scans:undoAlign, scans:alignHolds,
@@ -732,6 +732,8 @@ export function registerIpc(
   // With a region goes the mask that held its triangles.
   const regions = (): RegionDeps => ({ marks: requireMarks(), scans: requireScans() })
   handle('marks:remove', (_event, objectId: string, id: string) => (scans ? removeMark(regions(), String(objectId), String(id)) : requireMarks().remove(String(objectId), String(id))))
+  // The last mark deleted, whole and with its number; once.
+  handle('marks:restore', (_event, objectId: string, id: string) => restoreMark(regions(), String(objectId), String(id)))
   // What the person painted on a scan: main works out what it is from the mesh, and writes its triangles beside it.
   handle('marks:addRegion', (_event, objectId: string, region: NewRegion) => addRegion(regions(), String(objectId), region))
   // A region painted again: the same mark, of the triangles sent; main writes them as a new mask and says the numbers anew.

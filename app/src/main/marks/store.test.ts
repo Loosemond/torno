@@ -78,6 +78,25 @@ describe('adding marks', () => {
     expect((await newStore().add('bracket', pin())).id).toBe('M4')
   })
 
+  it('puts back the mark deleted last, whole and with its number, once', async () => {
+    const first = await store.add('bracket', pin('keep'))
+    const second = await store.add('bracket', pin('this one'))
+    const third = await store.add('bracket', pin('and this'))
+    await store.remove('bracket', 'M2')
+    await expect(store.restore('bracket', 'M1')).rejects.toThrow('cannot be put back')
+    expect(await store.restore('bracket', 'M2')).toEqual(second)
+    // In its place, and written.
+    expect(await store.list('bracket')).toEqual([first, second, third])
+    expect(onDisk('bracket')).toEqual({ next: 4, marks: [first, second, third] })
+    await expect(store.restore('bracket', 'M2')).rejects.toThrow('cannot be put back')
+    // Only the last one deleted.
+    await store.remove('bracket', 'M1')
+    await store.remove('bracket', 'M3')
+    await expect(store.restore('bracket', 'M1')).rejects.toThrow('cannot be put back')
+    expect((await store.restore('bracket', 'M3')).note).toBe('and this')
+    expect((await store.add('bracket', pin())).id).toBe('M4')
+  })
+
   it('gives concurrent adds distinct ids, and keeps them all', async () => {
     const added = await Promise.all(Array.from({ length: 12 }, (_, i) => store.add('bracket', pin(`n${i}`))))
     expect(ids(added)).toEqual(Array.from({ length: 12 }, (_, i) => `M${i + 1}`))

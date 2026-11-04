@@ -930,12 +930,26 @@ a chip turns the camera, as anywhere else.
 
 - A mark you change after it was sent (its note, or a shape's place, size,
   kind or intent) is a draft again, and is told once more as `(changed)`.
-- The Marks list is grouped: **To send**, **With the agent**, **To review**,
-  then **Resolved**, folded. The active row shows its note whole.
+- The Marks list is grouped by who acts next: **To send** (yours, "with your
+  next prompt"), **From the agent** (marks it left for you to read or answer;
+  **Answer in chat** puts the mark's id in the prompt, and the tick says
+  you have seen it), **To review**, **With the agent** (your sent marks), then
+  **Resolved**, folded. The active row shows its note whole.
 - A mark the agent resolves does not vanish: "To review" says "The agent
-  resolved 2 marks." **Review** opens each, saying "Resolved by the agent"
-  with the agent's line, with **OK** (it goes under "Resolved") and
-  **Reopen** (it is a draft again); **OK all** says you have seen them all.
+  resolved 2 marks." **Review** walks them one at a time: the mark becomes the
+  active one and the camera goes to its view, the line reads "Reviewing 1 of 2
+  · M5", and its row says "Resolved by the agent" with the agent's line. **OK**
+  moves it under "Resolved"; **Reopen…** opens its note with the cursor at the
+  end, so that you can say why, and it is a draft again, with the note, when you
+  leave the field (Esc leaves it as it was); **Skip** leaves it to review. When
+  the last is done the line says how it went ("Reviewed 5: 4 OK, 1 reopened").
+  **OK all** says you have seen them all at once.
+- The tick on a row resolves the mark (**Resolve: done with it**); on a check
+  with an expected value it first asks "Stop checking M3? It is no longer
+  measured." (**Resolve** or **Keep checking**). **Delete** takes the mark at
+  once, and for ten seconds, or until the next delete, the list says "Deleted
+  M3 · **Undo**": Undo puts it back whole, with its number, note and, for a
+  region, its triangles. Only the last mark deleted can be put back.
 - A mark on a part that is switched off in the layers is not drawn, in the
   window or in the agent's pictures; its row stays and says "its part is
   hidden".

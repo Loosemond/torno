@@ -123,11 +123,17 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   much it misses after its cross, in `--fail` (`40 mm ✗ 2 under`: `labelValue`'s `off`, from `offBy`), on screen
   and in a picture for the agent alike. A spec that hands a tool a press at a point checks first that no chip is
   drawn there (`__tornoTest.chipAt`, `clearOfChips` in `e2e/tools.spec.ts` and `e2e/measure.spec.ts`).
-- The Marks list is grouped by what is to be done (`ui/markGroups.ts`): "To send" (drafts), "With the agent"
-  (sent), "To review" and the fold "Resolved"; a heading only for a group that has marks, and the heading says
+- The Marks list is grouped by what is to be done (`ui/markGroups.ts`): "To send" (drafts, headed `To send N · with your next prompt`),
+  "From the agent" (its own open marks, for the person to read or answer: "Answer in chat" puts the id in the
+  prompt), "To review", "With the agent" (the person's sent marks) and the fold "Resolved"; a heading only for a group that has marks, and the heading says
   the status, so a row has no status word but a pinned dimension's `pinned`, which is never cut. "To review" is
-  one summary (`ui/ResolvedSummary.tsx`): "The agent resolved N marks.", "Review" opening each row with its
-  resolution, OK and Reopen, and "OK all" (`marks.acknowledge`, no key).
+  one summary (`ui/ResolvedSummary.tsx`): "The agent resolved N marks.", "Review" walking them (an index held in the
+  component over the ids as they were: `Reviewing 1 of 5 · M5`, the mark active and `focusMark`ed, its row with OK,
+  `Reopen…` and Skip; Reopen opens the note at its end and writes note and `status: 'draft'` in one `update` when the
+  field is left; the end says `Reviewed 5: 4 OK, 1 reopened` for 10 s), and "OK all" (`marks.acknowledge`, no key).
+- A row's resolve is a tick in a box (`ResolveIcon`), never the bare tick of a passing check; on a dimension with an
+  expected value it asks in the row first (`Confirm`). Delete is immediate and the panel offers `Deleted M3 · Undo` for
+  10 s (`marks.restore`), no key.
 - A mark's row is one line, its note cut to the room there is, and the active row (`aria-current`) shows its
   note whole, wrapped on a line of its own (`late.css`). Its chip is the id alone (`rowLabel`): `~` and `?` are
   the view's chips' and the pictures' (`labelText`). What the last build did to its mark (`moved:

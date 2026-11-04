@@ -4,14 +4,17 @@ import { exactText, shownDimension } from '../../shared/dimension'
 import { EXPLODED_TOOLS } from '../../shared/explode'
 import { type Mark, type MarkKind, type MarkPatch, awaitsAcknowledgement, isUnchecked } from '../../shared/marks'
 import { count, number } from '../../shared/format'
-import { actions, explodeNow, partsInLayout, store, useStore } from '../state/store'
+import { actions, explodeNow, partsInLayout, runningSession, store, useStore } from '../state/store'
 import { endReplace, startReplace, useReplacing } from '../state/tools'
 import { editRegion } from '../tools/regionPainting'
 import { rowLabel } from '../viewport/marks/labels'
 import { spanningMarks } from '../viewport/marks/apart'
+import type { ReviewStep } from './ResolvedSummary'
 import { DimensionFields, VerdictIcon, Words } from './DimensionFields'
 import { hoverMark, unhoverMark } from './markHover'
+import { Confirm } from './Confirm'
 import { ShapeFields } from './ShapeFields'
+import { insertIntoSession } from './insertIntoSession'
 import { ICONS, SHAPE_ICONS } from './ToolPalette'
 
 /** The longest note a mark keeps (main cuts there); the field stops at it, so nothing is cut unseen. */
@@ -81,7 +84,8 @@ export function MarkRow({
   partHidden = false,
   revision = 0,
   change,
-  remove
+  remove,
+  review
 }: {
   mark: Mark
   active: boolean
@@ -96,10 +100,14 @@ export function MarkRow({
   /** Resolves when main has made the change; rejects when it refuses. */
   change: (patch: MarkPatch) => Promise<unknown>
   remove: () => void
+  /** The row is the one being walked in "To review": what it does with the mark goes on to the next. */
+  review?: ReviewStep
 }) {
   // The note as it is being written; null while it is only shown.
   const [draft, setDraft] = useState<string | null>(null)
   const field = useRef<HTMLInputElement>(null)
+  // The note is being written as the reason for reopening a mark the agent resolved: it becomes a draft when the field is left.
+  const [reopening, setReopening] = useState(false)
   const resolved = mark.status === 'resolved'
   const label = rowLabel(mark)
   const replacing = useReplacing() === mark.id
@@ -117,10 +125,22 @@ export function MarkRow({
   // Nothing has checked it against the build on show: its ref is of an older one.
   const unchecked = useLasting(isUnchecked(mark, revision), UNCHECKED_AFTER_MS)
 
+  // The agent's own open mark: for the person to read or answer, and to put in the prompt while a session runs.
+  const fromAgent = mark.author === 'agent' && mark.status === 'sent'
+  const sessionLive = useStore((s) => runningSession(s) !== undefined)
+
+  // Resolving a check that has an expected value stops it being measured: asked in the row before it is done.
+  const [stopping, setStopping] = useState(false)
+  const checks = mark.kind === 'dimension' && mark.expected !== undefined && !resolved
+  useEffect(() => setStopping(false), [mark.id, mark.status])
+
   const writing = draft !== null
   useEffect(() => {
-    if (writing) field.current?.select()
-  }, [writing])
+    if (!writing) return
+    // A reason is added to the note: the cursor goes to its end. Any other note is taken up selected.
+    if (reopening) field.current?.setSelectionRange(field.current.value.length, field.current.value.length)
+    else field.current?.select()
+  }, [writing, reopening])
 
   // The pointer on the row, or the focus in it, points at its mark in the view: its chip is ringed and the faces it
   // is on are lit. The keys reach a mark by its row's buttons, and see it so.
@@ -136,8 +156,12 @@ export function MarkRow({
 
   const save = () => {
     if (draft === null) return
-    if (draft !== mark.note) void change({ note: draft }).catch(() => {})
+    if (reopening) {
+      // Note and status in one change, so that the agent is told both at once.
+      void change({ note: draft, status: 'draft' }).then(() => review?.step('reopened'), () => {})
+    } else if (draft !== mark.note) void change({ note: draft }).catch(() => {})
     setDraft(null)
+    setReopening(false)
   }
   // A shape is edited where it can be seen: in its own layout, while it is the one being worked on.
   const fields = mark.kind === 'shape' && active && !resolved && !elsewhere
@@ -166,7 +190,7 @@ export function MarkRow({
       data-elsewhere={elsewhere ? '' : undefined}
       data-hidden={partHidden ? '' : undefined}
       data-awaiting={awaiting ? '' : undefined}
-      data-expanded={fields || expects || awaiting ? '' : undefined}
+      data-expanded={fields || expects || awaiting || (stopping && checks) ? '' : undefined}
       data-replacing={replacing ? '' : undefined}
       data-hovered={pointed ? '' : undefined}
       aria-current={active ? 'true' : undefined}
@@ -225,7 +249,10 @@ export function MarkRow({
           onBlur={save}
           onKeyDown={(e) => {
             if (pressed(e, 'field.keep')) save()
-            else if (pressed(e, 'field.leave')) setDraft(null)
+            else if (pressed(e, 'field.leave')) {
+              setDraft(null)
+              setReopening(false)
+            }
             else return
             e.preventDefault()
             e.stopPropagation()
@@ -298,19 +325,58 @@ export function MarkRow({
         <button type="button" className="icon-button" aria-label={`Go to ${mark.id}`} title={gone ? LAYOUT_GONE : 'Go to its view'} disabled={gone} onClick={() => actions.focusMark(mark.id)}>
           <FocusIcon />
         </button>
+        {fromAgent && (
+          <button
+            type="button"
+            className="icon-button"
+            aria-label={`Answer ${mark.id} in chat`}
+            title={sessionLive ? "Answer in chat: put this mark's id in the prompt" : 'Start a session to answer in chat'}
+            disabled={!sessionLive}
+            onClick={() => {
+              // The dock may be away: the box takes no focus in a hidden one, so it is given the keys a frame after it is shown.
+              const hidden = !store.getState().dockOpen
+              actions.setDockOpen(true)
+              insertIntoSession(mark.id, { later: hidden })
+            }}
+          >
+            <AnswerIcon />
+          </button>
+        )}
         {resolved ? (
           <button type="button" className="icon-button" aria-label={`Reopen ${mark.id}`} title="Reopen as a draft" onClick={() => void change({ status: 'draft' }).catch(() => {})}>
             <ReopenIcon />
           </button>
         ) : (
-          <button type="button" className="icon-button" aria-label={`Resolve ${mark.id}`} title="Resolve" onClick={() => void change({ status: 'resolved' }).catch(() => {})}>
-            <CheckIcon />
+          <button
+            type="button"
+            className="icon-button"
+            aria-label={`Resolve ${mark.id}`}
+            title={checks ? 'Resolve: it is no longer measured' : fromAgent ? 'Seen: resolve it' : 'Resolve: done with it'}
+            onClick={() => (checks ? setStopping(true) : void change({ status: 'resolved' }).catch(() => {}))}
+          >
+            <ResolveIcon />
           </button>
         )}
         <button type="button" className="icon-button" aria-label={`Delete ${mark.id}`} title="Delete" onClick={remove}>
           <BinIcon />
         </button>
       </span>
+      {stopping && checks && (
+        <div className="mark-stop" onClick={(e) => e.stopPropagation()}>
+          <Confirm
+            label={`Stop checking ${mark.id}`}
+            accept="Resolve"
+            cancel="Keep checking"
+            onAccept={() => {
+              setStopping(false)
+              void change({ status: 'resolved' }).catch(() => {})
+            }}
+            onCancel={() => setStopping(false)}
+          >
+            Stop checking {mark.id}? It is no longer measured.
+          </Confirm>
+        </div>
+      )}
       {fields && <ShapeFields mark={mark} change={change} />}
       {expects && <DimensionFields mark={mark} revision={revision} change={change} />}
       {awaiting && (
@@ -319,12 +385,26 @@ export function MarkRow({
             <span className="mark-resolution-by">Resolved by the agent</span>
             {mark.resolvedNote ? `: ${mark.resolvedNote}` : ''}
           </p>
-          <button type="button" className="button" title="Seen: move it to the resolved marks" onClick={() => void change({ acknowledged: true }).catch(() => {})}>
+          <button type="button" className="button" title="Seen: move it to the resolved marks" onClick={() => void change({ acknowledged: true }).then(() => review?.step('ok'), () => {})}>
             OK
           </button>
-          <button type="button" className="button" title="Not done: make it a draft again, for the next prompt" onClick={() => void change({ status: 'draft' }).catch(() => {})}>
-            Reopen
+          <button
+            type="button"
+            className="button"
+            title="Not done: say why, and it is a draft again, for the next prompt"
+            onClick={() => {
+              actions.setActiveMark(mark.id)
+              setReopening(true)
+              setDraft(mark.note)
+            }}
+          >
+            Reopen…
           </button>
+          {review && (
+            <button type="button" className="button" title="Leave it to review" onClick={() => review.step('skipped')}>
+              Skip
+            </button>
+          )}
         </div>
       )}
     </li>
@@ -388,10 +468,21 @@ function FocusIcon() {
   )
 }
 
-function CheckIcon() {
+/** A speech bubble: answer in the chat. */
+function AnswerIcon() {
   return (
     <Glyph>
-      <path d="m3 8.5 3.25 3.25L13 4.75" />
+      <path d="M2.75 3.25h10.5v7h-6l-3 2.5v-2.5h-1.5Z" />
+    </Glyph>
+  )
+}
+
+/** A tick in a box: done with it. Not the bare tick of a passing check. */
+function ResolveIcon() {
+  return (
+    <Glyph>
+      <rect x="2.5" y="2.5" width="11" height="11" rx="2" />
+      <path d="m5.5 8.25 1.9 1.9 3.1-3.9" />
     </Glyph>
   )
 }

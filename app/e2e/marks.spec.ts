@@ -375,6 +375,21 @@ test('deleting a mark takes it out of the file; its number is not given out agai
   await expect(rows().locator('.mark-chip')).toHaveText(['M1', 'M2'])
   await expect.poll(() => marksOnDisk().marks.map((m) => m.id)).toEqual(['M1', 'M2'])
   expect(marksOnDisk().next).toBe(6)
+
+  // Undo puts it back whole, with its number, note and group; once.
+  const gone = page.getByText('Deleted M3')
+  await expect(gone).toBeVisible()
+  await page.getByRole('button', { name: 'Undo', exact: true }).click()
+  await expect(rows().locator('.mark-chip')).toHaveText(['M1', 'M2', 'M3'])
+  await expect(gone).toHaveCount(0)
+  await expect.poll(() => marksOnDisk().marks.map((m) => m.id)).toEqual(['M1', 'M2', 'M3'])
+  expect(marksOnDisk().next).toBe(6)
+  await expect(page.getByRole('list', { name: 'To send' }).locator('.mark-row[data-mark="M3"]')).toHaveCount(1)
+  expect(await page.evaluate(() => window.torno.marks.restore('bracket', 'M3').then(() => 'back', (e: Error) => e.message))).toMatch(/cannot be put back/)
+  // And the rest of the file is as it was.
+  await row('M3').hover()
+  await page.getByRole('button', { name: 'Delete M3', exact: true }).click()
+  await expect.poll(() => marksOnDisk().marks.map((m) => m.id)).toEqual(['M1', 'M2'])
 })
 
 test('marks belong to a layout: another layout shows none of them, and going to one switches back', async () => {

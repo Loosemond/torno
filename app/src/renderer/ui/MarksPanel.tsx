@@ -1,13 +1,16 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { type Mark, type MarkPatch, markAnchors } from '../../shared/marks'
 import { actions, layerOf, useStore } from '../state/store'
 import { MarkRow } from './MarkRow'
 import { groupMarks } from './markGroups'
-import { ResolvedSummary } from './ResolvedSummary'
+import { type ReviewStep, ResolvedSummary } from './ResolvedSummary'
+
+/** How long "Undo" is offered after a delete. */
+const UNDO_MS = 10_000
 
 /**
  * The marks of the open object, below the layers, grouped by what is to be
- * done with them (`groupMarks`): to send, with the agent, to review, then,
+ * done with them (`groupMarks`): to send, from the agent, to review, with the agent, then,
  * folded away, the resolved ones. A mark the agent resolved is to review
  * until the person has said they have seen it, or reopened it. Marks of every layout are listed; one of a layout that is not shown
  * says which, and going to it switches there.
@@ -27,9 +30,20 @@ export function MarksPanel() {
   // What main said when it refused a change, until the next one goes through.
   const [refused, setRefused] = useState<string | null>(null)
 
+  // The mark just deleted, which can be put back for ten seconds, or until the next delete.
+  const [undo, setUndo] = useState<string | null>(null)
+  const undoTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const offerUndo = (id: string | null): void => {
+    clearTimeout(undoTimer.current)
+    setUndo(id)
+    if (id !== null) undoTimer.current = setTimeout(() => setUndo(null), UNDO_MS)
+  }
+  useEffect(() => () => clearTimeout(undoTimer.current), [])
+
   useEffect(() => {
     setRefused(null)
     setShowResolved(false)
+    offerUndo(null)
   }, [objectId])
 
   if (!objectId) return null
@@ -49,9 +63,10 @@ export function MarksPanel() {
     const ends = mark.kind === 'dimension' ? markAnchors(mark) : markAnchors(mark).slice(0, 1)
     return ends.length > 0 && ends.every((anchor) => off(anchor.part))
   }
-  const row = (mark: (typeof marks)[number]) => (
+  const row = (mark: (typeof marks)[number], review?: ReviewStep) => (
     <MarkRow
       key={mark.id}
+      review={review}
       mark={mark}
       active={mark.id === active}
       // A region is of its scan in every layout: it is never elsewhere, and its layout going takes nothing from it.
@@ -64,19 +79,24 @@ export function MarksPanel() {
         done(call)
         return call
       }}
-      remove={() => done(window.torno.marks.remove(objectId, mark.id))}
+      remove={() => {
+        const call = window.torno.marks.remove(objectId, mark.id)
+        done(call)
+        void call.then(() => offerUndo(mark.id), () => {})
+      }}
     />
   )
-  const { toSend, withAgent, toReview, resolved } = groupMarks(marks)
+  const { toSend, fromAgent, withAgent, toReview, resolved } = groupMarks(marks)
   /** A group of the list under its heading, when it has marks. */
-  const group = (name: string, of: Mark[]) =>
+  const group = (name: string, of: Mark[], hint?: string) =>
     of.length > 0 && (
       <>
         <h3 className="marks-group">
           {name} <span className="num">{of.length}</span>
+          {hint && ` · ${hint}`}
         </h3>
         <ul className="mark-rows" aria-label={name}>
-          {of.map(row)}
+          {of.map((m) => row(m))}
         </ul>
       </>
     )
@@ -105,23 +125,38 @@ export function MarksPanel() {
         </p>
       )}
       <div className="marks-body">
+        {undo !== null && (
+          <p className="marks-undo" role="status">
+            Deleted <span className="num">{undo}</span> ·{' '}
+            <button
+              type="button"
+              className="link-button"
+              onClick={() => {
+                const id = undo
+                offerUndo(null)
+                done(window.torno.marks.restore(objectId, id))
+              }}
+            >
+              Undo
+            </button>
+          </p>
+        )}
         {marks.length === 0 && (
           <div className="marks-empty">
             <p>Point at the part to leave a note for the agent.</p>
             <p>A mark goes with your next prompt, and stays here until the agent resolves it.</p>
           </div>
         )}
-        {marks.length > 0 && toSend.length + withAgent.length + toReview.length === 0 && <p className="section-note">Every mark is resolved.</p>}
-        {group('To send', toSend)}
-        {group('With the agent', withAgent)}
+        {marks.length > 0 && toSend.length + fromAgent.length + withAgent.length + toReview.length === 0 && <p className="section-note">Every mark is resolved.</p>}
+        {group('To send', toSend, 'with your next prompt')}
+        {group('From the agent', fromAgent)}
         {toReview.length > 0 && (
-          <>
-            <h3 className="marks-group">
-              To review <span className="num">{toReview.length}</span>
-            </h3>
-            <ResolvedSummary key={objectId} marks={toReview} row={row} acknowledgeAll={() => done(window.torno.marks.acknowledge(objectId, toReview.map((m) => m.id)))} />
-          </>
+          <h3 className="marks-group">
+            To review <span className="num">{toReview.length}</span>
+          </h3>
         )}
+        <ResolvedSummary key={objectId} marks={toReview} row={row} acknowledgeAll={() => done(window.torno.marks.acknowledge(objectId, toReview.map((m) => m.id)))} />
+        {group('With the agent', withAgent)}
         {resolved.length > 0 && (
           <>
             <button type="button" className="marks-fold" aria-expanded={showResolved} onClick={() => setShowResolved((shown) => !shown)}>
@@ -133,7 +168,7 @@ export function MarksPanel() {
             </button>
             {showResolved && (
               <ul className="mark-rows" aria-label="Resolved marks">
-                {resolved.map(row)}
+                {resolved.map((m) => row(m))}
               </ul>
             )}
           </>
