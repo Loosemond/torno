@@ -1068,6 +1068,18 @@ describe('the digest of the build of an edit', () => {
     expect(buildContextFor(withBuilds({ kept: [{ revision: 3, scene: a }, { revision: 4, scene: less }] }), 'bracket').text).toContain('No source: 1 of 3 sizes')
   })
 
+  it("says every time that the build is made with Params the person tried, and what was let go of", () => {
+    const param = (name: string, def: number, value: number) => ({ name, type: 'float', default: def, value, literal: true, doc: null, editable: 'float' as const })
+    const tried: Scene = { ...SCENE, params: [param('wall', 2, 2.4), param('lip', 3, 3)] }
+    for (const make of [contextFor, buildContextFor]) {
+      const lines = make(withBuilds({ kept: [{ revision: 3, scene: tried }] }), 'bracket').text.split('\n')
+      expect(lines[1]).toBe('Params tried by the person (this build is made with them; the model file says otherwise): wall 2.4 (file 2). To make one the default, edit it in the model.')
+    }
+    const gone: Scene = { ...SCENE, params: [param('wall', 2.2, 2.2)], overrides: { applied: {}, dropped: [{ name: 'wall', reason: 'the file wins' }] } }
+    expect(contextFor(withBuilds({ kept: [{ revision: 3, scene: gone }] }), 'bracket').text).toContain('Params overrides let go of: wall (the file wins).')
+    expect(contextFor(withBuilds({ kept: [{ revision: 3, scene: SCENE }] }), 'bracket').text).not.toContain('Params tried')
+  })
+
   it('of a first build, is the check alone', () => {
     const told = buildContextFor(withBuilds({ kept: [{ revision: 4, scene: { ...R3, output: '' } }] }), 'bracket')
     expect(told.text).toBe([STATUS, 'Check: nothing found (every part valid, closed, not inside out, its mesh agreeing with its volume).'].join('\n'))

@@ -139,6 +139,11 @@ What main, the window, the kernel and an agent must all hold to. The detail of e
   not a part's name: the loader refuses those). Wherever a tool takes part names a group's name stands for its parts
   in the layout (`shared/groups.ts` `partsNamed`, in main before a request and in the window alike). torno never
   writes the model: the only thing it keeps of groups is which are folded (`folded` in `scene.json`).
+- The model's `Params` can be tried without editing the model: the person's overrides are `<object>/.torno/params.json`
+  (main the only writer; the file always wins: an override is dropped when the file's default of its field changes),
+  every build of the object carries them, and the agent is told so with every prompt; the agent's `try_params` builds
+  a throwaway copy in a trial worker and keeps nothing. torno still never writes the model: a value is baked in by the
+  agent editing it (`app/src/main/CLAUDE.md`, Params the person tries; `kernel/CLAUDE.md`).
 - Lengths are millimetres, angles degrees, areas mm², volumes mm³, masses
   grams. Numbers shown go through `shared/format.ts` (four significant
   digits at most); numbers stored and returned as data are in full.

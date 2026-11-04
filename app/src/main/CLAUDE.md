@@ -167,7 +167,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `mcp/markTools.ts`; those that read the part in `mcp/readTools.ts`; those
   that ask about scans in `mcp/scanTools.ts`): `scene`, `look`, `marks`,
   `describe`, `highlight`, `ask`, `show`, `save_view`, `add_mark`, `resolve_mark`,
-  `measure`, `section`, `check`, `diff`, `expect`, `try_fillet`, `features`, `scans`, `scan_clash`, `scan_deviation`.
+  `measure`, `section`, `check`, `diff`, `expect`, `try_fillet`, `try_params`, `features`, `scans`, `scan_clash`, `scan_deviation`.
   `expect` (`mcp/expectTools.ts`, `Expectations`, wired in `index.ts`) is the agent's note on one edit: checks on a
   part's volume, faces, edges or size, a `measure` with `expected`, or `unchanged` parts, taken against the last
   build and held in memory for the next successful build only (never a file, never a mark, never a Stop reason). It is
@@ -188,7 +188,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   - What a client reads of a tool before it calls one is beside its description in `TOOLS`: a `title` (sentence
     case), `annotations` and, for the tools loaded upfront, `meta`. Every tool has `openWorldHint: false`; the
     ones that only read have `readOnlyHint: true` (`scene`, `look`, `marks`, `describe`, `measure`, `section`,
-    `check`, `diff`, `try_fillet`, `features`, `scans`, `scan_clash`, `scan_deviation`: Claude Code runs the calls of those side by side;
+    `check`, `diff`, `try_fillet`, `try_params`, `features`, `scans`, `scan_clash`, `scan_deviation`: Claude Code runs the calls of those side by side;
     `look` reads, the picture it writes under `.torno/views/` being torno's own), the rest `readOnlyHint: false,
     destructiveHint: false`. `scene`, `look`, `marks`, `describe` and `measure` have
     `_meta["anthropic/alwaysLoad"]` (Claude Code's tool search defers every other MCP tool until it is searched for,
@@ -240,6 +240,15 @@ is the detail of this folder, under the headings it has there. Paths are from `a
     radius above 0; `kind` fillet or chamfer), each refusal saying what to give. It answers with the kernel's reply
     (`works`, and when false the diagnosis of a failed build, `frame: 'object'`, its edges by ref) and a `reading`:
     `Tried on rN and thrown away, nothing changed:` and `diagnosisText`. Read-only: it changes no model and no mark.
+  - `try_params` (`tryParamsTool` in `mcp/readTools.ts`, `ToolDeps.trial`, `Builds.trial`, the kernel's `trial` request)
+    builds the model with other values of its `Params` (`set`, the fields `scene` lists with an `editable` kind,
+    each checked for its type before the kernel is asked, over the person's own overrides) in a worker the
+    supervisor forks and throws away, and answers `measure` (`bbox`, `volume`, `area`, `mass`, `distance`) and
+    `check` queries there, 10 of each at most, of whole parts by name: a trial has no refs of a build to give, so a
+    face, an edge or a mark is refused. It answers with `sceneDiff` against the last build, each reading as
+    `measureReading` and `checkReading` word it, and says everywhere it is of the trial. It changes and keeps nothing
+    (no file, no live worker, no scene sent to the window, no revision); a trial the kernel refuses (`busy`,
+    `no_room`) is told as such. To keep a value the agent edits the model.
   - `features` (`featuresTool` in `mcp/featureTools.ts`) has the kernel's live worker of the last good build list the
     holes, bosses, fillets, chamfers and patterns of one part (`features.py`; `part`, `kinds`, `layout`; the part is checked against the scene as
     `try_fillet`'s is). It answers with the kernel's data (each feature with its numbers, `exact` and, when false,
@@ -289,6 +298,27 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   (`shared/params.ts` `sourceOf`: the model's claim, never checked; no or unknown word is `no source`, never
   `assumed`). The answer to an edit adds `Assumed: …; no source: n` (`paramsLine` in `context.ts`) only when the set
   differs from the build before's, compared from the two kept scenes, so no state is tracked.
+
+## Params the person tries
+
+- `<object>/.torno/params.json` (`{ "overrides": { "wall": { "value": 2.4, "default": 2 } } }`, `src/main/paramsfile.ts`)
+  holds the values the person tries in place of the model's defaults, with the default the file had when each was
+  made. Main is the only writer: one change at a time per folder, atomically (`writeOwn`), git-ignored
+  (`ensureIgnored`), the memory put back when a write fails. The model file is never written: that is the rule that
+  keeps torno from being a modeller, and the one thing that bakes a value in is the agent editing the model.
+  `Builds` gives every build of the folder `overrideValues(dir)` (`overrides` of the kernel's build request, which
+  applies only what an `editable` field of its type can take and says what it dropped).
+- **The file always wins.** After each good build `reconcile` (called from `Builds`, `OverridesPort`) holds the
+  overrides against the scene: one whose field the model no longer offers, that the kernel refused, or whose recorded
+  default is not the file's default now is dropped and noted (`Scene.overrides.dropped`, with the reason, until the
+  person says anything of that field), and that build, made with a value that was let go of, is made again. One equal
+  to the default is dropped with no word and no build. `scene.overrides` and each `Param.value` are how the window
+  and the agent learn what a build was made with.
+- The agent is told every time (`triedLine` of `shared/params.ts`; the second line of `contextFor` and
+  `buildContextFor`, at most `TRIED_LIMIT` characters, its room kept before the status is fitted), in `state.md`
+  (`## Params tried`) and by `scene` (`params[].value`, `paramsTried`), that the build is not the file's values. The
+  channels `object:setParam` and `object:resetParams` are the window's; the agent has no tool that writes an override
+  (`try_params` asks a trial and keeps nothing).
 
 ## Print profile
 
@@ -493,7 +523,8 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   lines that are missing at the end, makes the file when there is none, never removes or rewrites what is
   there, and adds nothing against a line the person negated (`!thumb.png`). The thumbnails ask it for
   `thumb.png` and `thumb.json`, the state file for `state.md`, a conversation put on file for `session.json`,
-  a chat's log for `chat/`, an export for `exports/`, a picture for `views/`, the builds' record for `builds.jsonl`. What is the
+  a chat's log for `chat/`, an export for `exports/`, a picture for `views/`, the builds' record for `builds.jsonl`, the overrides of
+  `Params` for `params.json`. What is the
   object's travels: `scene.json`, `marks.json`, `scans.json`, `profile.json`, `agent.json`.
 - **`.torno` is named in one module, `src/main/own.ts`** (`FOLDER`), and every write under it goes through
   `ownTorno(dir)` first (`writeOwn` for a file written whole): a link or a file in its place is refused with a

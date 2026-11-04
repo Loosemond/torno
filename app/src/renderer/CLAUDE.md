@@ -215,6 +215,15 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   the row's title (type, value whole, comment) and then what a click does. With no session running a row is text, not a
   button, and the description says to start one (`e2e/params.spec.ts`, which writes its own `Params` into its copy of a
   fixture).
+- **Trying a value.** A field the kernel says is `editable` (`Param.editable`: `float`, `int`, `bool`, `choice`)
+  has a control under its name (`ParamControl`): a number field, plus a slider when the model gives `min` and `max`
+  in the field's `metadata`; a checkbox; a select. A number is taken on Enter or when the field is left, a slider when
+  it is let go of (`onPointerUp`, `onKeyUp`): a build runs then, never while it moves. It asks main
+  (`object.setParam`, `object.resetParams`; a refusal is said under the title) and the control starts again from
+  `Param.value`, the value the last build used (keyed by it), so the window holds no override of its own. A row built
+  with a value other than the default (`tried`) says `differs from the file` with a "Reset"; the default stays on
+  the line. `Scene.overrides.dropped` is shown on its row (`param-note`). "Ask the agent to bake it in"
+  (`bakeText`) puts a request in the session's box like a row's click does, never sent; "Reset all" resets every field.
 
 ## Checks
 

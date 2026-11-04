@@ -9,6 +9,7 @@ import re
 import sys
 import tokenize
 import traceback as tb_module
+import weakref
 from pathlib import Path
 from types import ModuleType, TracebackType
 from typing import Any
@@ -64,13 +65,20 @@ def load_scene(dir: Path, model: str) -> dict[str, dict[str, Any]]:
 
 
 def load_model(
-    dir: Path, model: str
+    dir: Path, model: str, overrides: dict[str, Any] | None = None, report: dict[str, Any] | None = None
 ) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     """Import ``dir/model``: its scene as layout → name → shape, its ``Params`` (``read_params``), its
-    groups of parts (``_groups``) and the checks it declares (``_checks``)."""
+    groups of parts (``_groups``) and the checks it declares (``_checks``).
+
+    ``overrides`` are values for fields of ``Params`` to build with instead of the file's defaults (see
+    ``apply_overrides``); ``report``, when given, is filled with ``applied`` and ``dropped``."""
     path = (Path(dir) / model).resolve()
     try:
         module = _import_model(path)
+        applied, dropped = apply_overrides(module, path, overrides or {})
+        _OVERRIDDEN[module] = applied
+        if report is not None:
+            report["applied"], report["dropped"] = applied, dropped
         scene = _collect_scene(module)
         scene = _references(module, scene) if scene else scene
         groups = _groups(module, scene) if scene else []
@@ -84,7 +92,20 @@ def load_model(
         raise LoadError("exception", str(e), _model_traceback(e, path)) from e
     if not scene:
         raise LoadError("no_scene", _no_scene(module, model))
-    return scene, read_params(module, path), groups, checks
+    return scene, read_params(module, path, applied), groups, checks
+
+
+# The values a loaded model's ``Params()`` is made with (see ``apply_overrides``), by module.
+_OVERRIDDEN: "weakref.WeakKeyDictionary[ModuleType, dict[str, Any]]" = weakref.WeakKeyDictionary()
+
+
+def _params(module: ModuleType) -> Any:
+    """The model's ``Params``, made with the overrides this load carries (none: its defaults)."""
+    import dataclasses
+
+    made = module.Params()
+    applied = _OVERRIDDEN.get(module)
+    return dataclasses.replace(made, **applied) if applied else made
 
 
 _NOT_USES = {".venv", "venv", "site-packages", "__pycache__", ".torno", "node_modules", ".git"}
@@ -136,7 +157,7 @@ def _references(module: ModuleType, scene: dict[str, dict[str, Any]]) -> dict[st
     function = getattr(module, "references", None)
     if not callable(function) or not hasattr(module, "Params"):
         return scene
-    made = function(module.Params())
+    made = function(_params(module))
     shape = "references() must return a dict of name to shape"
     if not isinstance(made, dict):
         raise LoadError("exception", f"{shape}, got {type(made).__name__}")
@@ -187,7 +208,7 @@ def _groups(module: ModuleType, scene: dict[str, dict[str, Any]]) -> list[dict[s
     function = getattr(module, "groups", None)
     if not callable(function) or not hasattr(module, "Params"):
         return []
-    made = function(module.Params())
+    made = function(_params(module))
     shape = "groups() must return a dict of group name to part names"
     if not isinstance(made, dict):
         raise LoadError("exception", f"{shape}, got {type(made).__name__}")
@@ -242,7 +263,7 @@ def _tags(module: ModuleType, scene: dict[str, dict[str, Any]]) -> dict[tuple[st
     from .ocp import TopAbs_EDGE, TopAbs_FACE, TopExp, TopTools_IndexedMapOfShape
 
     shape = "tags() must return a dict of part name to a dict of tag name to a face, an edge or a list of them"
-    params = module.Params()
+    params = _params(module)
     known = ", ".join(dict.fromkeys(name for layout in scene.values() for name in layout))
     found: dict[tuple[str, str], dict[str, dict[str, list[int]]]] = {}
     for layout, parts in scene.items():
@@ -304,20 +325,25 @@ def _checks(module: ModuleType, scene: dict[str, dict[str, Any]], groups: list[d
     from . import modelchecks
 
     try:
-        return modelchecks.validate(function(module.Params()), scene, groups)
+        return modelchecks.validate(function(_params(module)), scene, groups)
     except modelchecks.Malformed as e:
         raise LoadError("exception", str(e)) from e
 
 
-def read_params(module: ModuleType, path: Path) -> list[dict[str, Any]]:
+def read_params(module: ModuleType, path: Path, applied: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """The fields of the model's ``Params`` dataclass, in their order. Empty when it has none.
 
     Each is ``name``; ``type`` as written in the source (else as Python names
     it); ``default``, the value ``Params()`` holds, when it is a plain value
     JSON can say (a number, a string, a bool, None, or lists and dicts of
-    them), else null; ``literal``, whether the default in the source is a
-    literal (``2.5``, ``-2``, ``"tray"``, ``None``), not an expression nor a
-    ``default_factory``; and ``doc``, the comment at the end of the field's
+    them), else null; ``value``, what the build used (``default`` unless an
+    override in ``applied`` was applied); ``literal``, whether the default in
+    the source is a literal (``2.5``, ``-2``, ``"tray"``, ``None``), not an
+    expression nor a ``default_factory``; ``editable``, what an override may
+    be (``"float"``, ``"int"``, ``"bool"`` or ``"choice"``, else null);
+    ``choices`` (a ``Literal``'s values, else null); ``metadata``, the plain
+    numbers ``min``, ``max`` and ``step`` the field's own ``metadata`` gives
+    (``{}`` without); and ``doc``, the comment at the end of the field's
     line, else the comment lines right above it, else a string right below
     it, else null. Reading it never fails a build: what cannot be read is
     left out.
@@ -339,18 +365,104 @@ def read_params(module: ModuleType, path: Path) -> list[dict[str, Any]]:
                 continue
             source = written.get(field.name, {})
             value = getattr(made, field.name, None) if made is not None else None
+            editable, choices = _offered(field, source, value)
+            used = (applied or {}).get(field.name, value)
             told.append(
                 {
                     "name": field.name,
                     "type": source.get("type") or _type_name(field.type),
                     "default": value if _plain(value) else None,
+                    "value": used if _plain(used) else None,
                     "literal": bool(source.get("literal", False)),
+                    "editable": editable,
+                    "choices": choices,
+                    "metadata": _range(field),
                     "doc": source.get("doc"),
                 }
             )
         return told
     except Exception:
         return []
+
+
+def _offered(field: Any, source: dict[str, Any], default: Any) -> tuple[str | None, list[Any] | None]:
+    """What an override of this field may be, and the values of a ``Literal``: only a field whose default is a
+    literal int, float or bool, or a ``Literal`` of strings, ints or bools with a default among them."""
+    if not source.get("literal") or default is None:
+        return None, None
+    if isinstance(default, bool):
+        return "bool", None
+    if isinstance(default, (int, float)):
+        if isinstance(default, float) and not math.isfinite(default):
+            return None, None
+        if source.get("choices") is None:
+            # As annotated: `width: float = 40` takes 40.5.
+            if source.get("type") in ("int", "float"):
+                return source["type"], None
+            return ("int" if isinstance(default, int) else "float"), None
+    choices = source.get("choices")
+    if choices and default in choices:
+        return "choice", choices
+    return None, None
+
+
+def _range(field: Any) -> dict[str, float]:
+    """The ``min``, ``max`` and ``step`` the field's own ``metadata`` gives, when they are plain numbers."""
+    told: dict[str, float] = {}
+    for key in ("min", "max", "step"):
+        value = field.metadata.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value):
+            told[key] = value
+    return told
+
+
+def apply_overrides(module: ModuleType, path: Path, overrides: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, str]]]:
+    """Which of ``overrides`` (field → value) the model's ``Params`` takes: ``(applied, dropped)``.
+
+    A field is taken only when it is offered (``read_params``'s ``editable``) and the value is of its type: a
+    bool for a bool, a whole number for an int, a number for a float (a whole one is made a float), one of its
+    values for a ``Literal``. A range in the field's metadata is the window's to keep, not enforced here. Anything
+    else is dropped, with ``name`` and ``reason`` naming the type that was wanted. An override equal to the default
+    is applied all the same: it changes nothing.
+    """
+    if not overrides:
+        return {}, []
+    fields = {f["name"]: f for f in read_params(module, path)}
+    applied: dict[str, Any] = {}
+    dropped: list[dict[str, str]] = []
+    for name, value in overrides.items():
+        field = fields.get(name)
+        if field is None:
+            dropped.append({"name": name, "reason": "the model's Params has no such field"})
+            continue
+        kind = field["editable"]
+        if kind is None:
+            dropped.append(
+                {"name": name, "reason": f"{name}: {field['type']} is not offered; only a number, a bool or a Literal with a literal default is"}
+            )
+        elif kind == "bool":
+            if isinstance(value, bool):
+                applied[name] = value
+            else:
+                dropped.append({"name": name, "reason": f"{name} is a bool; {value!r} is not"})
+        elif kind == "int":
+            if isinstance(value, int) and not isinstance(value, bool):
+                applied[name] = value
+            elif isinstance(value, float) and math.isfinite(value) and value == int(value):
+                applied[name] = int(value)
+            else:
+                dropped.append({"name": name, "reason": f"{name} is an int; {value!r} is not a whole number"})
+        elif kind == "float":
+            if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value):
+                applied[name] = float(value)
+            else:
+                dropped.append({"name": name, "reason": f"{name} is a float; {value!r} is not a finite number"})
+        else:
+            if any(value == c and type(value) is type(c) for c in field["choices"]):
+                applied[name] = value
+            else:
+                dropped.append({"name": name, "reason": f"{name} is one of {field['choices']!r}; {value!r} is not"})
+    return applied, dropped
 
 
 def _type_name(type: Any) -> str:
@@ -393,9 +505,28 @@ def _written_fields(path: Path) -> dict[str, dict[str, Any]]:
             found[statement.target.id] = {
                 "type": ast.unparse(statement.annotation),
                 "literal": _literal(statement.value),
+                "choices": _choices(statement.annotation),
                 "doc": _doc(statement, following, comments, lines),
             }
     return found
+
+
+def _choices(annotation: ast.expr) -> list[Any] | None:
+    """The values of a ``Literal[...]`` annotation (strings, ints, bools), else None."""
+    if not isinstance(annotation, ast.Subscript):
+        return None
+    name = getattr(annotation.value, "id", getattr(annotation.value, "attr", None))
+    if name != "Literal":
+        return None
+    inner = annotation.slice
+    items = inner.elts if isinstance(inner, ast.Tuple) else [inner]
+    try:
+        values = [ast.literal_eval(item) for item in items]
+    except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
+        return None
+    if not values or not all(isinstance(v, (str, int)) for v in values):
+        return None
+    return values
 
 
 def _literal(value: ast.expr | None) -> bool:
@@ -466,7 +597,7 @@ def _collect_scene(module: ModuleType) -> dict[str, dict[str, Any]]:
     has_assembly = hasattr(module, "assembly")
     layouts: dict[str, dict[str, Any]] = {}
     if hasattr(module, "Params") and (has_assembly or print_function):
-        params = module.Params()
+        params = _params(module)
         if has_assembly:
             layouts["assembly"] = _parts(module.assembly(params), "assembly")
         if print_function:
@@ -512,7 +643,7 @@ def _made_parts(module: ModuleType) -> dict[str, Any]:
     makers = _makers(module)
     if not makers:
         return {}
-    params = module.Params()
+    params = _params(module)
     made = {name: maker(params) for name, maker in makers.items()}
     return {name: value for name, value in made.items() if _is_solid_shape(value)}
 

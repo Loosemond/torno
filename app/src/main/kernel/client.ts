@@ -42,6 +42,11 @@ export function isBusy(e: unknown): boolean {
 /** What a kernel says of its own start, each time it starts: it is starting, it answered, or it stopped for good. */
 export type KernelStateEvent = { state: 'starting' } | { state: 'ready'; versions: Record<string, string> } | { state: 'failed'; reason: string }
 
+/** What the kernel answers one query of a trial with: its result, or why it gave none. */
+export type TrialAnswer = { ok: true; result: unknown } | { ok: false; error: { kind: string; message: string } }
+/** A trial: the model built with other values of its `Params` in a worker that is thrown away, and the answers to the queries asked there. */
+export type TrialResult = { ok: true; scene: Scene; answers: TrialAnswer[] } | { ok: false; error: BuildError }
+
 export interface KernelClient {
   /** The first start. Rejects if the kernel stops for good before it is ever ready. */
   ready: Promise<{ versions: Record<string, string> }>
@@ -54,6 +59,12 @@ export interface KernelClient {
    * With `blob`, it resolves with the result and the bytes the reply carried (`export`): `{ result, blob }`.
    */
   query<T = unknown>(dir: string, name: string, args: object, opts?: { blob?: boolean }): Promise<T>
+  /**
+   * Build the model in `dir` with `overrides` of its `Params` in a worker of its own, answer `queries` (`name` and
+   * `args` as `query` takes them, refs with the layout in front) there, and throw it away: no live build is changed
+   * or let go. Never rejects; a trial the kernel refuses (`busy`, `no_room`) is `{ ok: false }`. Absent from a fake that has none.
+   */
+  trial?(dir: string, model: string, overrides: Record<string, number | boolean | string>, queries: Array<{ name: string; args: object }>, opts?: { timeout?: number }): Promise<TrialResult>
   cancel(): void
   dispose(): Promise<void>
   /** Called when the kernel has exited unexpectedly and was not restarted. */
@@ -131,6 +142,7 @@ const NOT_RETRIED = new Set(['export', 'export_check', 'try_fillet'])
 type Pending =
   | { type: 'build'; resolve: (r: BuildResult) => void; onStarted?: (started: { retired: string[] }) => void }
   | { type: 'query'; resolve: (result: unknown) => void; reject: (e: KernelError) => void; blob?: boolean }
+  | { type: 'trial'; resolve: (r: TrialResult) => void }
 
 class Kernel implements KernelClient {
   readonly ready: Promise<{ versions: Record<string, string> }>
@@ -160,7 +172,7 @@ class Kernel implements KernelClient {
     this.spawn()
   }
 
-  build(dir: string, model: string, opts?: { timeout?: number; onStarted?: (started: { retired: string[] }) => void }): Promise<BuildResult> {
+  build(dir: string, model: string, opts?: { timeout?: number; overrides?: Record<string, number | boolean | string>; onStarted?: (started: { retired: string[] }) => void }): Promise<BuildResult> {
     if (this.disposed) return Promise.resolve(failure('cancelled', 'the kernel was shut down'))
     if (this.stopped) {
       this.stopped = false
@@ -170,7 +182,17 @@ class Kernel implements KernelClient {
     return new Promise((resolve) => {
       const id = this.nextId++
       this.pending.set(id, { type: 'build', resolve, onStarted: opts?.onStarted })
-      this.send({ id, op: 'build', dir, model, ...(opts?.timeout === undefined ? {} : { timeout: opts.timeout }) })
+      this.send({ id, op: 'build', dir, model, ...(opts?.timeout === undefined ? {} : { timeout: opts.timeout }), ...(opts?.overrides && Object.keys(opts.overrides).length > 0 ? { overrides: opts.overrides } : {}) })
+    })
+  }
+
+  trial(dir: string, model: string, overrides: Record<string, number | boolean | string>, queries: Array<{ name: string; args: object }>, opts?: { timeout?: number }): Promise<TrialResult> {
+    if (this.disposed) return Promise.resolve(trialFailure('cancelled', 'the kernel was shut down'))
+    if (this.stopped) return Promise.resolve(trialFailure('crash', `the kernel is stopped. ${REBUILD_HOW}`))
+    return new Promise((resolve) => {
+      const id = this.nextId++
+      this.pending.set(id, { type: 'trial', resolve })
+      this.send({ id, op: 'trial', dir, model, overrides, queries, ...(opts?.timeout === undefined ? {} : { timeout: opts.timeout }) })
     })
   }
 
@@ -298,13 +320,16 @@ class Kernel implements KernelClient {
       if (header.ok === false) this.keepStderr(`kernel: ${header.error?.kind}: ${header.error?.message}\n`)
       return
     }
+    if (header.event === 'trial.started') return
     if (header.event === 'build.started') {
       // `retired`: the folders whose live builds the kernel let go to make room for this one (memory).
       if (request.type === 'build') request.onStarted?.({ retired: Array.isArray(header.retired) ? header.retired.filter((dir: unknown): dir is string => typeof dir === 'string') : [] })
       return
     }
     this.pending.delete(header.id)
-    if (request.type === 'build') {
+    if (request.type === 'trial') {
+      request.resolve(header.ok ? { ok: true, scene: header.scene, answers: Array.isArray(header.answers) ? header.answers : [] } : { ok: false, error: header.error ?? { kind: 'crash', message: 'the trial failed' } })
+    } else if (request.type === 'build') {
       // The blob is a view into the read buffer: give the scene one of its own.
       if (header.ok) request.resolve({ ok: true, scene: header.scene, blob: Buffer.from(blob) })
       else request.resolve({ ok: false, error: header.error ?? { kind: 'crash', message: 'the build failed' } })
@@ -342,6 +367,7 @@ class Kernel implements KernelClient {
     this.pending.clear()
     for (const request of requests) {
       if (request.type === 'build') request.resolve(failure(kind, message))
+      else if (request.type === 'trial') request.resolve(trialFailure(kind, message))
       else request.reject(new KernelError(kind, message))
     }
   }
@@ -352,6 +378,10 @@ class Kernel implements KernelClient {
     this.stderr.push(...lines)
     if (this.stderr.length > STDERR_LINES) this.stderr.splice(0, this.stderr.length - STDERR_LINES)
   }
+}
+
+function trialFailure(kind: string, message: string): TrialResult {
+  return { ok: false, error: { kind, message } }
 }
 
 function failure(kind: string, message: string): BuildResult {

@@ -420,8 +420,17 @@ its comment as the model has it, and, for a default the model works out (an expr
 number written in), that it is worked out in the model. The model's comments should begin with where a size
 comes from (`brief:`, `M3:`, `S1 ≈:`, `ref <file>:`, `object:`, `datasheet <name>:`, `person:`, `derived:` or
 `assumed:`), and under the title a line counts the sizes that say `assumed` and those that say nothing, their
-names on hover; it is what the model says, not something torno has checked. It is read only: torno never writes
-the model. With a session running, a click on a row puts `Params.wall` in its prompt at the
+names on hover; it is what the model says, not something torno has checked. torno never writes the model. A
+field whose default is a number or a flag written in the file (`wall: float = 2`, `lid: bool = True`), or a
+`Literal["round", "square"]`, has a control under its name: type a number and press Enter, or let go of a slider
+(the model gives one with `field(default=2.0, metadata={"min": 1, "max": 5, "step": 0.2})`), tick the box, or choose
+from the list. The project is built again with that value, and the row says `differs from the file` with a
+"Reset" beside it; "Reset all" and "Ask the agent to bake it in" (which puts a request in the session's prompt,
+never sent) are under the title while any value is tried. What you try is kept in `.torno/params.json` and the file
+always wins: if the model's default for that field changes, your value is let go of and the row says so, and a value
+the model no longer offers is let go of the same way. The agent is told, with every prompt, which values the build
+is made with. The model only sees a tried value where it is given `p`: a helper that makes `Params()` itself does not.
+With a session running, a click on a row puts `Params.wall` in its prompt at the
 cursor, never sent, so you can write "make Params.wall 2.4" around it; with no session the rows say
 to start one. Checks lists what the model declares in its `checks(p)` (see Projects and builds), under
 Parameters and folded at first to a title that says how many fail (`Checks 3 · 1 fails`; a model
@@ -1096,7 +1105,7 @@ is running or has failed. A tool given a key it does not take is refused,
 naming the keys it takes.
 
 The tools that only read (`scene`, `look`, `marks`, `describe`, `measure`, `section`, `check`, `diff`,
-`try_fillet`, `features`, `scans`, `scan_clash`, `scan_deviation`) say so, and Claude Code may call several at once. The server also tells Claude
+`try_fillet`, `try_params`, `features`, `scans`, `scan_clash`, `scan_deviation`) say so, and Claude Code may call several at once. The server also tells Claude
 Code at the start, in a few lines, what each tool is for. Claude Code's tool search keeps an MCP server's tools out
 of the model's sight until it searches for them; five are loaded from the start because nearly every turn uses
 them: `scene`, `look`, `marks`, `describe` and `measure`. The others are found by that search.
@@ -1119,6 +1128,7 @@ them: `scene`, `look`, `marks`, `describe` and `measure`. The others are found b
 | `mcp__torno__diff` | What changed between the last two successful builds (or the two revisions given as `from` and `to`): for each layout the parts added and removed, and for each part its volume (and its change in percent), box size and min corner before and after, with whether each is exact, and its face, edge and solid counts, a hint that refs may name other faces now. The answer to an edit gives the same of each part that changed. Only the last two builds are kept. `builds` says what each was made from (a hash of the sources, the commit, whether files differed from it), and a note says when the two were made from the same sources. |
 | `mcp__torno__expect` | Called before an edit: what it should change, as checks (a part's `volume`, `faces`, `edges` or `size` as a `value` or a `change` with a `tolerance`; a `measure` with the number it `expected`; `unchanged` parts). The next successful build is held against it, and the answer to the edit says in a line how many checks were met and which were not, with the numbers (`≈` where the kernel's is not exact). Kept in memory for that one build, told once, no mark, and it never holds a turn back. A ref to a face of a part whose face count changed is told as moved and not measured. `scene` gives the last verdict. |
 | `mcp__torno__try_fillet` | Tries a fillet (or a chamfer, `kind: 'chamfer'`) of `radius` mm of some edges of a part (`part`, `edges` as refs such as `lid/E3`) on the last good build and throws it away: whether it works, and when it does not, the edges that fail alone or in pairs and the largest radius that works, as a failed build's error says it. It changes nothing. |
+| `mcp__torno__try_params` | Builds the model with other values of its `Params` (`set`, the fields `scene` lists under `params` as editable: `{"wall": 2.4}`) in a worker of its own and throws it away, then says whether it built (or the model's error), what changed against the last build part by part, and the measurements (`measure`: `bbox`, `volume`, `area`, `mass` or `distance` of whole parts by name) and checks (`check`: as the `check` tool, parts by name) asked for, all worded as those tools word them and said to be of the trial. It changes nothing: not the model, not the values you are trying in the window, not the build on screen; it is made on top of your values, and refused when there is no memory for a second build or while a build runs. To keep a value the agent edits the model. |
 | `mcp__torno__features` | The holes, bosses, fillets, chamfers and patterns of a part, found on its geometry (`part`, and `kinds` to ask for some of `hole`, `boss`, `fillet`, `chamfer`, `pattern`): for a hole its diameter, axis, where it opens and the face it opens in, depth, whether it is through or blind (and its bottom), and a counterbore, countersink or rounded mouth; for a boss its diameter and height; for a fillet its radius, sweep and length and whether it rounds an outside edge or an inside corner; for a chamfer its size; for a pattern how many holes or bosses alike there are and whether they lie in a row, a grid or on a circle, with the step; each with the faces it is made of and the faces and edges it joins, as refs `highlight` takes. Diameters, radii, angles and axes are exact, and so are depths between planes and round faces; a depth taken between freeform faces says it is not (`≈`). Holes and bosses need a cylinder, cone or torus that goes all the way round: a slot end is neither a hole nor a fillet. |
 | `mcp__torno__scans` | The scans of the project and how each is aligned. |
 | `mcp__torno__scan_clash` | What of a scan is inside a part. |
@@ -1821,6 +1831,7 @@ place.
 | File | What | In git |
 |---|---|---|
 | `scene.json` | how you last looked at the project: the layout, the layer visibility, the section, the explode of each layout, how each scan is shown, and the saved views (`views`) | travels with the project |
+| `params.json` | the values you are trying in place of the model's `Params` defaults, with the default the file had; the model file is never written | ignored |
 | `marks.json` | the marks of the project: yours and the agent's, with their notes, anchors and status; of a dimension also what is expected of it and the value last measured | travels |
 | `scans.json` | the scans of the project: where each source file is and its hash, how it was imported, and its alignment in each layout | travels |
 | `scans/<id>/mesh.bin`, `<mark>.mask` | the scan as torno draws and checks it, and the triangles of each region | the meshes are ignored (`scans/.gitignore`): a clone has the record, and the row offers "Import again" |
@@ -2196,7 +2207,9 @@ On the screen:
   monospace face, the comment as written (cut to two lines, whole on hover), "worked out in the model" on the expression's.
   With a real session running, in the chat and then in the terminal view, a click on a row puts `Params.wall` at the
   cursor of the box (or the prompt) and sends nothing, with the dock hidden as well; with no session the rows are
-  not clickable. Legible in light and dark, and Marks keeps its five rows with the section open.
+  not clickable. Legible in light and dark, and Marks keeps its five rows with the section open. Try a value in a
+  number field and with a slider (the field with a `metadata` range), tick a flag and choose from a list: the build
+  runs once the slider is let go, not while it moves; the row says it differs from the file and Reset brings it back.
 - **The clipboard in the terminal.** Select text in a session and press `Ctrl+Shift+C`, then `Ctrl+Shift+V`: it is copied and pasted. No test touches the clipboard. "Copy" on the build error sheet likewise.
 - **By eye.** On a monitor, in dark and in light: text, marks, part edges and the terminal's colours are legible; the scrollbars are the thin grey ones, also in the list of projects and on the page of projects in the dark theme; a mark that has moved says so on a line under its note. `?` typed in a field on your own keyboard (with its dead keys) is a question mark.
 - **The doodle board with a mouse and a pen.** Draw with a mouse, a tablet pen and a touch screen: the line follows the pointer without lag, the eraser takes away what it crosses, `Ctrl+Z` takes the last stroke back, and the PNG Claude gets is dark on white in both themes. Tests drew with synthetic pointer events only. A photo dropped from the file manager on the new project's page is taken too; a test cannot drop a file with a path.

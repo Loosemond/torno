@@ -79,4 +79,47 @@ describe('the Parameters section of the left column', () => {
     expect(out).toContain('aria-label="Params.wall"')
     expect(out).toContain('aria-description="Params.wall: float = 2.4. Clearance 0.2 mm, M3. Put it in the session&#x27;s prompt"')
   })
+
+  const OFFERED: Param[] = [
+    { name: 'wall', type: 'float', default: 2, value: 2.4, literal: true, editable: 'float', choices: null, metadata: { min: 1, max: 5, step: 0.2 }, doc: null },
+    { name: 'ribs', type: 'int', default: 4, value: 4, literal: true, editable: 'int', choices: null, metadata: {}, doc: null },
+    { name: 'lid', type: 'bool', default: true, value: true, literal: true, editable: 'bool', choices: null, metadata: {}, doc: null },
+    { name: 'shape', type: "Literal['round', 'square']", default: 'round', value: 'round', literal: true, editable: 'choice', choices: ['round', 'square'], metadata: {}, doc: null },
+    { name: 'name', type: 'str', default: 'tray', value: 'tray', literal: true, editable: null, choices: null, metadata: {}, doc: null }
+  ]
+
+  it('has a control for each field the model offers, by what it may be, and none for the rest', () => {
+    store.setState({ scene: scene(OFFERED), column: open })
+    const out = html()
+    expect(out).toContain('aria-label="Try wall"')
+    expect(out).toContain('aria-label="Try wall (slider)"')
+    expect(out).toContain('min="1" max="5"')
+    expect(out).toContain('aria-label="Try ribs"')
+    expect(out).not.toContain('aria-label="Try ribs (slider)"')
+    expect(out).toContain('type="checkbox"')
+    expect(out).toContain('<option value="square">square</option>')
+    const name = out.slice(out.indexOf('data-param="name"'))
+    expect(name).not.toContain('aria-label="Try name"')
+    expect(name).toContain('<span class="param-value num">&quot;tray&quot;</span>')
+  })
+
+  it('says a row is built with a value other than the file’s, with a Reset, and offers to bake it in', () => {
+    store.setState({ scene: scene(OFFERED), column: open, objectId: 'o', sessions: { o: { sessionId: 's', status: 'idle', view: 'chat' } } })
+    const out = html()
+    const wall = out.slice(out.indexOf('data-param="wall"'), out.indexOf('data-param="ribs"'))
+    expect(wall).toContain('data-tried')
+    expect(wall).toContain('differs from the file')
+    expect(wall).toContain('aria-label="Reset wall to 2"')
+    expect(out.slice(out.indexOf('data-param="ribs"'))).not.toContain('differs from the file: <span class="num">4')
+    expect(out).toContain('Ask the agent to bake it in')
+    expect(out).toContain('Reset all')
+  })
+
+  it('says why an override was let go of, on its row', () => {
+    const gone = OFFERED.map((p) => (p.name === 'wall' ? { ...p, value: 2 } : p))
+    store.setState({ scene: { ...scene(gone), overrides: { applied: {}, dropped: [{ name: 'wall', reason: 'the file wins' }] } }, column: open })
+    const out = html()
+    expect(out).toContain('<p class="param-note">the file wins</p>')
+    expect(out).not.toContain('Ask the agent to bake')
+  })
 })

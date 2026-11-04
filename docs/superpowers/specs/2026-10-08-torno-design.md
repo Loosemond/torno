@@ -32,6 +32,8 @@ One session, 19 hours, about 28 human messages:
 
 Direct modelling, parametric sliders, slicer integration, multi-user collaboration, cloud sync, Windows and macOS packaging, a custom chat UI (the session layer leaves room for one).
 
+*Note, 2026-11-04: "parametric sliders" are no longer out of scope in one form (#55, the roadmap's decision). torno still writes nothing of the model: a field of `Params` whose default is a literal number, flag or `Literal` can be tried in the window, kept as an override in `.torno/params.json` that the file always wins over, and the agent bakes a value in by editing the model. The agent can ask what another value would give with `try_params`, which changes nothing. Direct modelling stays out.*
+
 *Note, 2026-10-18: macOS has had a package since this change: `pnpm dist:mac` makes `torno.app`, signed ad hoc and not notarized (README, "Run"). Windows packaging is still out of scope.*
 
 ## 2. Concepts

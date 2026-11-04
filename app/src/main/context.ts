@@ -12,7 +12,7 @@ import { type ViewState, MAX_SELECTION_REPORTED, planeText } from '../shared/vie
 import type { ObjectInfo } from '../shared/workspace'
 import { type Profile, profileLine } from '../shared/profile'
 import { describeMark } from './marks/describe'
-import { assumedKey, assumedLine } from '../shared/params'
+import { assumedKey, assumedLine, triedLine } from '../shared/params'
 import { digestText, sanity } from './sanity'
 import { alignmentSaid, shownText } from './scans/said'
 import { type BuildVerdicts, verdictChanges } from './verdicts'
@@ -44,6 +44,8 @@ const SELECTION_LIMIT = 1000
 const SELECTED_DESCRIPTOR_LIMIT = 100
 /** The most of it that says what scans the object has, in one line. */
 export const SCANS_LIMIT = 600
+/** The most the line of the person's `Params` overrides takes of the context. */
+export const TRIED_LIMIT = 500
 const MARKS_HEAD = 'Marks from the user (drawn in look pictures with these numbers):'
 const STILL_OPEN_HEAD = 'Marks still open (this conversation has not seen them):'
 /** A tool of torno's as Claude Code names it to its model: what is said when nothing says how another client does. */
@@ -242,11 +244,15 @@ function contextText(deps: ContextDeps, objectId: string, marks: readonly Mark[]
   // With no marks the status has what the selection, the scans and the files' line leave; with marks STATUS_LIMIT,
   // which with the three at their limits is still within CONTEXT_LIMIT. The files' line is never what the cut below takes.
   const room = (line: string): number => (line ? line.length + 1 : 0)
-  const limit = told ? STATUS_LIMIT : CONTEXT_LIMIT - room(instructed) - room(selected) - room(scanned)
+  // The person's tries of the model's Params: what the build is made with is not what the file says, so it is said every time.
+  const shownScene = deps.scene(objectId)?.scene
+  const tried = cutEnd(triedLine(shownScene?.params, shownScene?.overrides?.dropped), TRIED_LIMIT)
+  const limit = told ? STATUS_LIMIT : CONTEXT_LIMIT - room(instructed) - room(selected) - room(scanned) - room(tried)
   // Every part of it is fitted to the limit by what it can spare; the cut holds for what none of them
   // foresaw, such as a very long name.
   const lines = [cutEnd(status(deps, objectId, limit), limit)]
   if (lines[0] === '') return { text: '', sentMarkIds: [] }
+  if (tried) lines.push(tried)
   if (selected) lines.push(selected)
   if (scanned) lines.push(scanned)
   const openLine = open.length > 0 && !opts.buildOnly ? `Open marks: ${openMarks(open, revision, toolName)}` : ''

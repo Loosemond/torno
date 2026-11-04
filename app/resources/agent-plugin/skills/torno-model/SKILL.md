@@ -219,6 +219,13 @@ board_w: float = 55.2   # datasheet: ESP32-S3 DevKitC-1 v1.1
 clearance: float = 0.2  # person: "0.2 per side"
 ```
 
+**Trying other values.** The person may try another value for a field in torno's window (a literal number or bool, or a
+`Literal`); torno then builds with it, and tells you under `params` (`value` against `default`) and in the first lines of
+each prompt. The file always wins: such a value is dropped when you change that default, so to keep one, edit the default.
+To learn what a different value gives without editing, call `try_params` (it builds a copy and throws it away). Both reach
+the model only through `p`: pass `p` on to helpers, and never make `Params()` inside a function. A range for a slider is the
+field's own `metadata`: `wall: float = field(default=2.0, metadata={"min": 1, "max": 5, "step": 0.2})`.
+
 ## Template
 
 ```python

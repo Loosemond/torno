@@ -6,7 +6,7 @@ import type { BuildDigest } from '../shared/sanity'
 import { type ScanInfo, importText } from '../shared/scans'
 import { groupsIn } from '../shared/groups'
 import { checkText, noteText } from '../shared/modelChecks'
-import { sourceOf, isSize } from '../shared/params'
+import { sourceOf, isSize, triedLine } from '../shared/params'
 import { type Profile, profileLine } from '../shared/profile'
 import type { Scene } from '../shared/scene'
 import { type SavedView, viewGone } from '../shared/views'
@@ -72,6 +72,8 @@ export function stateText(obj: ObjectInfo, build: BuildState | undefined, last: 
     const notes = last.scene.checkNotes ?? []
     if (notes.length > 0) lines.push('', 'Made easier to pass, or gone, since they were first declared:', ...notes.map((n) => `- ${noteText(n)}`))
   }
+  const tried = triedLine(last?.scene.params, last?.scene.overrides?.dropped)
+  if (tried) lines.push('', `## Params tried`, '', tried)
   const sized = (last?.scene.params ?? []).filter(isSize)
   if (sized.length > 0) {
     lines.push('', '## Params', '', 'The model says where each size comes from (the first word of its comment); torno has not checked it.', '')
