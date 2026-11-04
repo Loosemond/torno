@@ -1115,8 +1115,11 @@ in the tooltip), an opacity slider when pointed at, and a switch. The arrow at
 the end, or a click on the name, opens its detail beneath it, one scan at a time:
 its size and how it was read, how it stands in a sentence, what it rests on,
 "Frame" (bring it into view: `F` and the views frame the parts only), "Align",
-"Rename" (its name in torno: Enter keeps it, Esc leaves it), the unit and up
-axis, its colours, and "Remove". A scan drawn solid hides what is
+"Rename" (its name in torno: Enter keeps it, Esc leaves it), then the regions
+painted on it as chips that go to the mark (`M5 wiring loom`), the unit and up
+axis (folded under "How it is read" once the reading has been answered), its
+colours, and last "Remove". On a row the state word gives way before the name,
+which keeps at least ten characters. A scan drawn solid hides what is
 behind it and takes the pointer; one drawn see-through lets you point at the
 part behind it. The section cuts a scan open like the parts.
 

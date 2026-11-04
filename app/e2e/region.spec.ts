@@ -7,7 +7,9 @@ import { _electron as electron, expect, test, type ElectronApplication, type Pag
 import { inTerminal } from './terminal'
 import type { TornoState } from '../src/renderer/state/store'
 import type { ScanLayerState } from '../src/renderer/viewport/scans'
+import { number } from '../src/shared/format'
 import type { RegionMark } from '../src/shared/marks'
+import { usualRadius } from '../src/renderer/state/region'
 import type { LookRequest } from '../src/shared/view'
 import { grid, stl } from '../src/test/scanFixtures'
 import { SESSION_HEADER } from '../src/main/http'
@@ -128,6 +130,12 @@ test('a part of a scan is painted, named, kept as a mark with its mask, told to 
   await page.keyboard.press('b')
   await expect(bar()).toBeVisible()
   await expect(bar()).toContainText('Drag over the scan to paint the part to name')
+  // Issue #106: the radius is shown in full, in a field wide enough for it (it was clipped to a few figures).
+  const radiusField = bar().getByRole('textbox', { name: 'Brush radius' })
+  await expect(radiusField).toHaveValue(number(usualRadius((await state()).scans[0])))
+  expect(await radiusField.evaluate((input: HTMLInputElement) => ({ wide: input.clientWidth, needs: input.scrollWidth }))).toMatchObject({ wide: expect.any(Number) })
+  const sized = await radiusField.evaluate((input: HTMLInputElement) => input.scrollWidth <= input.clientWidth && input.clientWidth >= 30)
+  expect(sized).toBe(true)
   await bar().getByRole('textbox', { name: 'Brush radius' }).fill('3')
   await bar().getByRole('textbox', { name: 'Brush radius' }).press('Enter')
   // Fix round 1 (I1): the lid is over the sheet, and what is not seen is not painted. A press on it takes nothing: it is the camera's, as beside the scan.
@@ -214,6 +222,13 @@ test('a part of a scan is painted, named, kept as a mark with its mask, told to 
   expect((await tints()).painting).toBeNull()
   expect(await page.evaluate(() => window.__tornoTest!.markScreen('M1'))).toMatchObject({ visible: true })
   const markRow = page.locator('.mark-row[data-mark="M1"]')
+  // Issue #106: the scan's detail names its regions, as chips that go to the mark.
+  await row('S1').getByRole('button', { name: 'Details of S1' }).evaluate((b: HTMLElement) => b.click())
+  const listed = row('S1').locator('[data-part="regions"]')
+  await expect(listed).toContainText('M1')
+  await expect(listed).toContainText('wiring loom')
+  await expect(listed.getByRole('button')).toHaveCount(1)
+  await row('S1').getByRole('button', { name: 'Details of S1' }).evaluate((b: HTMLElement) => b.click())
   await expect(markRow.locator('.mark-kind')).toHaveAttribute('aria-label', `Region · S1 · ${region.triangles.toLocaleString('en-US')} triangles`)
   await expect(markRow.locator('.mark-value')).toHaveText('S1')
   // In a picture for the agent it is tinted and numbered like any mark, and not in one without the marks, or without its scan.

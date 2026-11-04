@@ -211,6 +211,8 @@ test('a unit that was assumed wrongly is changed on the row, without the source'
   await expect.poll(async () => (await state()).scans[0].imported.assumed).toEqual({ unit: false, up: false })
   await expect(row('S1')).not.toContainText('assumed')
   await expect(row('S1').locator('.scan-guess')).toHaveCount(0)
+  // Answered, the reading is folded under "How it is read" (issue #106).
+  await row('S1').getByText('How it is read').click()
   await expect(row('S1').getByRole('button', { name: 'Apply' })).toBeDisabled()
 })
 
@@ -492,6 +494,33 @@ test('a scan read as metres that is far larger than the parts is compared with t
   await sheet.getByRole('combobox', { name: 'Unit of S4' }).selectOption('mm')
   await expect(sheet.locator('[data-part="doubt"]')).toHaveCount(0)
   await sheet.getByRole('button', { name: 'Later' }).click()
+})
+
+// Issue #106.
+test('a long scan name keeps ten characters on a hovered row, and the detail is in order: actions, reading folded, Remove last', async () => {
+  const long = join(root, 'Scan 2026-10-21 14-03 engine bay.stl')
+  writeFileSync(long, PLATE)
+  const count = (await state()).scans.length
+  await pickFile(long)
+  await page.getByRole('button', { name: 'Import scan…' }).click()
+  await expect.poll(async () => (await state()).scans.length).toBe(count + 1)
+  const last = (await state()).scans.at(-1)!.id
+  await page.getByRole('dialog', { name: `How is ${last} read?` }).getByRole('button', { name: 'Keep' }).click()
+  await row(last).hover()
+  const shown = await row(last).locator('.row-name').evaluate((el: HTMLElement) => {
+    const probe = document.createElement('canvas').getContext('2d')!
+    probe.font = getComputedStyle(el).font
+    return { have: el.clientWidth, want: probe.measureText('Scan 2026-').width }
+  })
+  expect(shown.have).toBeGreaterThanOrEqual(Math.floor(shown.want))
+  // The order of the detail.
+  const open = await detail(last)
+  const parts = await open.evaluate((el: HTMLElement) => [...el.children].map((c) => c.getAttribute('data-part') ?? c.className))
+  expect(parts.indexOf('scan-actions')).toBeGreaterThanOrEqual(0)
+  expect(parts.indexOf('scan-actions')).toBeLessThan(parts.indexOf('reading'))
+  expect(parts.indexOf('reading')).toBeLessThan(parts.indexOf('remove'))
+  expect(parts.at(-1)).toBe('remove')
+  await expect(open.locator('details[data-part="reading"]')).toBeVisible()
 })
 
 test.describe('a large scan', () => {
