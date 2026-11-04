@@ -98,6 +98,24 @@ is the detail of this folder, under the headings it has there.
   told `exact: false`. `thin` is never exact: the wall along the inward normal at 5 × 5 points of each face, in
   10 s at most (`THIN_BUDGET`, then `sampling.complete` false). `bed` is the layout's box from the parts' boxes
   (`tess.part_box`), exact only when every one of them is.
+- `features` (`features.py`) finds holes and bosses of a part in the layout asked on the B-rep's own adjacency, with no
+  boolean and no mesh: faces that are cylinders, cones or tori about one axis (the same axis within 1e-5 mm), that
+  meet at an edge or on the plane of a step, form a run, and a run whose every surface goes right round (its faces'
+  parameter ranges add up to a full turn) is a hole where the material is outside it and a boss where it is
+  inside; the side is the sign of the face's outward normal against the radial vector. A run's ends are read from
+  the faces across its boundary edges at the ends: a plane or other face whose outward normal points on along the
+  axis is where it opens (a hole) or where a boss ends, one that points back into it is a floor or a boss's base;
+  a cone that comes to a point is a drill point or a tip. A hole drilled across another is two runs and is joined
+  into one (`crosses`). Diameters, angles and axes are exact; an entry, a depth or a height is the distance
+  between where the axis meets the faces at its ends, exact when each is a plane, a cylinder, a cone, a sphere or a
+  torus (a line met with an analytic surface by `GeomAPI_IntCS`), and otherwise (a mouth on a freeform wall) is
+  taken at the end of the run and told with `exact: false` and `how`. Slot ends and rounded corners (round faces
+  that do not go all the way round) and a cylinder that stands on nothing are counted (`notFeatures`), not told;
+  freeform faces are counted too, since a hole in one is not recognised. Positions are in the frame of the shapes
+  as built, so of an `arranged` part in the displayed frame. It is bounded as `check overhang` is: 10 s
+  (`BUDGET`, then `complete` false and the runs left over are not told as none) and `MAX_FEATURES` (100) of a
+  kind told, the rest counted in `left`. What it found is kept in the worker, under `("features", key)`, until
+  the next build.
 - An angle (`measure.py` `_angle`) is exact between planes, lines and the axes of cylinders, cones, tori and
   circles (`_round_axis`). A face of another type that `GeomLib_IsPlanarSurface` finds flat within 1e-6 mm, or an
   edge whose 129 sampled points are within 1e-6 mm of the line through its ends (`_flat`, `_straight`), is taken

@@ -117,7 +117,7 @@ afterEach(async () => {
 
 afterAll(() => http.close())
 
-const ALL = ['add_mark', 'check', 'describe', 'diff', 'highlight', 'look', 'marks', 'measure', 'resolve_mark', 'save_view', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show', 'try_fillet']
+const ALL = ['add_mark', 'check', 'describe', 'diff', 'features', 'highlight', 'look', 'marks', 'measure', 'resolve_mark', 'save_view', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show', 'try_fillet']
 /** The least each tool can be called with. */
 const MINIMAL: Record<string, Record<string, unknown>> = {
   scene: {},
@@ -134,7 +134,8 @@ const MINIMAL: Record<string, Record<string, unknown>> = {
   check: { kind: 'mesh', a: 'base' },
   scans: {},
   scan_clash: { part: 'base' },
-  scan_deviation: { part: 'base' }
+  scan_deviation: { part: 'base' },
+  features: { part: 'base' }
 }
 
 describe('the MCP server', () => {
@@ -199,7 +200,7 @@ describe('the MCP server', () => {
     const client = await connect('bracket')
     const { tools } = await client.listTools()
     const readOnly = tools.filter((t) => t.annotations?.readOnlyHint === true).map((t) => t.name).sort()
-    expect(readOnly).toEqual(['check', 'describe', 'diff', 'look', 'marks', 'measure', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'try_fillet'])
+    expect(readOnly).toEqual(['check', 'describe', 'diff', 'features', 'look', 'marks', 'measure', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'try_fillet'])
     for (const tool of tools) {
       expect(tool.title, tool.name).toBeTruthy()
       expect(tool.annotations?.openWorldHint, tool.name).toBe(false)

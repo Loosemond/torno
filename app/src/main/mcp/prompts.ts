@@ -49,6 +49,7 @@ export const PROMPTS = {
         `3. Overhangs: for each part call ${toolName('check')} with {"kind": "overhang", "a": <part>, "angle": 45}, and say where support would be needed. Closed meshes: call ${toolName('check')} with {"kind": "mesh", "a": <part>} for each part; an open mesh will not slice.`,
         bedStep,
         `5. ${toolName('look')} at the print layout to see how the parts sit on the bed.`,
+        `6. Holes: for each part call ${toolName('features')} for the holes of the part (kinds hole) and say which holes are narrower than the nozzle can print (a hole under about 1 mm closes up) or blind and deep for their width, with the diameters it gave.`,
         ``,
         `End with each part: printable or not, and why, with the numbers the tools gave. Change no code unless asked.`
       ].join('\n')
