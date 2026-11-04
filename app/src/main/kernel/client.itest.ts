@@ -87,6 +87,22 @@ describe('the real kernel', () => {
     expect(bracket.scene.groups).toEqual([])
   })
 
+  it('builds a bought part as a reference: drawn, checked against, and refused where something is made', async () => {
+    const dir = join(root, 'housing608')
+    const built = await kernel.build(dir, 'housing608.py')
+    if (!built.ok) throw new Error(`${built.error.kind}: ${built.error.message}`)
+    const roles = built.scene.parts.map((p) => `${p.layout}:${p.name}${p.role === 'reference' ? ' (reference)' : ''}`)
+    expect(roles).toEqual(['assembly:housing', 'assembly:cap', 'assembly:608 (reference)', 'print:housing', 'print:cap'])
+    expect(built.scene.parts.find((p) => p.name === '608')!.triangleCount).toBeGreaterThan(0)
+    expect(built.scene.checks?.[0]).toMatchObject({ name: 'bearing seat', status: 'pass' })
+    const fits = await kernel.query<{ distance: number }>(dir, 'check', { kind: 'clearance', layout: 'assembly', a: 'housing', b: '608' })
+    expect(fits.distance).toBeCloseTo(0.1, 5)
+    const bed = await kernel.query<{ parts: string[]; references?: string[] }>(dir, 'check', { kind: 'bed', layout: 'assembly', size: [50, 50, 50] })
+    expect(bed).toMatchObject({ parts: ['housing', 'cap'], references: ['608'] })
+    await expect(kernel.query(dir, 'measure', { kind: 'mass', a: { ref: 'assembly:608' } })).rejects.toThrow(/608 is a reference/)
+    await expect(kernel.query(dir, 'export', { format: '3mf', layout: 'assembly', parts: ['608'] })).rejects.toThrow(/608 is a reference/)
+  })
+
   it('answers a query about the last good build', async () => {
     const part = await kernel.query<{ volume: number }>(join(root, 'bracket'), 'describe', { ref: 'assembly:base' })
     expect(part.volume).toBeCloseTo(6000, 6)

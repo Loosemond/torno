@@ -44,9 +44,9 @@ const READERS: Array<{ name: string; kinds: Array<ExportFormat | ShareKind>; ofV
 
 type LayoutParts = NonNullable<ExportPlan['objects'][number]['layoutParts']>[number]['parts']
 
-/** The parts a file of the model holds unless the person ticks others: those switched on, of solids alone for a mesh, one for an STL. */
+/** The parts a file of the model holds unless the person ticks others: those switched on, of solids alone for a mesh, one for an STL. A bought part (a reference) is in none unless ticked, and in a mesh never. */
 function partsByDefault(format: ModelFormat, parts: LayoutParts): string[] {
-  const going = parts.filter((part) => !part.off && (format === 'step' || part.solid)).map((part) => part.name)
+  const going = parts.filter((part) => !part.off && !part.reference && (format === 'step' || part.solid)).map((part) => part.name)
   return format === 'stl' ? going.slice(0, 1) : going
 }
 
@@ -720,7 +720,7 @@ function ModelChoices(props: {
       <h3 className="section-title">{one ? 'Part' : 'Parts'}</h3>
       <ul className="export-list">
         {parts.map((part) => {
-          const cannot = format !== 'step' && !part.solid
+          const cannot = format !== 'step' && (!part.solid || part.reference === true)
           return (
             <li key={part.name}>
               <label className="export-row">
@@ -732,7 +732,7 @@ function ModelChoices(props: {
                   onChange={(e) => props.setParts(one ? [part.name] : e.target.checked ? [...chosen, part.name] : chosen.filter((name) => name !== part.name))}
                 />
                 <span className="export-name">{part.name}</span>
-                {(cannot || part.off) && <span className="export-what">{cannot ? 'No solid: a mesh is of solids alone' : 'Switched off here'}</span>}
+                {(cannot || part.off || part.reference) && <span className="export-what">{cannot ? (part.reference ? 'A bought part: not in a mesh' : 'No solid: a mesh is of solids alone') : part.off ? 'Switched off here' : 'A bought part: in the STEP only if ticked'}</span>}
               </label>
             </li>
           )

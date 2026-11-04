@@ -12,7 +12,7 @@ import numpy as np
 
 from . import extent, printable, tess, topo
 from .measure import volume_doubt
-from .queries import QueryError, need_layout, need_part, need_solid, volume_of
+from .queries import QueryError, is_reference, need_layout, need_made, need_part, need_solid, volume_of
 
 KINDS = ("overlap", "clearance", "interference", "mesh", "overhang", "thin", "bed")
 # What ``interference`` may take, s, of the 30 a query has; past it the pairs left are told as not measured.
@@ -54,6 +54,8 @@ def check(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any] | N
       are clear without a cut. The others are cut in the order of how much their boxes overlap, within
       ``INTERFERENCE_BUDGET`` seconds; ``sampling`` says how many were ``measured`` and whether it is ``complete``.
       Parts that are not solids are named in ``notSolid`` and left out; ``reversed`` as of ``overlap``.
+      A reference (a bought part, ``loader.Layouts``) is an obstacle: it is taken against the parts, never against another
+      reference, and named in ``references``.
     - ``mesh``: whether the mesh of the part is ``watertight``: its vertices
       welded where they are within 0.0001 mm, how many edges are then of one
       triangle only (``openEdges``), the middles of at most twenty of them
@@ -87,6 +89,7 @@ def check(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any] | N
         )
     first = need_part(shapes, layout, a)
     if kind == "mesh":
+        need_made(held, f"{layout}:{a}", a, "a mesh to print")
         return _mesh(first, f"{layout}:{a}", held)
     if kind == "overhang":
         return printable.overhang(first, a, f"{layout}:{a}", args.get("angle", 45), held)
@@ -145,11 +148,13 @@ def _interference(shapes: dict[str, Any], layout: str, held: dict[Any, Any]) -> 
         low, high = box.CornerMin(), box.CornerMax()
         return [low.X(), low.Y(), low.Z()], [high.X(), high.Y(), high.Z()]
 
-    total = len(solid) * (len(solid) - 1) // 2
+    # Two bought parts are not the model's to judge: a reference is an obstacle for the parts, not for another.
+    bought = {n for n in solid if is_reference(held, prefix + n)}
+    total = len(solid) * (len(solid) - 1) // 2 - len(bought) * (len(bought) - 1) // 2
     near = []  # (overlap of the boxes, a, b) for the pairs whose boxes are not apart
     for i, a in enumerate(solid):
         for b in solid[i + 1 :]:
-            if boxes[a].IsVoid() or boxes[b].IsVoid() or boxes[a].IsOut(boxes[b]):
+            if (a in bought and b in bought) or boxes[a].IsVoid() or boxes[b].IsVoid() or boxes[a].IsOut(boxes[b]):
                 continue
             (l1, h1), (l2, h2) = reach(boxes[a]), reach(boxes[b])
             size = 1.0
@@ -189,6 +194,8 @@ def _interference(shapes: dict[str, Any], layout: str, held: dict[Any, Any]) -> 
         told["notSolid"] = not_solid
     if inside_out:
         told["reversed"] = inside_out
+    if bought:
+        told["references"] = sorted(bought)
     return told
 
 

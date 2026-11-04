@@ -52,6 +52,7 @@ export interface ModelFile {
 export const NO_PARTS = 'Tick a part to go in the file'
 export const NO_LAYOUT = 'That layout is not in the build'
 export const ONE_PART = 'An STL is of one part: for a plate of several, export a 3MF'
+export const REFERENCE_IN_MESH = 'A bought part (a reference) is not in an STL or a 3MF: those are of what you make. Leave it out, or export a STEP'
 export const NOT_SOLID = 'An STL or a 3MF is of solids, and this part has none'
 export const NEW_BUILD = 'A new build landed while the file was made: nothing was saved. Export again'
 export const FAILED_CHECK = 'The file failed its check, and nothing was saved'
@@ -71,12 +72,14 @@ export async function modelArgs(deps: ModelDeps, req: ExportRequest & { format: 
   const inLayout = scene.parts.filter((part) => part.layout === layout)
   // Unless the sheet names them: every part of the layout that is switched on, of solids alone for a mesh.
   const off = switchedOff(scene, file)
-  const named = req.parts ?? inLayout.filter((part) => !off.has(part.name) && (req.format === 'step' || hasSolid(part))).map((part) => part.name)
+  // A bought part (a reference) is in a file only when named, and in a mesh never.
+  const named = req.parts ?? inLayout.filter((part) => !off.has(part.name) && part.role !== 'reference' && (req.format === 'step' || hasSolid(part))).map((part) => part.name)
   const parts = partsNamed(scene, layout, named)
   if (!Array.isArray(parts)) throw new Error(`There is no ${parts.unknown} in ${layout}`)
   if (parts.length === 0) throw new Error(NO_PARTS)
   if (req.format === 'stl' && parts.length !== 1) throw new Error(ONE_PART)
   if (req.format !== 'step' && inLayout.some((part) => parts.includes(part.name) && !hasSolid(part))) throw new Error(NOT_SOLID)
+  if (req.format !== 'step' && inLayout.some((part) => parts.includes(part.name) && part.role === 'reference')) throw new Error(REFERENCE_IN_MESH)
   const colors = partColors(scene, file)
   return {
     objectId,

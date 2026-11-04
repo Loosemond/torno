@@ -39,7 +39,9 @@ Linux or macOS. Developed on Arch with Wayland (Hyprland). macOS is tested on Gi
   kernel in that environment with `uv run --no-sync` and never changes it. A
   workspace with no `pyproject.toml` is built with the build123d of torno's
   own kernel environment (`kernel/.venv`, which uv makes the first time it is
-  needed).
+  needed), which also has `bd_warehouse` (screws, nuts, clearance holes,
+  bearings), so a model there can import it. A workspace with its own
+  `pyproject.toml` has `bd_warehouse` only if it lists it.
 - Importing a scan needs `trimesh` and `pillow`, which uv fetches the first
   time a scan is imported. The checks against a scan use the `scipy` of the
   workspace's environment, which build123d brings.
@@ -312,6 +314,23 @@ distance, mm), `overlap` (the volume shared, nothing unless told), `solids` (how
 A declaration that is not one fails the build and says what is wrong, as a bad `groups(p)` does. A check that fails
 never fails the build, and never holds the agent back when it would stop; it is told with the build
 (What the agent is told) and listed in the window under Checks. torno never writes `checks(p)`.
+
+**Bought parts.** A printed part is usually made around something bought: a screw, a bearing, a board. A model says so
+with an optional `references(p)` beside `assembly` (name to shape, in the assembly's frame):
+
+```python
+def references(p: Params):
+    return {"608": Pos(0, 0, 4) * SingleRowDeepGrooveBallBearing(size="M8-22-7", bearing_type="SKT")}
+```
+
+A reference is drawn in a neutral grey, listed in Layers with the tag "bought", and picked and measured like a part. It is an
+obstacle: `check clearance`, `overlap` and `interference` take it against the parts (never one reference against another), and
+`checks(p)` and `groups(p)` may name it. It is not made: it is in no `print` layout, not counted by `check bed`, has no mass, takes no
+`thin`, `overhang` or `mesh` check, and is in no STL or 3MF; a STEP holds it only when ticked in the export sheet. Its name is
+its own (not a part's, no `/`, not of the form `M<n>`), and a model with only a `print` layout cannot have one. Standard parts come
+from `bd_warehouse`, which torno's own kernel environment has (`simple=True` for a screw); a vendor's STEP is read by the
+model itself (`import_step`) and returned among the references, as torno reads no file of its own accord. A reference that is a
+library's compound of many solids is taken as the solids it holds, in one shape.
 
 **Builds.** Saving a file in the project's folder (dotfiles, `out/`, `cache/`,
 `.torno/` and `__pycache__/` are ignored, as are `build/`, `dist/`,
@@ -853,8 +872,8 @@ that leave a valid but wrong part (a boolean that lost volume, an edge taken fro
 an older shape), the usual OCCT errors (fillets, booleans, `StdFail_NotDone`; of a
 failed fillet, to read why and try one with `try_fillet` before editing again), an
 API reference of build123d 0.13.0 that the agent searches offline in any
-workspace, and the sizes of screw, nut and insert holes (`bd_warehouse` is not in
-torno's kernel); `torno:scans` and `torno:dimensions` what the
+workspace, and the sizes of screw, nut and insert holes and how to use `bd_warehouse`
+(which torno's kernel has) and `references(p)` for bought parts; `torno:scans` and `torno:dimensions` what the
 instructions would otherwise say of scans and of dimensions; `torno:printing`
 the rules of a part for an FDM printer (fits per side, walls as multiples of the
 line width, overhangs, holes, orientation and the bed), with typical numbers
