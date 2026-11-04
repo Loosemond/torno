@@ -88,7 +88,7 @@
     <text class="num mono" x="344" y="46">3</text>
     <text class="title" x="344" y="70">Claude Code</text>
     <text class="title" x="344" y="88">edits the model</text>
-    <text class="sub mono" x="344" y="108">wall = 2 → 3</text>
+    <text class="sub mono" x="344" y="108">wall = 2.8 → 3</text>
   </g>
   <g class="s4">
     <rect class="box" x="490" y="24" width="136" height="96" rx="8"/>

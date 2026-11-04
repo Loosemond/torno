@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="296" viewBox="0 0 800 296" role="img" aria-labelledby="title desc">
+  <title id="title">How it works</title>
+  <desc id="desc">You pin, measure and draw in the torno window. torno sends your prompt and the marks, as refs, to Claude Code, which edits the model and looks at it through torno's MCP tools. On save the torno kernel rebuilds the model and gives the window the parts and exact numbers.</desc>
+  <style>
+    :root {
+      --panel: #FAF9F6;
+      --ink: #22252A;
+      --muted: #646970;
+      --hairline: #DAD6CE;
+      --accent: #1D46B8;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --panel: #222529;
+        --ink: #E9E7E2;
+        --muted: #9A9FA6;
+        --hairline: #3E434A;
+        --accent: #7C9BF7;
+      }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
+    .title { fill: var(--ink); font-size: 13px; font-weight: 600; }
+    .sub { font-size: 11.5px; fill: var(--muted); }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; }
+    .box { fill: var(--panel); stroke: var(--hairline); stroke-width: 1.5; }
+    .you { fill: var(--panel); stroke: var(--accent); stroke-width: 1.5; }
+    /* Outside the boxes, on whatever ground the page has: one grey that reads on a light one and a dark one. */
+    .arrow { fill: none; stroke: #7D8590; stroke-width: 1.5; }
+    .outside { font-size: 12px; fill: #7D8590; }
+    .head { fill: #7D8590; }
+  </style>
+
+  <!-- The person, the window and the agent in the top row; what the agent writes and what builds it below. -->
+  <g>
+    <rect class="you" x="16" y="48" width="58" height="48" rx="24"/>
+    <text class="title" x="45" y="76" text-anchor="middle">You</text>
+  </g>
+  <g>
+    <rect class="box" x="196" y="24" width="174" height="96" rx="8"/>
+    <text class="title" x="208" y="66">torno window</text>
+    <text class="sub" x="208" y="86">3D view, marks, chat</text>
+  </g>
+  <g>
+    <rect class="box" x="580" y="24" width="204" height="96" rx="8"/>
+    <text class="title" x="592" y="66">Claude Code</text>
+    <text class="sub" x="592" y="86">in the project's folder</text>
+  </g>
+  <g>
+    <rect class="box" x="580" y="184" width="204" height="96" rx="8"/>
+    <text class="title" x="592" y="226">The model</text>
+    <text class="sub" x="592" y="246"><tspan class="mono">airbox.py</tspan>, build123d</text>
+  </g>
+  <g>
+    <rect class="box" x="196" y="184" width="174" height="96" rx="8"/>
+    <text class="title" x="208" y="226">torno kernel</text>
+    <text class="sub" x="208" y="246">Python, OpenCascade</text>
+  </g>
+
+  <!-- The arrows, each with what goes along it. -->
+  <path class="arrow" d="M74 72 H190"/>
+  <path class="head" d="M196 72 l-7 -4 v8 z"/>
+  <text class="outside" x="134" y="62" text-anchor="middle">pin, measure, draw</text>
+
+  <path class="arrow" d="M370 56 H574"/>
+  <path class="head" d="M580 56 l-7 -4 v8 z"/>
+  <text class="outside" x="475" y="46" text-anchor="middle">prompt and marks, as refs</text>
+
+  <path class="arrow" d="M580 92 H376"/>
+  <path class="head" d="M370 92 l7 -4 v8 z"/>
+  <text class="outside" x="475" y="110" text-anchor="middle">MCP: look, measure, section…</text>
+
+  <path class="arrow" d="M682 120 V178"/>
+  <path class="head" d="M682 184 l-4 -7 h8 z"/>
+  <text class="outside" x="692" y="156">edits</text>
+
+  <path class="arrow" d="M580 232 H376"/>
+  <path class="head" d="M370 232 l7 -4 v8 z"/>
+  <text class="outside" x="475" y="222" text-anchor="middle">on save</text>
+
+  <path class="arrow" d="M283 184 V126"/>
+  <path class="head" d="M283 120 l-4 7 h8 z"/>
+  <text class="outside" x="293" y="156">parts, exact numbers</text>
+</svg>

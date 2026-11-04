@@ -85,15 +85,9 @@ the Python file, and torno shows it.
   <img src="docs/images/demo.gif" alt="The loop in twenty seconds: an airbox in a scan of its engine bay, a pin on its tub wall with a note, a prompt asking for 3 mm, Claude Code looking and measuring, its edit of the model, the rebuild, and the dimension turning to passes" width="800">
 </p>
 
-```mermaid
-flowchart LR
-    you([You]) -- "pin, measure, draw" --> torno["torno window<br/>3D view · marks · chat"]
-    torno -- "prompt + marks, as refs" --> agent["Claude Code"]
-    agent -- "edits" --> model["model.py<br/>(build123d)"]
-    model -- "on save" --> kernel["torno kernel<br/>(Python, OpenCascade)"]
-    kernel -- "parts, exact numbers" --> torno
-    agent -- "MCP: look, measure, section…" --> torno
-```
+<p align="center">
+  <img src="docs/images/how-it-works.svg" alt="How it works: you pin, measure and draw in the torno window; torno sends your prompt and the marks, as refs, to Claude Code; Claude Code edits the model and looks at it through torno's MCP tools; on save the torno kernel rebuilds the model and gives the window the parts and exact numbers" width="900">
+</p>
 
 A **workspace** is a folder of **projects**. Each project is a folder with one build123d model in it:
 

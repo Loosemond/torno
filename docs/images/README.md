@@ -59,7 +59,9 @@ Made: `demo.gif` and `demo.mp4`, from eight frames `app/e2e/demo.spec.ts` captur
 with the same `TORNO_README_*` settings, one launch a frame) and `demo-frames/make.sh` crossfades with ffmpeg; the
 hold of each frame is set there. The README shows the GIF. The MP4 is for an issue or a release note, where GitHub
 plays it. `loop.svg` is an animated diagram of the loop (CSS animation only, both colour schemes) for wherever a
-picture of the loop is wanted without a window.
+picture of the loop is wanted without a window; `how-it-works.svg` is the diagram of the pieces (the window, Claude
+Code, the model, the kernel) drawn the same way, for "How it works". Both are hand-written SVG with the same
+tokens, not Mermaid, so they look like one family on a light page and a dark one.
 
 | # | File | What it shows |
 |---|---|---|
