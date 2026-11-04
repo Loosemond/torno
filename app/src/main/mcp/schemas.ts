@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { ExplodeState } from '../../shared/explode'
 import type { MeasureKind, Quat, ShapeIntent, ShapeKind } from '../../shared/marks'
+import { MAX_ASK_OPTIONS, MAX_ASK_REFS } from '../../shared/ask'
 import type { AxisPlane, SectionPlane } from '../../shared/view'
 import { unknownKeys } from './keys'
 import type { EndArg } from './markTools'
@@ -139,6 +140,16 @@ const describeInput = {
 const highlightInput = {
   refs: z.array(z.string()).min(1).max(50).describe(`${refText} A mark number (M3) stands for what that mark is on. A group name stands for all of its parts.`),
   note: z.string().optional().describe('A short line shown beside them, such as the question you are asking.'),
+  layout: z.string().optional().describe('The layout the refs are of. It must be the one on screen, which is the default.')
+}
+
+const askInput = {
+  question: z.string().describe('The question, in a line or two.'),
+  options: z
+    .array(z.object({ label: z.string().describe('What the button says, a few words.'), refs: z.array(z.string()).max(MAX_ASK_REFS).describe(`The refs this answer is about; they light up in the viewport when the person points at the button. ${refText} A mark number (M3) stands for what that mark is on. A group name stands for all of its parts. None is fine for "neither".`) }))
+    .max(MAX_ASK_OPTIONS)
+    .describe(`The answers to choose from, at most ${MAX_ASK_OPTIONS}. May be empty when pick is true.`),
+  pick: z.boolean().optional().describe('True lets the person answer by selecting one face or edge in the viewport instead. Default: false.'),
   layout: z.string().optional().describe('The layout the refs are of. It must be the one on screen, which is the default.')
 }
 
@@ -320,6 +331,12 @@ export interface HighlightArgs {
   note?: string
   layout?: string
 }
+export interface AskArgs {
+  question: string
+  options: Array<{ label: string; refs?: string[] }>
+  pick?: boolean
+  layout?: string
+}
 export interface ShowArgs {
   /** A standard view, the name of a saved view, or a camera. */
   view?: string | CameraArg
@@ -412,6 +429,13 @@ export const TOOLS = {
     description:
       "Returns which refs are now tinted in the user's viewport in your colour, with your note beside them, until the user clicks there or 60 s pass. Use it to ask \"this one?\" before a change that would be costly to get wrong, and then wait for the answer.",
     inputSchema: highlightInput
+  },
+  ask: {
+    title: 'Ask the user to choose',
+    annotations: CHANGES_VIEW_OR_MARKS,
+    description:
+      "Returns the answer of the user to a question you put as a card in their chat and under their viewport, and waits for it: the option they chose, with its label and refs, or, with pick, the face or edge they selected, or that they declined. Pointing at an option lights its refs in their viewport, and the call ends with not answered after 10 minutes or when they stop the turn. Use it instead of highlight when you need to know which face, edge or part they mean before a costly change; the answer is data, so you need not turn the left one back into a ref.",
+    inputSchema: askInput
   },
   show: {
     title: 'Change the view',
@@ -538,6 +562,7 @@ export const SERVER_INSTRUCTIONS = `torno's server reads and measures the CAD pa
 - scan_clash: what of a scan is inside a part, as clusters with their depth.
 - scan_deviation: how far a part, or some of its faces, lie from a scan (min, mean, max, percentiles).
 - highlight: tint faces or edges in the person's viewport with a note, to ask "this one?" before a costly change.
+- ask: ask the person to choose between options whose answers are refs, or to pick a face or edge, and wait for the answer.
 - show: change the person's camera, layout, visible parts, section, explode or scans, put a saved view on screen, or point their camera at a ref, mark or box.
 - save_view: propose a saved view to the person's strip, for them to keep or discard.
 - add_mark: leave a mark of yours (pin, pick, arrow, shape, or a dimension measured on every build).

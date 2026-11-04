@@ -757,6 +757,13 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   the session is live and idle and no prompt of the person's follows that turn. It asks once in the row (a group named "Undo
   this turn", "Ask to undo" / "Keep it"), main sends the prompt and a note, and a refusal of main is said beside the button.
   A further action for a turn is one more button in `TurnActions`, given the turn's `item` and `account`.
+- **The agent's question** (`ask`; `state/asks.ts` follows main's list, `ui/QuestionCard.tsx` draws it): a card with
+  the question, a button for each answer (its label, its refs in the monospace face), and "None of these". The pointer
+  or the keys' focus on a button lights its refs by `peek`, as a ref chip does, and only when the layout shown is the
+  question's. With `pick` the card offers "Answer with `lid/F12`" while exactly one face or edge is selected in the
+  view (selecting is the Select tool's, unchanged), else says to select one. It stands above the box of the chat
+  (`where="chat"`) and, where the chat is not in sight (a terminal session, or the dock put away), over the foot of the
+  view (`where="view"`), never both. It answers once (the buttons go off) and goes when main takes the question down.
 - Refs are chips (`RefChip`, `refs.ts` `refInfo`): hover lights the ref through `peek` in `state/agent.ts`, which
   is not an agent highlight (no agent line, no locked tools) and is drawn in the accent on a layer of its own
   (`point` in `viewport/highlight.ts`, `Viewport.setPointed`), never in a mark's colour, whoever made the mark it is

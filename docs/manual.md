@@ -1060,6 +1060,7 @@ them: `scene`, `look`, `marks`, `describe` and `measure`. The others are found b
 | `mcp__torno__marks` | Your marks and the agent's as data, each with a line of text. It lists the marks that are not resolved, 50 at a time; `status` (`resolved` too), `ids` (`["M4"]`, any status), `limit` (200 at most) and `next` say which. A stroke is given as a summary of its points (count, first, last, box) unless `ids` names it. What was left out is said (`omitted`, `next`). |
 | `mcp__torno__describe` | The geometry of a part, a face or an edge (`lid`, `lid/F12`, `lid/E3`), or of a group of parts by its name: the box of its parts and their volume. Of a face or an edge it also gives a `selector`: a build123d expression on `part`, such as `part.faces().filter_by(Axis.Z).sort_by(Axis.Z)[-1]`, that the kernel evaluated on this build and that gave exactly that shape, as `robust` `by geometry` (a direction, an extreme, a radius, a place) or `by order` (an index into a sort, which the next edit may break), and `selectorFrame`, which says in whose frame it is. |
 | `mcp__torno__highlight` | Tints faces or edges in your viewport with a note, to ask "this one?", until you click or a minute passes. A group's name tints all of its parts. |
+| `mcp__torno__ask` | Asks you to choose and waits: a card above the box of the chat (under the view for a terminal session) with a button for each answer, and the refs of an answer light up in your view while the pointer is on its button. If it allows, you may answer with the one face or edge you select in the view instead, or with "None of these". The agent gets back what you chose, as refs. The session shows Needs input meanwhile; the question ends by itself after 10 minutes with "not answered", and when the turn ends. |
 | `mcp__torno__show` | Changes your camera, layout, visible parts (a group's name stands for its parts), section, explode and scans to show you something, or puts a saved view on screen by its name; with `focus` and `margin`, as `look` takes them, it puts your camera on a ref, a mark or a box. For now only: what `.torno/scene.json` keeps stays yours. Refused while you hold a button in the viewport. |
 | `mcp__torno__save_view` | Proposes a saved view: it appears in your strip marked "proposed" until you keep or discard it. Nothing on screen changes. |
 | `mcp__torno__add_mark` | Leaves a mark of the agent's, in green: a pin, a pick, an arrow, a shape, or with `kind: 'dimension'` a dimension, measured at once and on every build like yours. A point that is not on the part is refused, saying how far off it is. |
@@ -2190,6 +2191,12 @@ With a real agent:
   held arrives with `stop_hook_active` and is held again for another reason is what the code assumes; the stand-in
   plays it as the documentation says. Whether the hooks of a `torno-reviewer`'s `look` arrive on the session's
   address (so that its look counts) has not been seen.
+- **`ask` with the real Claude Code.** (1) Ask it to call `mcp__torno__ask` and leave the card open for six minutes: it
+  should still be open and the call not time out, because torno sends a progress notice every 30 s, but only when
+  Claude Code sends a progress token with the call, and whether its 5-minute idle limit counts those notices is
+  not known. (2) With a card open, press Stop in the chat: the card should go and the session be idle. Claude Code's
+  cancel of one call does not reach torno's server, which keeps no sessions, so torno ends the question when the turn
+  ends (the `Stop` hook); that was only tried with the stand-in.
 - **Claude Code and the newer tools.** Ask it to cut the part, to look at it drawn apart and to check a part against a scan: `section`, `look` with `explode`, `scan_clash` and `scan_deviation` are called without a permission prompt and their replies are used.
 - **The evals with the real Claude Code.** `pnpm -C app eval` was run end to end only with the stand-in, on the
   `_smoke` case. Its first real run, the spike of one T1 case and then the baseline of every case five times, is yours:

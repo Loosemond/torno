@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { chatActions, useChat } from '../../state/chat'
 import { ChatItems } from './Items'
+import { QuestionCard } from '../QuestionCard'
 import { AskSession } from './AskCard'
 import { Composer } from './Composer'
 import { TasksBar } from './Tasks'
@@ -143,6 +144,7 @@ export function ChatPane({ sessionId, live, working, dir, onWholePrompt, onUseTe
           </button>
         </p>
       )}
+      <QuestionCard where="chat" />
       <Composer sessionId={sessionId} live={live} working={working} onSent={toEnd} />
     </div>
     </ChatPlace.Provider>

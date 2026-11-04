@@ -37,6 +37,7 @@ import { EFFORTS, isEffort, isMode, MODES, MODEL_ALIASES, MODEL_NAME, type ChatA
 import type { AgentView, CreateRequest, OnboardDraft, PromptPreviewDraft } from '../shared/bridge'
 import { readChoice, writeChoice } from './sessions/choice'
 import { drawingOf } from './sessions/drawing'
+import type { Asks } from './asks'
 import type { Sessions } from './sessions/manager'
 import type { KnownModels } from './sessions/models'
 import { lastConversation } from './sessions/chatlog'
@@ -68,16 +69,16 @@ function handle(channel: string, fn: (event: Electron.IpcMainInvokeEvent, ...arg
 //           chat:history, chat:lastConversation, chat:reference, chat:changes, chat:undo, chat:send, chat:interrupt, chat:setModel, chat:setEffort, chat:models,
 //           marks:list, marks:add, marks:update, marks:acknowledge, marks:remove, marks:restore, marks:replace, marks:problem (also sent to the renderer),
 //           marks:dismissProblem, geometry:describe, geometry:measure,
-//           scans:list, scans:pick, scans:import, scans:convert, scans:rename, scans:remove, scans:align, scans:mesh,
+//           asks:list, scans:list, scans:pick, scans:import, scans:convert, scans:rename, scans:remove, scans:align, scans:mesh,
 //           scans:problem (also sent to the renderer), scans:dismissProblem, scans:reimport, scans:undoAlign, scans:alignHolds,
 //           objects:pickPhotos, objects:readPhoto, objects:create, objects:onboard, objects:previewPrompt, objects:taken, show:cards, show:thumbnail, export:plan, export:save
 //   from the renderer: export:done, show:saveThumbnail, object:saveSceneFile, view:report, view:lookReply, view:showReply, view:highlightReply,
 //           view:drawSectionReply, view:saveViewReply, session:write, session:resize, session:insert,
-//           chat:answer
+//           chat:answer, asks:answer
 //   to the renderer: object:build, object:scene, view:look, view:show, view:highlight, view:drawSection, view:saveView (sent by src/main/look.ts),
 //           session:data, session:status, chat:item, chat:meta, chat:capabilities, workspace:requested and window:closeAsked (sent by src/main/index.ts,
 //           which hears the answer, window:closeAnswer),
-//           ready:changed, marks:changed, marks:problem, scans:changed, scans:progress, scans:problem, show:changed
+//           ready:changed, marks:changed, marks:problem, scans:changed, scans:progress, scans:problem, show:changed, asks:changed (sent by src/main/index.ts)
 
 /** The longest prompt the window may send. */
 const MAX_PROMPT_CHARS = 200_000
@@ -109,6 +110,7 @@ const offered = new Offered()
 
 /** The agent sessions, once `registerIpc` has been given them. They belong to the objects of the open workspace. */
 let sessions: Sessions | null = null
+let asks: Asks | null = null
 
 /** The marks of the objects of the open workspace, once `registerIpc` has been given them. */
 let marks: MarkStore | null = null
@@ -438,6 +440,8 @@ export function registerIpc(
   opts: {
     onWorkspaceChosen?: (root: string) => void
     sessions?: Sessions
+    /** The questions of the agents that wait for the person. */
+    asks?: Asks
     /** The models the last chat's CLI offered, for a session not started yet. Absent: Claude Code's aliases. */
     knownModels?: KnownModels
     marks?: MarkStore
@@ -490,6 +494,7 @@ export function registerIpc(
     return sessions
   }
 
+  asks = opts.asks ?? null
   onBuild = opts.onBuild ?? null
   onMarksChecked = opts.onMarksChecked ?? null
   onSceneFile = opts.onSceneFile ?? null
@@ -732,6 +737,12 @@ export function registerIpc(
     // The picture the window showed for "Attach view": the sessions check it as any picture for the agent.
     if (prompt.attachedView !== undefined && !(prompt.attachedView instanceof Uint8Array)) throw new Refusal('The picture of the view is not one')
     await requireSessions().send(String(sessionId), { text: prompt.text, attachView: prompt.attachView === true, ...(prompt.attachedView ? { attachedView: prompt.attachedView } : {}), ...(drawing ? { drawing } : {}) })
+  })
+
+  // The questions the agent put to the person (`ask`): the list for a window that has just begun, and the answer.
+  handle('asks:list', () => asks?.open() ?? [])
+  ipcMain.on('asks:answer', (_event, id: number, answer: unknown) => {
+    if (typeof id === 'number') asks?.answer(id, answer)
   })
 
   ipcMain.on('chat:answer', (_event, sessionId: string, requestId: string, answer: ChatAnswer) => {
