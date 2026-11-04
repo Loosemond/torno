@@ -111,7 +111,15 @@ is the detail of this folder, under the headings it has there.
   torus (a line met with an analytic surface by `GeomAPI_IntCS`), and otherwise (a mouth on a freeform wall) is
   taken at the end of the run and told with `exact: false` and `how`. Slot ends and rounded corners (round faces
   that do not go all the way round) and a cylinder that stands on nothing are counted (`notFeatures`), not told;
-  freeform faces are counted too, since a hole in one is not recognised. Positions are in the frame of the shapes
+  freeform faces are counted too, since a hole in one is not recognised. A fillet is a cylinder or a torus less than
+  half a turn round (its sweep, the cylinder's angle or the torus's tube angle) whose boundary edges meet faces with
+  no corner (normals alike within 1e-6 at the middle of the edge), at least two of them; blends of one radius and
+  side that touch are one. A chamfer is a plane with all lines for edges, two of them parallel and the longest,
+  across which are two planes it leaves at 5° to 85°, the same way round, whose line of meeting is parallel to
+  them, and whose setback from that line (the distance between parallel lines, so exact) is under half of what is
+  left of each face (a hexagon's sides and a ramp are not); or a cone between a plane across a cylinder's axis and
+  that cylinder (setbacks the radii's difference and the axial distance), unless it is a step of a hole, which is
+  told as a countersink. Positions are in the frame of the shapes
   as built, so of an `arranged` part in the displayed frame. It is bounded as `check overhang` is: 10 s
   (`BUDGET`, then `complete` false and the runs left over are not told as none) and `MAX_FEATURES` (100) of a
   kind told, the rest counted in `left`. What it found is kept in the worker, under `("features", key)`, until

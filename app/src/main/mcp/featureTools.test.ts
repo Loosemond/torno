@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { BuildState } from '../../shared/build'
 import type { Part, Scene } from '../../shared/scene'
 import { KernelError } from '../kernel/client'
-import { type Boss, type Featured, type Hole, alongText, featuresReading, featuresTool } from './featureTools'
+import { type Boss, type Chamfer, type Featured, type Fillet, type Hole, alongText, featuresReading, featuresTool } from './featureTools'
 import type { ToolDeps } from './tools'
 
 // `features` against a stand-in for the kernel: what is asked of it is kept, and what it says is what the test gives.
@@ -91,9 +91,9 @@ describe('features', () => {
     expect(deps.queries[0].args).toEqual({ layout: 'assembly', part: 'lid', kinds: ['boss'] })
     for (const [args, said] of [
       [{}, 'features needs part, the name of a part as scene lists it: {"part": "lid"}'],
-      [{ part: 'lid', kinds: 'hole' }, 'kinds is a list of hole, boss: {"part": "lid", "kinds": ["hole"]}'],
-      [{ part: 'lid', kinds: ['gear'] }, 'kinds is a list of hole, boss: {"part": "lid", "kinds": ["hole"]}'],
-      [{ part: 'lid', kinds: [] }, 'kinds is a list of hole, boss: {"part": "lid", "kinds": ["hole"]}']
+      [{ part: 'lid', kinds: 'hole' }, 'kinds is a list of hole, boss, fillet, chamfer: {"part": "lid", "kinds": ["hole"]}'],
+      [{ part: 'lid', kinds: ['gear'] }, 'kinds is a list of hole, boss, fillet, chamfer: {"part": "lid", "kinds": ["hole"]}'],
+      [{ part: 'lid', kinds: [] }, 'kinds is a list of hole, boss, fillet, chamfer: {"part": "lid", "kinds": ["hole"]}']
     ] as const) {
       const r = await featuresTool(fake(), 'box', args as never)
       expect(r.isError, JSON.stringify(args)).toBe(true)
@@ -158,6 +158,25 @@ describe('the reading of features', () => {
     expect(said).toContain('4 round faces that do not go all the way round')
     expect(said).toContain('1 freeform face cannot be told')
     expect(said).toContain('the time ran out')
+  })
+
+  it('tells fillets and chamfers, counting equal ones together', () => {
+    const fillet = (more: Partial<Fillet> = {}): Fillet => ({ radius: 3, side: 'outside', sweep: 90, length: 10, between: ['lid/F1', 'lid/F2'], edges: ['lid/E3', 'lid/E4'], edgeCount: 2, faces: ['lid/F7'], exact: true, ...more })
+    const chamfer = (more: Partial<Chamfer> = {}): Chamfer => ({ side: 'outside', size: 2, length: 10, round: false, between: ['lid/F1', 'lid/F2'], edges: ['lid/E3', 'lid/E4'], edgeCount: 2, faces: ['lid/F8'], exact: true, ...more })
+    const said = featuresReading(
+      featured({
+        kinds: ['fillet', 'chamfer'],
+        fillets: [fillet(), fillet(), fillet({ radius: 1, side: 'inside', faces: ['lid/F1', 'lid/F2'], length: 24.5 })],
+        filletCount: 3,
+        chamfers: [chamfer(), chamfer({ size: undefined, sizes: [2, 3], round: true })],
+        chamferCount: 2
+      })
+    )
+    expect(said).toBe(
+      '3 fillets on lid: 2 × R3 on an outside edge, 90° round, 10 long; 1 × R1 on an inside corner, 90° round, 24.5 long in 2 faces; ' +
+        '2 chamfers on lid: 1 × 2 mm on an outside edge, 10 long; 1 × 2 and 3 mm on an outside edge, round a cylinder, 10 long'
+    )
+    expect(featuresReading(featured({ kinds: ['fillet', 'chamfer'], fillets: [], filletCount: 0, chamfers: [], chamferCount: 0 }))).toBe('no fillets on lid; no chamfers on lid')
   })
 
   it('names an axis along one of the layout’s as that, and any other by its components', () => {

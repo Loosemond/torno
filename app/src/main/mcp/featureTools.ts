@@ -11,7 +11,7 @@ import { type ToolDeps, type ToolResult, failure, layoutFor, ofBuild } from './t
 
 type Vec3 = [number, number, number]
 
-export const FEATURE_KINDS = ['hole', 'boss'] as const
+export const FEATURE_KINDS = ['hole', 'boss', 'fillet', 'chamfer'] as const
 type FeatureKind = (typeof FEATURE_KINDS)[number]
 
 export interface FeaturesToolArgs {
@@ -62,6 +62,31 @@ export interface Boss extends FeatureBase {
   height: number
 }
 
+export interface Fillet {
+  radius: number
+  side: 'outside' | 'inside'
+  sweep: number
+  length: number
+  between: string[]
+  edges: string[]
+  edgeCount: number
+  faces: string[]
+  exact: boolean
+}
+
+export interface Chamfer {
+  side: 'outside' | 'inside'
+  size?: number
+  sizes?: [number, number]
+  length: number
+  round: boolean
+  between: string[]
+  edges: string[]
+  edgeCount: number
+  faces: string[]
+  exact: boolean
+}
+
 export interface Featured {
   part: string
   kinds: FeatureKind[]
@@ -69,6 +94,10 @@ export interface Featured {
   holeCount?: number
   bosses?: Boss[]
   bossCount?: number
+  fillets?: Fillet[]
+  filletCount?: number
+  chamfers?: Chamfer[]
+  chamferCount?: number
   left: Record<string, number>
   notFeatures: { arcs: number; freeCylinders: number; freeformFaces: number }
   exact: boolean
@@ -172,9 +201,38 @@ export function featuresReading(f: Featured): string | null {
       said.push(`${plural(f.bossCount, 'boss', 'bosses')} on ${of}: ${parts.join('; ')}${more}`)
     }
   }
+  if (f.kinds.includes('fillet')) {
+    if (!Array.isArray(f.fillets) || !finite(f.filletCount)) return null
+    if (f.fillets.length === 0) said.push(`no fillets on ${of}`)
+    else {
+      const groups = new Map<string, Fillet[]>()
+      for (const b of f.fillets) {
+        const key = `R${number(b.radius)} on ${b.side === 'outside' ? 'an outside edge' : 'an inside corner'}, ${number(b.sweep)}° round, ${number(b.length)} long${b.faces.length > 1 ? ` in ${b.faces.length} faces` : ''}`
+        groups.set(key, [...(groups.get(key) ?? []), b])
+      }
+      const parts = [...groups.entries()].map(([text, bs]) => `${bs.length} × ${text}`)
+      const more = f.filletCount > f.fillets.length ? `; ${f.filletCount - f.fillets.length} more not listed` : ''
+      said.push(`${plural(f.filletCount, 'fillet')} on ${of}: ${parts.join('; ')}${more}`)
+    }
+  }
+  if (f.kinds.includes('chamfer')) {
+    if (!Array.isArray(f.chamfers) || !finite(f.chamferCount)) return null
+    if (f.chamfers.length === 0) said.push(`no chamfers on ${of}`)
+    else {
+      const groups = new Map<string, Chamfer[]>()
+      for (const c of f.chamfers) {
+        const size = c.size !== undefined ? number(c.size) : (c.sizes ?? []).map((x) => number(x)).join(' and ')
+        const key = `${size} mm on ${c.side === 'outside' ? 'an outside edge' : 'an inside corner'}${c.round ? ', round a cylinder' : ''}, ${number(c.length)} long${c.faces.length > 1 ? ` in ${c.faces.length} faces` : ''}`
+        groups.set(key, [...(groups.get(key) ?? []), c])
+      }
+      const parts = [...groups.entries()].map(([text, cs]) => `${cs.length} × ${text}`)
+      const more = f.chamferCount > f.chamfers.length ? `; ${f.chamferCount - f.chamfers.length} more not listed` : ''
+      said.push(`${plural(f.chamferCount, 'chamfer')} on ${of}: ${parts.join('; ')}${more}`)
+    }
+  }
   const rest: string[] = []
   const n = f.notFeatures
-  if (n?.arcs > 0) rest.push(`${plural(n.arcs, 'round face')} that do not go all the way round (slot ends, rounded corners) are told as neither`)
+  if (n?.arcs > 0) rest.push(`${plural(n.arcs, 'round face')} that do not go all the way round (slot ends) are told as neither`)
   if (n?.freeformFaces > 0) rest.push(`${plural(n.freeformFaces, 'freeform face')} cannot be told as part of a hole or a boss`)
   const tail = [f.exact ? null : 'approximate where it says ≈ (a depth or height taken between faces that are not planes or round)', f.complete === false ? 'the time ran out before every face was looked at' : null, ...rest].filter((x) => x !== null)
   return `${said.join('; ')}${tail.length > 0 ? `. ${tail.join('; ')}` : ''}`

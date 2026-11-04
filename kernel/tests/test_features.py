@@ -205,13 +205,14 @@ def test_a_void_inside_a_part_is_a_hole_that_is_enclosed():
     assert hole["depth"] == pytest.approx(4)
 
 
-def test_the_rounded_corners_of_a_plate_are_arcs_and_no_holes():
+def test_the_rounded_corners_of_a_plate_are_fillets_and_no_holes():
     from build123d import Axis, fillet
 
     shape = fillet(plate().edges().filter_by(Axis.Z), 4)
     result = ask(shape)
     assert result["holes"] == [] and result["bosses"] == []
-    assert result["notFeatures"]["arcs"] == 4
+    assert result["fillets"] != []
+    assert result["notFeatures"]["arcs"] == 0
 
 
 def test_a_slot_end_does_not_go_all_the_way_round_and_is_no_hole():
@@ -301,10 +302,10 @@ def test_a_part_is_analysed_once_for_as_long_as_the_worker_keeps_it():
     shape = through_hole()
     kept: dict = {}
     first = queries.run({"print:p": shape}, "features", {"layout": "print", "part": "p"}, kept)
-    assert ("features", "print:p") in kept
+    held = kept["features", "print:p"]
     again = queries.run({"print:p": shape}, "features", {"layout": "print", "part": "p"}, kept)
+    assert kept["features", "print:p"] is held
     assert again["holes"] == first["holes"]
-    assert kept["features", "print:p"]["holes"] is kept["features", "print:p"]["holes"]
 
 
 @pytest.mark.parametrize(

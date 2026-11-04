@@ -168,12 +168,14 @@ assert abs(top.center().Z - 2.5) < 1e-9 and len(plate.faces().filter_by(Axis.Z))
 Select by position and kind, never by a face's number: torno's refs (`lid/F12`) are for talking about a model, and
 must never be written into it.
 
-## Holes
+## Holes and blends
 
 Before you move, resize or add to the holes of a part, call `mcp__torno__features` (`{"part": "lid", "kinds":
 ["hole"]}`): it lists the holes of the last build with their diameter, axis, where each opens (a face ref), depth,
 through or blind, and a counterbore or countersink, as the B-rep has them, so you need not describe their faces one
-by one or read the numbers off the code. A diameter it gives is exact; a depth it marks `≈` is not.
+by one or read the numbers off the code. A diameter it gives is exact; a depth it marks `≈` is not. With `kinds`
+`["fillet", "chamfer"]` it lists the fillets (radius, outside edge or inside corner, the edges they run along) and
+chamfers (setback), so you can see the radius a fillet has before you change it, then `try_fillet` the new one.
 
 ## Fillets and chamfers
 

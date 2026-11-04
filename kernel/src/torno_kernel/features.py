@@ -20,14 +20,17 @@ from .ocp import (
     TopExp,
     TopTools_IndexedDataMapOfShapeListOfShape,
     TopTools_IndexedMapOfShape,
+    downcast,
 )
 from .queries import QueryError, need_part, need_solid
 
-KINDS = ("hole", "boss")
+KINDS = ("hole", "boss", "fillet", "chamfer")
 # What may be asked, s, of the 30 a query has; past it the components left are counted, never told as a no.
 BUDGET = 10.0
 # At most so many of a kind are told; the rest are counted.
 MAX_FEATURES = 100
+# At most so many edges are named for one feature.
+MAX_REFS = 24
 # Two axes are one when the point of one is this near the other, mm, and they are parallel to this (sine).
 ON_AXIS = 1e-5
 PARALLEL = 1e-7
@@ -52,6 +55,12 @@ def features(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any] 
       face), ``end`` (``through``, ``blind``, ``enclosed`` or ``unknown``), ``depth`` along the axis, ``bottom``
       (``flat``, ``cone``, ``round`` or ``other``) of a blind one, its ``shape`` (``plain``, ``counterbore``,
       ``countersink``, ``rounded``, ``stepped`` or ``tapered``) and its ``steps`` from the entry.
+    - ``fillets``: a blend that is a cylinder or a torus tangent to the faces on both sides, less than half a turn
+      round (a slot end is no fillet): ``radius``, ``side`` (``outside`` for a rounded edge, ``inside`` for a
+      corner), ``sweep`` (degrees), ``length`` along its centre line, the ``between`` faces it joins and the ``edges``
+      it runs along. Blends of one radius that touch are one.
+    - ``chamfers``: a flat strip (or a cone, round a cylinder) between two faces, parallel to their edge: ``size``
+      (or ``sizes`` along each of the ``between`` faces when they differ) and ``side``.
     - ``bosses``: the same for convex ones that stand on a face and end in another: ``diameter``, ``height``,
       ``axis`` pointing up from the base, ``base`` and ``baseRef``, ``top`` and ``topRef``.
 
@@ -68,10 +77,10 @@ def features(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any] 
     shape = need_part(shapes, layout, name)
     need_solid(shape, name)
     key = f"{layout}:{name}"
-    found = _analysis(shape, name, key, kept)
+    found = _analysis(shape, name, key, kept, kinds)
     told: dict[str, Any] = {"part": name, "kinds": [k for k in KINDS if k in kinds], "left": {}}
     exact = True
-    for kind, plural in (("hole", "holes"), ("boss", "bosses")):
+    for kind, plural in (("hole", "holes"), ("boss", "bosses"), ("fillet", "fillets"), ("chamfer", "chamfers")):
         if kind not in kinds:
             continue
         items = found[plural]
@@ -83,7 +92,7 @@ def features(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any] 
     told["exact"] = exact
     told["how"] = (
         "from the B-rep: diameters, angles, axes and the places where an axis meets a plane; "
-        "only cylinders, cones and tori that go right round are recognised"
+        "holes and bosses need cylinders, cones and tori that go right round"
     )
     told["complete"] = found["complete"]
     told["seconds"] = found["seconds"]
@@ -158,12 +167,20 @@ def _join_crossings(holes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return joined
 
 
-def _analysis(shape: Any, name: str, key: str, kept: dict[Any, Any] | None) -> dict[str, Any]:
-    if kept is not None and ("features", key) in kept:
-        return kept["features", key]
-    found = _Part(shape, name).analyse()
-    if kept is not None and found["complete"]:
-        kept["features", key] = found
+def _analysis(shape: Any, name: str, key: str, kept: dict[Any, Any] | None, kinds: list[str]) -> dict[str, Any]:
+    """The part's features of ``kinds``: its analysis is kept in ``kept`` whole, to be added to by the next kind asked."""
+    held = kept.get(("features", key)) if kept is not None else None
+    if held is None:
+        held = _Part(shape, name)
+        if kept is not None:
+            kept["features", key] = held
+    found = held.analyse(kinds)
+    if not found["complete"] and kept is not None:
+        # What was cut short is not kept as the answer: the next ask works it out again.
+        for kind in kinds:
+            held.done.pop(kind, None)
+        held.done.pop("runs", None)
+        held.late = False
     return found
 
 
@@ -227,6 +244,14 @@ class _Part:
         TopExp.MapShapesAndAncestors_s(self.wrapped, TopAbs_EDGE, TopAbs_FACE, self.around)
         self._adaptors: dict[int, Any] = {}
         self._edges: dict[int, list[Any]] = {}
+        self.nodes: dict[int, _Node] | None = None
+        self.done: dict[str, Any] = {}
+        self.arc_faces: set[int] = set()  # cylinders that go only part of the way round, and are in no hole or boss
+        self.blend_faces: set[int] = set()  # faces told as part of a fillet or a chamfer
+        self.free = self.freeform = 0
+        self.late = False
+        self.deadline = 0.0
+        self._edge_map: Any = None
 
     # Faces and edges
 
@@ -298,40 +323,66 @@ class _Part:
 
     # The analysis
 
-    def analyse(self) -> dict[str, Any]:
+    def analyse(self, kinds: list[str]) -> dict[str, Any]:
+        """What was found of the kinds asked, each made once for as long as this part is kept."""
+        started = time.monotonic()
+        self.deadline = started + BUDGET
+        if self.nodes is None:
+            self._prepare()
+        if "runs" not in self.done:
+            self._runs()
+        if "fillet" in kinds and "fillet" not in self.done:
+            self.done["fillet"] = self._fillets()
+        if "chamfer" in kinds and "chamfer" not in self.done:
+            self.done["chamfer"] = self._chamfers()
+        holes = self.done.get("holes", [])
+        arcs = len(self.arc_faces - self.blend_faces)
+        return {
+            "holes": holes,
+            "bosses": self.done.get("bosses", []),
+            "fillets": self.done.get("fillet", []),
+            "chamfers": self.done.get("chamfer", []),
+            "notFeatures": {"arcs": arcs, "freeCylinders": self.free, "freeformFaces": self.freeform},
+            "complete": not self.late,
+            "seconds": time.monotonic() - started,
+        }
+
+    def _out_of_time(self) -> bool:
+        if time.monotonic() > self.deadline:
+            self.late = True
+        return self.late
+
+    def _prepare(self) -> None:
         from OCP.BRepTools import BRepTools
 
-        started = time.monotonic()
-        nodes: dict[int, _Node] = {}
-        freeform = 0
-        for i, face in enumerate(self.faces):
+        self.nodes = {}
+        for i in range(len(self.faces)):
             kind = _kind(self.adaptor(i))
             if kind not in _ANALYTIC:
-                freeform += 1
+                self.freeform += 1
             elif kind in _ROUND:
                 node = self._node(i, kind, BRepTools)
                 if node is not None:
-                    nodes[i] = node
-        components = self._components(nodes)
+                    self.nodes[i] = node
+
+    def _runs(self) -> None:
+        nodes = self.nodes or {}
         holes: list[dict[str, Any]] = []
         bosses: list[dict[str, Any]] = []
-        arcs = free = 0
-        complete = True
-        for component in components:
-            if time.monotonic() - started > BUDGET:
-                complete = False
+        for component in self._components(nodes):
+            if self._out_of_time():
                 break
             members = [nodes[i] for i in component]
             if not any(n.kind in ("CYLINDER", "CONE") for n in members):
                 continue
             if not self._wraps(members):
-                arcs += sum(1 for n in members if n.kind == "CYLINDER")
+                self.arc_faces |= {n.index for n in members if n.kind == "CYLINDER"}
                 continue
             told = self._feature(members, set(component), nodes)
             if told is None:
                 continue
             if told == "free":
-                free += 1
+                self.free += 1
             elif members[0].sign < 0:
                 holes.append(told)
             else:
@@ -339,13 +390,7 @@ class _Part:
         holes = _join_crossings(holes)
         for items in (holes, bosses):
             items.sort(key=lambda f: (f["entry"][2] if "entry" in f else f["base"][2], f["faces"][0]))
-        return {
-            "holes": holes,
-            "bosses": bosses,
-            "notFeatures": {"arcs": arcs, "freeCylinders": free, "freeformFaces": freeform},
-            "complete": complete,
-            "seconds": time.monotonic() - started,
-        }
+        self.done["holes"], self.done["bosses"], self.done["runs"] = holes, bosses, True
 
     def _node(self, i: int, kind: str, tools: Any) -> "_Node | None":
         """Face ``i`` as a node about its axis, or None when it is not clearly on either side of one."""
@@ -639,6 +684,354 @@ class _Part:
         if not exact:
             told["how"] = "the height is along the axis between faces that are not planes or round, so this is not exact"
         return told
+
+    # Blends: fillets and chamfers
+
+    def edge_ref(self, edge: Any) -> str | None:
+        if self._edge_map is None:
+            self._edge_map = TopTools_IndexedMapOfShape()
+            TopExp.MapShapes_s(self.wrapped, TopAbs_EDGE, self._edge_map)
+        number = self._edge_map.FindIndex(edge)
+        return f"{self.name}/E{number - 1}" if number >= 1 else None
+
+    def _tangent_edges(self, i: int) -> list[tuple[Any, list[int]]]:
+        """The boundary edges of face ``i`` it meets a face across with no corner (normals alike), and those faces."""
+        found = []
+        for edge in self.edges_of(i):
+            where = self.samples(edge)[SAMPLES // 2]
+            mine = self.normal(i, where)
+            if mine is None:
+                continue
+            across = []
+            for j in self.neighbours(edge, i):
+                theirs = self.normal(j, where)
+                if theirs is not None and _dot(mine, theirs) > 1 - 1e-6:
+                    across.append(j)
+            if across:
+                found.append((edge, across))
+        return found
+
+    def _side(self, node: "_Node", i: int) -> int:
+        """Whether a blend is on an edge (1: the material is inside it, a rounded edge) or in a corner (-1)."""
+        if node.kind == "CYLINDER":
+            return node.sign
+        # A torus: against the middle of its tube, not the axis; where the face is at its middle.
+        from OCP.gp import gp_Pnt
+
+        u, v = self._middle(i)
+        at = gp_Pnt()
+        self.adaptor(i).D0(u, v, at)
+        n = self._normal_at(i, u, v)
+        if n is None:
+            return 0
+        d = _sub(_xyz(at), node.origin)
+        radial = _sub(d, tuple(c * _dot(d, node.axis) for c in node.axis))  # type: ignore[arg-type]
+        size = _norm(radial)
+        if size < 1e-12:
+            return 0
+        centre = _add(_add(node.origin, node.axis, _dot(d, node.axis)), radial, node.shape[0] / size)
+        side = _dot(n, _sub(_xyz(at), centre))
+        return 0 if abs(side) < 1e-9 else (1 if side > 0 else -1)
+
+    def _fillets(self) -> list[dict[str, Any]]:
+        from OCP.BRepTools import BRepTools
+
+        nodes = self.nodes or {}
+        blends: dict[int, dict[str, Any]] = {}
+        for i, node in nodes.items():
+            if node.kind not in ("CYLINDER", "TORUS"):
+                continue
+            if self._out_of_time():
+                break
+            u0, u1, v0, v1 = BRepTools.UVBounds_s(self.faces[i])
+            sweep = (u1 - u0) if node.kind == "CYLINDER" else (v1 - v0)
+            if not 1e-3 < sweep < math.pi - 1e-6:
+                continue
+            tangent = self._tangent_edges(i)
+            if sum(len(across) for _, across in tangent) < 2:
+                continue
+            side = self._side(node, i)
+            if side == 0:
+                continue
+            radius = node.shape[0] if node.kind == "CYLINDER" else node.shape[3]
+            if node.kind == "CYLINDER":
+                length = max(_norm(_sub(self.samples(edge)[0], self.samples(edge)[-1])) for edge, _ in tangent)
+            else:
+                length = node.shape[0] * node.wrap
+            blends[i] = {"radius": radius, "side": side, "sweep": sweep, "length": length, "tangent": tangent}
+        # Blends of one radius on one side that touch are one chain.
+        parent = {i: i for i in blends}
+
+        def find(i: int) -> int:
+            while parent[i] != i:
+                parent[i] = parent[parent[i]]
+                i = parent[i]
+            return i
+
+        for i, b in blends.items():
+            for _, across in b["tangent"]:
+                for j in across:
+                    if j in blends and abs(blends[j]["radius"] - b["radius"]) < 1e-6 and blends[j]["side"] == b["side"]:
+                        parent[find(i)] = find(j)
+        groups: dict[int, list[int]] = {}
+        for i in blends:
+            groups.setdefault(find(i), []).append(i)
+        told = []
+        for members in groups.values():
+            members.sort()
+            faces = set(members)
+            between = sorted({j for i in members for _, across in blends[i]["tangent"] for j in across if j not in faces})
+            edges = [
+                ref
+                for i in members
+                for e, across in blends[i]["tangent"]
+                if any(j not in faces for j in across)
+                for ref in [self.edge_ref(e)]
+                if ref
+            ]
+            first = blends[members[0]]
+            told.append(
+                {
+                    "radius": first["radius"],
+                    "side": "outside" if first["side"] > 0 else "inside",
+                    "sweep": math.degrees(max(blends[i]["sweep"] for i in members)),
+                    "length": math.fsum(blends[i]["length"] for i in members),
+                    "between": [f"{self.name}/F{j}" for j in between],
+                    "edges": edges[:MAX_REFS],
+                    "edgeCount": len(edges),
+                    "faces": [f"{self.name}/F{i}" for i in members],
+                    "exact": True,
+                }
+            )
+            self.blend_faces |= faces
+        told.sort(key=lambda f: (f["radius"], f["faces"][0]))
+        return told
+
+    def _chamfers(self) -> list[dict[str, Any]]:
+        nodes = self.nodes or {}
+        held = {int(ref.rsplit("/F", 1)[1]) for h in self.done.get("holes", []) for ref in h["faces"]}
+        found: dict[int, dict[str, Any]] = {}
+        for i in range(len(self.faces)):
+            if self._out_of_time():
+                break
+            kind = _kind(self.adaptor(i))
+            if kind == "PLANE":
+                one = self._flat_chamfer(i)
+            elif kind == "CONE" and i in nodes and i not in held:
+                one = self._cone_chamfer(i, nodes[i])
+            else:
+                continue
+            if one is not None:
+                found[i] = one
+        # Strips of one size and side that touch are one chamfer round an edge loop.
+        parent = {i: i for i in found}
+
+        def find(i: int) -> int:
+            while parent[i] != i:
+                parent[i] = parent[parent[i]]
+                i = parent[i]
+            return i
+
+        for i, c in found.items():
+            for edge in self.edges_of(i):
+                for j in self.neighbours(edge, i):
+                    if j in found and found[j]["side"] == c["side"] and all(abs(a - b) < 1e-6 for a, b in zip(sorted(found[j]["sizes"]), sorted(c["sizes"]))):
+                        parent[find(i)] = find(j)
+        groups: dict[int, list[int]] = {}
+        for i in found:
+            groups.setdefault(find(i), []).append(i)
+        told = []
+        for members in groups.values():
+            members.sort()
+            first = found[members[0]]
+            faces = set(members)
+            between = sorted({j for i in members for j in found[i]["between"] if j not in faces})
+            edges = [r for i in members for r in found[i]["edges"]]
+            sizes = first["sizes"]
+            item: dict[str, Any] = {
+                "side": "outside" if first["side"] > 0 else "inside",
+                "length": math.fsum(found[i]["length"] for i in members),
+                "between": [f"{self.name}/F{j}" for j in between],
+                "edges": edges[:MAX_REFS],
+                "edgeCount": len(edges),
+                "faces": [f"{self.name}/F{i}" for i in members],
+                "round": first["round"],
+                "exact": True,
+            }
+            if abs(sizes[0] - sizes[1]) < 1e-6:
+                item["size"] = sizes[0]
+            else:
+                item["sizes"] = sizes if len(members) == 1 else sorted(sizes)
+            told.append(item)
+            self.blend_faces |= faces
+        told.sort(key=lambda c: (c["size"] if "size" in c else c["sizes"][0], c["faces"][0]))
+        return told
+
+    def _lines(self, i: int) -> "list[tuple[Any, Vec, Vec]] | None":
+        """The boundary edges of face ``i`` as (edge, point, unit direction), or None when one is not a line."""
+        from OCP.BRepAdaptor import BRepAdaptor_Curve
+
+        out = []
+        for edge in self.edges_of(i):
+            curve = BRepAdaptor_Curve(edge)
+            if _kind(curve) != "LINE":
+                return None
+            line = curve.Line()
+            out.append((edge, _xyz(line.Location()), _xyz(line.Direction())))
+        return out
+
+    def _flat_chamfer(self, i: int) -> dict[str, Any] | None:
+        """Face ``i`` as a chamfer: a plane with two parallel edges, across which are two planes it leaves at an
+        angle, the same way, and whose edge it takes off: its setback from where those two would meet is less
+        than half of what is left of each."""
+        lines = self._lines(i)
+        if lines is None or not 3 <= len(lines) <= 6:
+            return None
+        mine = self._normal_at(i, *self._middle(i))
+        if mine is None:
+            return None
+        best = None
+        for a in range(len(lines)):
+            for b in range(a + 1, len(lines)):
+                (e1, p1, t1), (e2, p2, t2) = lines[a], lines[b]
+                if _norm(_cross(t1, t2)) > 1e-7:
+                    continue
+                width = _norm(_cross(_sub(p2, p1), t1))
+                if width < 1e-9:
+                    continue
+                reach = math.fsum(_norm(_sub(self.samples(e)[0], self.samples(e)[-1])) for e in (e1, e2))
+                if best is None or reach > best[0]:
+                    best = (reach, e1, p1, e2, p2, t1)
+        if best is None:
+            return None
+        _, e1, p1, e2, p2, t = best
+        across = []
+        for edge in (e1, e2):
+            js = self.neighbours(edge, i)
+            if len(js) != 1 or _kind(self.adaptor(js[0])) != "PLANE":
+                return None
+            across.append(js[0])
+        normals = [self._normal_at(j, *self._middle(j)) for j in across]
+        if normals[0] is None or normals[1] is None:
+            return None
+        sides = []
+        for n, p in zip(normals, (p1, p2)):
+            turn = math.degrees(math.acos(max(-1.0, min(1.0, _dot(mine, n)))))
+            if not 5 <= turn <= 85:
+                return None
+            inward = self._towards(i, p, t)
+            if inward is None:
+                return None
+            sides.append(1 if _dot(n, inward) < 0 else -1)
+        if sides[0] != sides[1]:
+            return None
+        # Where the two faces would meet: the line they share, along the chamfer.
+        meet = _cross(normals[0], normals[1])
+        if _norm(meet) < 1e-7 or _norm(_cross(meet, t)) > 1e-6 * _norm(meet):
+            return None
+        point = self._on_both(across, normals)
+        if point is None:
+            return None
+        setbacks = []
+        for j, p in zip(across, (p1, p2)):
+            size = _norm(_cross(_sub(p, point), t))
+            left = max((_norm(_cross(_sub(v, p), t)) for v in self._vertices(j)), default=0.0)
+            setbacks.append((size, left))
+        if any(size > 0.5 * left or size < 1e-9 for size, left in setbacks):
+            return None
+        length = max(_norm(_sub(self.samples(e)[0], self.samples(e)[-1])) for e in (e1, e2))
+        return {
+            "side": sides[0],
+            "sizes": [setbacks[0][0], setbacks[1][0]],
+            "length": length,
+            "between": across,
+            "edges": [r for r in (self.edge_ref(e1), self.edge_ref(e2)) if r],
+            "round": False,
+        }
+
+    def _cone_chamfer(self, i: int, node: "_Node") -> dict[str, Any] | None:
+        """Face ``i``, a cone, as a chamfer round a cylinder: between a plane across the axis and a cylinder about it."""
+        from OCP.BRepAdaptor import BRepAdaptor_Curve
+
+        circles = []
+        for edge in self.edges_of(i):
+            curve = BRepAdaptor_Curve(edge)
+            if _kind(curve) != "CIRCLE":
+                return None
+            circles.append((edge, curve.Circle()))
+        if len(circles) != 2:
+            return None
+        plane = cylinder = None
+        for edge, circle in circles:
+            js = self.neighbours(edge, i)
+            if len(js) != 1:
+                return None
+            j, kind = js[0], _kind(self.adaptor(js[0]))
+            if kind == "PLANE" and plane is None:
+                plane = (edge, circle, j)
+            elif kind == "CYLINDER" and cylinder is None:
+                cylinder = (edge, circle, j)
+        if plane is None or cylinder is None:
+            return None
+        cyl = self.adaptor(cylinder[2]).Cylinder()
+        pl = self.adaptor(plane[2]).Plane()
+        a = _xyz(cyl.Axis().Direction())
+        if _norm(_cross(a, _xyz(pl.Axis().Direction()))) > 1e-7 or _norm(_cross(a, node.axis)) > PARALLEL:
+            return None
+        c_plane, c_cyl = _xyz(plane[1].Location()), _xyz(cylinder[1].Location())
+        radial = abs(plane[1].Radius() - cyl.Radius())
+        axial = abs(_dot(_sub(c_cyl, c_plane), a))
+        if radial < 1e-9 or axial < 1e-9:
+            return None
+        order = sorted([(plane[2], radial), (cylinder[2], axial)])
+        return {
+            "side": node.sign,
+            "sizes": [order[0][1], order[1][1]],
+            "length": math.pi * (plane[1].Radius() + cyl.Radius()),
+            "between": [order[0][0], order[1][0]],
+            "edges": [r for r in (self.edge_ref(plane[0]), self.edge_ref(cylinder[0])) if r],
+            "round": True,
+        }
+
+    def _middle(self, i: int) -> tuple[float, float]:
+        from OCP.BRepTools import BRepTools
+
+        u0, u1, v0, v1 = BRepTools.UVBounds_s(self.faces[i])
+        return (u0 + u1) / 2, (v0 + v1) / 2
+
+    def _vertices(self, i: int) -> list[Vec]:
+        from OCP.BRep import BRep_Tool
+        from OCP.TopAbs import TopAbs_VERTEX
+
+        found = TopTools_IndexedMapOfShape()
+        TopExp.MapShapes_s(self.faces[i], TopAbs_VERTEX, found)
+        return [_xyz(BRep_Tool.Pnt_s(downcast(found.FindKey(k)))) for k in range(1, found.Extent() + 1)]
+
+    def _towards(self, i: int, p: Vec, t: Vec) -> Vec | None:
+        """The way from a point of an edge of face ``i`` into the face, across the edge ``t``."""
+        verts = self._vertices(i)
+        if not verts:
+            return None
+        centre = (
+            math.fsum(v[0] for v in verts) / len(verts),
+            math.fsum(v[1] for v in verts) / len(verts),
+            math.fsum(v[2] for v in verts) / len(verts),
+        )
+        d = _sub(centre, p)
+        across = _sub(d, (t[0] * _dot(d, t), t[1] * _dot(d, t), t[2] * _dot(d, t)))
+        size = _norm(across)
+        return None if size < 1e-12 else (across[0] / size, across[1] / size, across[2] / size)
+
+    def _on_both(self, faces: list[int], normals: list[Any]) -> Vec | None:
+        """A point on the planes of both faces."""
+        (p1, n1), (p2, n2) = [(_xyz(self.adaptor(j).Plane().Location()), n) for j, n in zip(faces, normals)]
+        d = _cross(n1, n2)
+        size = _dot(d, d)
+        if size < 1e-14:
+            return None
+        h1, h2 = _dot(p1, n1), _dot(p2, n2)
+        a, b = _cross(n2, d), _cross(d, n1)
+        return ((h1 * a[0] + h2 * b[0]) / size, (h1 * a[1] + h2 * b[1]) / size, (h1 * a[2] + h2 * b[2]) / size)
 
     # What a run is made of, from the entry (or the base) in
 

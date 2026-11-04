@@ -20,6 +20,9 @@ const MODEL = [
   '        plate -= Pos(x, y, 0) * Cylinder(1.7, 8)',
   'plate -= Cylinder(1.7, 8) + Pos(0, 0, 2) * Cylinder(5, 4)',
   'plate += Pos(20, 0, 8) * Cylinder(4, 8)',
+  'corner = lambda x, y: [e for e in plate.edges() if abs(e.length - 8) < 1e-6 and abs(e.center().X - x) < 1e-6 and abs(e.center().Y - y) < 1e-6]',
+  'plate = fillet(corner(30, 20), 3)',
+  'plate = chamfer(corner(-30, 20), 2)',
   ''
 ].join('\n')
 
@@ -67,6 +70,11 @@ describe('features, against the real kernel', () => {
     expect(said.holes.filter((h: { shape: string }) => h.shape === 'counterbore')).toHaveLength(1)
     expect(said.bosses[0]).toMatchObject({ diameter: 8, height: 8, exact: true })
     expect(said.reading).toContain('4 × ⌀3.4 through, 8 long, along Z')
+    expect(said).toMatchObject({ filletCount: 1, chamferCount: 1 })
+    expect(said.fillets[0]).toMatchObject({ radius: 3, side: 'outside', sweep: 90, length: 8, exact: true })
+    expect(said.chamfers[0]).toMatchObject({ size: 2, side: 'outside', exact: true })
+    expect(said.reading).toContain('1 fillet on plate: 1 × R3 on an outside edge, 90° round, 8 long')
+    expect(said.reading).toContain('1 chamfer on plate: 1 × 2 mm on an outside edge, 8 long')
     const wall = await builds.describe<{ type: string; radius: number }>('plate', 'main', said.holes[0].faces[0])
     expect(wall).toMatchObject({ type: 'cylinder', radius: 1.7 })
     // The answer is kept for as long as the worker holds the build: the second is the first.
