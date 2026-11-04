@@ -510,6 +510,32 @@ test('a quick save never fades the parts; a build held past 600 ms does, and the
   await expect.poll(async () => (await state()).build?.revision, { timeout: 15_000 }).toBe(before + 3)
 })
 
+// What a build changed is told when it lands: the status line names the part, and for a moment the old edges and the new are drawn.
+test('a build that changes one part says which in the status line, shows its ghost for a moment, and a key puts it away', async () => {
+  const ghosts = () => page.evaluate(() => window.__tornoTest!.ghosts())
+  const landing = status(page).locator('[data-part="landing"]')
+  const before = (await state()).build!.revision
+  // The ghost is gone by itself, with no key or click.
+  writeFileSync(model(), readFileSync(model(), 'utf8').replace('Box(40, 30, 5)', 'Box(40, 30, 7)'))
+  await expect.poll(async () => (await state()).build?.revision, { timeout: 15_000 }).toBe(before + 1)
+  await expect(landing).toHaveText('base changed, post same')
+  await expect(landing).toHaveAttribute('title', /^Since the build before:\nbase: volume .* mm³/)
+  expect(await ghosts()).toEqual(['assembly:base'])
+  await expect.poll(ghosts, { timeout: 5_000 }).toEqual([])
+  // A key puts it away at once.
+  writeFileSync(model(), readFileSync(model(), 'utf8').replace('Box(40, 30, 7)', 'Box(40, 30, 5)'))
+  await expect.poll(async () => (await state()).build?.revision, { timeout: 15_000 }).toBe(before + 2)
+  await expect(landing).toHaveText('base changed, post same')
+  expect(await ghosts()).toEqual(['assembly:base'])
+  await page.keyboard.press('Shift')
+  expect(await ghosts()).toEqual([])
+  // A save that changes nothing drawn names no part, and leaves no ghost.
+  appendFileSync(model(), '# touch\n')
+  await expect.poll(async () => (await state()).build?.revision, { timeout: 15_000 }).toBe(before + 3)
+  await expect(landing).toHaveText('no part changed')
+  expect(await ghosts()).toEqual([])
+})
+
 // Milestone 5 (M11): the kernel let the build go to make room for another's. No test's kernel is short of memory,
 // so main is told it was (`__tornoMain.letGo`): the status line says it in the words the tools use.
 test('an object whose build the kernel let go says so in the status line', async () => {

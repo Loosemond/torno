@@ -337,6 +337,15 @@ as they are. The parts on screen are older than that build, so a click cannot pi
 them from the first moment; they fade only when it has run for 0.6 s, so a quick
 save does not make them blink. A build that fails fades them at once.
 
+When a build lands after another of the same project, the status line says which parts it changed:
+"tub changed, lid same", or "no part changed" when a save made no difference to what is drawn. A part counts as
+changed when its shape is another or it stands elsewhere or turned. Hover the words for the lines `diff` gives
+Claude Code, for example "tub: volume 6280 → 6410 mm³ (+130, +2.1 %), size 40 × 40 × 40 → 40 × 40 × 42 mm"; a
+number the kernel cannot give exactly has "≈". For about a second and a half the parts that changed are also shown
+as ghosts: their old edges in the muted colour, where they stood, and their new edges in the accent. They go by
+themselves, fading once, or at once on any key or click. The parts that did not change are not touched. There is
+no ghost while a section is on or the parts are drawn apart, nor in a picture for Claude Code.
+
 "Build failed" opens the error: what happened in words ("Python error in the
 model", "The build took too long (timeout)", "The build process stopped
 (crash)"), the message, why a fillet or a chamfer failed, the traceback and what

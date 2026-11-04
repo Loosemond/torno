@@ -135,6 +135,23 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   than the column). A dimension opened out leaves its value and verdict to its fields under the first line, so
   that `Add a note` is whole beside the buttons of the row (`marks.css`, `e2e/measure.spec.ts`).
 
+## What a build changed
+
+- When a build lands over another of the same object, `actions.applyScene` keeps the one before as `before`, and the
+  status line (`ui/BuildStatus.tsx`, `state/landing.ts`) says which parts of the layout shown changed
+  (`landing`, `landingText` of `shared/diff.ts`: `tub changed, lid same`), with the `diff` lines in its title; the
+  one rule of what a part's change is is `partChanged` (another mesh, or another `loc`). Nothing of it for a first
+  build, a build running or a failed one.
+- The ghosts (`viewport/ghosts.ts`, `Viewport.setScene`): of each part that changed, its old edges in `--muted`
+  (seen through the part) where it stood, and its new edges in the accent, for `GHOST_HOLD_MS` and then one fade of
+  `GHOST_FADE_MS`, by `invalidate()` steps and by a clock of their own (never endless, never waiting on a frame).
+  Any key or a press on the canvas, another layout, a section or an explode ends them at once; none is made with a
+  section or an explode on, for a part switched off, or of another layout, and they are hidden for a picture
+  (`hideGizmo` in the host of `PictureMaker`). Not a mark, in no mark colour. `__tornoTest.ghosts()` and
+  `holdGhosts()` are for tests.
+- The parts fade for a build only once it has run `FADE_AFTER_MS` (`fadeIn` of `shared/build.ts`, applied by
+  `ViewportPane`); a failed build fades them at once; the pick lock does not wait.
+
 ## Layers
 
 - `ui/Layers.tsx`: the groups of the layout (`groupsIn`) come first, a header each (`li.layer-group`,

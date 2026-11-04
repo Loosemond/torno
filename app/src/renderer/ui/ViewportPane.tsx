@@ -314,6 +314,10 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     e.preventDefault()
   }
   window.addEventListener('keydown', onKey)
+  // The ghosts of what a build changed are put away by any key or click: the person has seen enough, or is on to something else.
+  const endGhosts = (): void => viewport.endGhosts()
+  window.addEventListener('keydown', endGhosts, true)
+  viewport.canvas.addEventListener('pointerdown', endGhosts, true)
 
   /** The build on show, as the dimensions' values are held against it: none until there is a scene. */
   const shown = (s: ReturnType<typeof store.getState>): number => (s.scene ? s.revision : 0)
@@ -449,6 +453,8 @@ function connect(viewport: Viewport, readout: Readout): () => void {
       project,
       exploded: () => viewport.exploded(),
       faded: () => viewport.faded(),
+      ghosts: () => viewport.ghostKeys(),
+      holdGhosts: (held) => viewport.holdGhosts(held),
       // What a pointer move costs: the same call, at points spread over the canvas in a grid.
       timePicks: (count = 200, opts) => timed(count, (x, y) => viewport.pick(x, y, opts) !== null),
       underAt: (fx, fy) => viewHost()?.under([[fx, fy]])[0] ?? null,
@@ -513,6 +519,8 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     clearTimeout(fadeTimer)
     putDown()
     window.removeEventListener('keydown', onKey)
+    window.removeEventListener('keydown', endGhosts, true)
+    viewport.canvas.removeEventListener('pointerdown', endGhosts, true)
     offTool()
     offScene()
     offStore()

@@ -133,7 +133,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `describe`, `highlight`, `show`, `save_view`, `add_mark`, `resolve_mark`,
   `measure`, `section`, `check`, `diff`, `try_fillet`, `scans`, `scan_clash`, `scan_deviation`.
   `diff` compares two of the last two successful builds (`Builds.scenes`; the blob of the older is not kept; each
-  part by `partDiff` of `sanity.ts`)
+  part by `partDiff` of `shared/diff.ts`, which the window's status line and ghosts use too)
   from what the kernel sent with each, asking it nothing: a number is `exact` only where both builds say so.
   `look` and `show` take the name of a saved view as `view`, and `save_view`
   proposes one (Views). `show` changes
@@ -756,7 +756,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 - **The sanity pass** (`src/main/sanity.ts`, pure). After every successful build `sanity(previous, current,
   verdicts)` holds it against the successful build before (`Builds.scenes`, the data `diff` reads) from what the
   kernel sent with each (`solids`, `openShells`, `meshVolume`, `meshDisagrees`, `valid`, `reversed`): no query.
-  Parts are compared by name, each in the first layout of the build that has it, with `partDiff` (which `diff`
+  Parts are compared by name, each in the first layout of the build that has it, with `partDiff` (`shared/diff.ts`, which `diff`
   uses too: the same line, the volume's change also in percent, `≈` where either build is not exact; a number that
   is not exact has changed only by more than both builds' doubt of it, `volumeDoubt` and `bboxDoubt`, twice that of
   a size); unchanged parts are counted. Its flags are of the shape alone, never a guess at intent: not valid, inside out, no solid or

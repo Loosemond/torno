@@ -55,6 +55,8 @@ export interface TornoState {
   column: ColumnPrefs
   /** The last good scene of the open object, and the revision it is. */
   scene: Scene | null
+  /** The scene that was on show before `scene` landed, of the same object; null for the first build of an object. What the status line says a build changed is held against it. */
+  before: Scene | null
   revision: number
   layout: string
   /** By part name, so a setting holds in every layout. */
@@ -172,7 +174,7 @@ const NO_SCANS: ScanInfo[] = []
 const NOT_CLIPPED: readonly string[] = []
 const NO_VIEWS: SavedView[] = []
 const NO_SELECTION = { selection: NOTHING_SELECTED, picked: NOTHING_PICKED }
-const NO_OBJECT = { objectId: null, build: null, errorOpen: false, fixRequest: null, scene: null, revision: 0, layout: '', layers: {}, section: null, explode: {}, views: NO_VIEWS, folded: [], activeView: null, marks: [], marksProblem: null, scans: NO_SCANS, scansKnown: true, scanViews: {}, scansClipped: NOT_CLIPPED, importing: null, scansRefused: null, scanAsking: null, scansProblem: null, activeMark: null, hoveredMark: null, noting: null, shownByAgent: null, ...NO_SELECTION }
+const NO_OBJECT = { objectId: null, build: null, errorOpen: false, fixRequest: null, scene: null, before: null, revision: 0, layout: '', layers: {}, section: null, explode: {}, views: NO_VIEWS, folded: [], activeView: null, marks: [], marksProblem: null, scans: NO_SCANS, scansKnown: true, scanViews: {}, scansClipped: NOT_CLIPPED, importing: null, scansRefused: null, scanAsking: null, scansProblem: null, activeMark: null, hoveredMark: null, noting: null, shownByAgent: null, ...NO_SELECTION }
 
 export const store = createStore<TornoState>(() => ({
   workspace: null,
@@ -269,7 +271,7 @@ export const actions = {
     // The layout shown is gone with this build: what was being done there (a note, a mark worked on) is of
     // a layout that is no longer shown, as when the layout is changed by hand.
     const elsewhere = s.scene !== null && layout !== s.layout ? layoutChange(s, layout) : {}
-    store.setState({ ...elsewhere, scene: m.scene, revision: m.revision, layout, layers, folded, ...(same ? {} : NO_SELECTION) })
+    store.setState({ ...elsewhere, before: s.scene, scene: m.scene, revision: m.revision, layout, layers, folded, ...(same ? {} : NO_SELECTION) })
     return true
   },
 
