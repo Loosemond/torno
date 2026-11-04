@@ -5,6 +5,7 @@ Everything here runs in a child of the supervisor and leaves through
 """
 
 import ctypes
+import json
 import os
 import resource
 import select
@@ -33,6 +34,7 @@ def run(
     parent: int | None = None,
     deadline: float | None = None,
     overrides: dict[str, Any] | None = None,
+    trial: list[dict[str, Any]] | None = None,
 ) -> NoReturn:
     """Build ``dir/model`` and serve queries on ``sock``. Never returns.
 
@@ -41,11 +43,13 @@ def run(
     ``parent`` is the supervisor's pid, read before the fork. ``deadline``
     (``time.monotonic``) is when the build's timeout runs out.
     ``overrides`` are values for fields of the model's ``Params`` (``loader.apply_overrides``).
+    ``trial``, a list of queries (``name`` and ``args``), makes this a trial: the model is built, the queries are
+    answered in this process, one frame says it all and the worker leaves; it never serves.
     """
     try:
         _isolate(capture_fd, os.getppid() if parent is None else parent)
         channel = sock.makefile("rwb")
-        built = _build(channel, dir, model, deadline, overrides)
+        built = _build(channel, dir, model, deadline, overrides, trial)
         if built is not None:
             _serve(channel, *built)
     except BaseException:
@@ -108,7 +112,12 @@ def _watch_parent(parent: int, leave: Callable[[int], Any] = os._exit) -> None:
 
 
 def _build(
-    channel: Any, dir: str, model: str, deadline: float | None = None, overrides: dict[str, Any] | None = None
+    channel: Any,
+    dir: str,
+    model: str,
+    deadline: float | None = None,
+    overrides: dict[str, Any] | None = None,
+    trial: list[dict[str, Any]] | None = None,
 ) -> tuple[dict[str, Any], dict[Any, Any]] | None:
     """Send the build's one result frame.
 
@@ -138,6 +147,11 @@ def _build(
         _flush_output()
         # Inside the try: a scene that cannot be written as JSON (a NaN volume)
         # is refused before a byte of it is sent, and is a failure like any other.
+        if trial is not None:
+            answers = _answers(trial, shapes, kept)
+            _flush_output()
+            write_frame(channel, {"ok": True, "scene": scene, "answers": answers})
+            return None
         write_frame(channel, {"ok": True, "scene": scene}, blob)
         return shapes, kept
     except loader.LoadError as e:
@@ -155,6 +169,25 @@ def _build(
         error["diagnosis"] = diagnosis
     write_frame(channel, {"ok": False, "error": error})
     return None
+
+
+def _answers(asked: list[dict[str, Any]], shapes: dict[str, Any], kept: dict[Any, Any]) -> list[dict[str, Any]]:
+    """The reply to each query of a trial, in order: ``{"ok": true, "result": …}`` or ``{"ok": false, "error": …}``.
+    A query that fails, or whose answer cannot be written, fails alone."""
+    answers: list[dict[str, Any]] = []
+    for request in asked:
+        try:
+            result = queries.run(shapes, request.get("name"), request.get("args"), kept)
+            if isinstance(result, queries.WithBlob):
+                result = result.result
+            reply: dict[str, Any] = {"ok": True, "result": result}
+            json.dumps(reply, allow_nan=False)
+        except queries.QueryError as e:
+            reply = {"ok": False, "error": {"kind": e.kind, "message": e.message}}
+        except Exception as e:
+            reply = {"ok": False, "error": _exception(str(e) or type(e).__name__)}
+        answers.append(reply)
+    return answers
 
 
 def _model_checks(

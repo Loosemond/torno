@@ -1928,3 +1928,67 @@ def test_on_macos_a_workers_socket_has_buffers_of_a_mebibyte_each_way(routed, ws
         os.kill(worker.pid, signal.SIGKILL)
         os.waitpid(worker.pid, 0)
         worker.sock.close()
+
+
+# A trial: the model built with other values of its Params in a worker of its own, some queries answered, nothing kept.
+
+
+def trial(k: Kernel, dir, model: str, overrides: dict, queries: list, timeout: float = 30) -> dict:
+    id = k.send("trial", dir=str(dir), model=model, overrides=overrides, queries=queries)
+    started, _ = k.recv(5)
+    if started.get("event") != "trial.started":
+        assert started["id"] == id
+        return started
+    reply, _ = k.recv(timeout)
+    assert reply["id"] == id, reply
+    return reply
+
+
+def children(pid: int) -> list[int]:
+    out = subprocess.run(["pgrep", "-P", str(pid)], capture_output=True, text=True).stdout
+    return [int(p) for p in out.split()]
+
+
+def test_a_trial_builds_with_other_params_answers_the_queries_and_changes_nothing_live(fresh, ws):
+    hollow = ws / "hollow"
+    live, _ = fresh.build(hollow, "hollow.py")
+    assert live["ok"], live
+    box = {"kind": "bbox", "a": {"ref": "assembly:tub"}}
+    before = fresh.query(hollow, "measure", box)["result"]
+    reply = trial(fresh, hollow, "hollow.py", {"side": 60.0}, [{"name": "measure", "args": box}, {"name": "measure", "args": {"kind": "nope"}}])
+    assert reply["ok"], reply
+    assert reply["scene"]["overrides"]["applied"] == {"side": 60.0}
+    assert [p["value"] for p in reply["scene"]["params"]] == [60, 2]
+    ok, bad = reply["answers"]
+    assert ok["ok"] and ok["result"] != before
+    assert bad["ok"] is False and bad["error"]["kind"] == "bad_request"
+    # The live worker still has the build before: asked again, it answers as it did, and no trial worker is left.
+    assert fresh.query(hollow, "measure", box)["result"] == before
+    assert len(children(fresh.proc.pid)) == 1
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [{"overrides": [1]}, {"overrides": {}, "queries": "x"}, {"overrides": {}, "queries": [{"args": {}}]}, {"overrides": {}, "queries": [{"name": "a"}] * 21}],
+)
+def test_a_trial_that_is_malformed_is_a_bad_request(fresh, ws, fields):
+    fields = {"overrides": {}, "queries": [], **fields}
+    id = fresh.send("trial", dir=str(ws / "hollow"), model="hollow.py", **fields)
+    reply, _ = fresh.recv(5)
+    assert reply["id"] == id and reply["error"]["kind"] == "bad_request"
+
+
+def test_a_trial_is_refused_when_there_is_no_room_and_no_worker_is_let_go(ws, monkeypatch):
+    from torno_kernel import supervisor as sup
+
+    s = sup.Supervisor.__new__(sup.Supervisor)
+    s._trial = None
+    s._building = None
+    s._live = {}
+    sent = []
+    s._send = lambda header, blob=b"": sent.append(header)
+    s._fail = lambda id, kind, message, **extra: sent.append({"id": id, "error": {"kind": kind, "message": message}})
+    monkeypatch.delenv("TORNO_KEEP_BUILDS", raising=False)
+    monkeypatch.setattr(sup, "_available", lambda: 1 << 20)
+    s._trial_request(7, {"dir": str(ws / "hollow"), "model": "hollow.py", "overrides": {}, "queries": []})
+    assert sent and sent[0]["error"]["kind"] == "no_room" and s._trial is None

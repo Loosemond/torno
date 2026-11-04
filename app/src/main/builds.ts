@@ -6,7 +6,7 @@ import { keepNotes } from '../shared/modelChecks'
 import { isBoolean } from '../shared/diagnosis'
 import type { Scene } from '../shared/scene'
 import type { ObjectInfo } from '../shared/workspace'
-import { type BuildResult, type KernelClient, KernelError } from './kernel/client'
+import { type BuildResult, type KernelClient, KernelError, type TrialResult } from './kernel/client'
 import { FOLDER } from './own'
 import { realPathOrNearest } from './sessions/inside'
 
@@ -358,6 +358,20 @@ export class Builds {
    */
   describe<T = unknown>(objectId: string, layout: string, ref: string): Promise<T> {
     return this.query<T>(objectId, 'describe', { ref: `${layout}:${ref}` }, { restore: false })
+  }
+
+  /**
+   * What the model of an object gives with other values of its `Params` (`set`, over the person's own), and the
+   * answers to `queries`, from a worker the kernel throws away. Nothing of the live build, the window or any file
+   * changes. Rejects, saying why, when the object is not open or the kernel has no trial.
+   */
+  async trial(objectId: string, set: Record<string, number | boolean | string>, queries: Array<{ name: string; args: object }>): Promise<TrialResult> {
+    const entry = this.entries.get(objectId)
+    if (!entry) throw new KernelError('no_build', `${objectId} is not open, so there is nothing to try`)
+    if (entry.obj.model === null) throw new KernelError('no_model', entry.obj.problem ?? `no model file in ${entry.obj.dir}`)
+    if (!this.kernel.trial) throw new KernelError('bad_request', 'this kernel does not try other Params')
+    const overrides = { ...(this.overrides?.values(entry.obj.dir) ?? {}), ...set }
+    return this.kernel.trial(entry.obj.dir, entry.obj.model, overrides, queries, this.timeout === undefined ? {} : { timeout: this.timeout })
   }
 
   /** Resolves when the next build of an object succeeds, starting one if none is on its way; rejects with its error. */

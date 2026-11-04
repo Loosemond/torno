@@ -292,6 +292,14 @@ const tryFilletInput = {
   layout: z.string().optional().describe('The layout the part is in, as listed by scene. Default: the one on screen.')
 }
 
+// Loose: what is not an object of values, or a list of objects, reaches the tool, which says what it takes (`tryParamsTool`).
+const tryParamsInput = {
+  set: loose(z.record(z.string(), z.union([z.number(), z.boolean(), z.string()]))).optional().describe('The fields of the model\'s Params to try other values for, as scene lists them under params with an editable kind: {"wall": 2.4, "lid": false, "shape": "square"}. A number for a float or an int, a bool, or one of a Literal\'s values.'),
+  measure: loose(z.array(z.record(z.string(), z.unknown()))).optional().describe('Measurements to take on the trial, as measure takes them but of whole parts by name only: [{"kind": "bbox", "a": "lid"}, {"kind": "distance", "a": "lid", "b": "base"}]. kind is bbox, volume, area, mass or distance. 10 at most.'),
+  check: loose(z.array(z.record(z.string(), z.unknown()))).optional().describe('Checks to run on the trial, as check takes them, parts by name: [{"kind": "clearance", "a": "lid", "b": "base"}]. 10 at most.'),
+  layout: z.string().optional().describe('The layout the measurements and checks are of unless one names its own. Default: the one on screen.')
+}
+
 const resolveMarkInput = {
   id: z.string().describe('The number of the mark: M3.'),
   note: z.string().optional().describe('What was done about it, in a line, for the user.')
@@ -477,6 +485,13 @@ export const TOOLS = {
       "Returns JSON and a reading of a fillet (or a chamfer) of radius mm of some edges of a part, tried by the kernel on the last build that worked and thrown away: works, and when it does not, why: the edges that fail alone, else the pairs that fail (those that share a face first, with how far apart they are), and the largest radius that works for them all and for each edge that fails alone, bisected to 0.001 mm within the query's 30 s (complete false when time ran out), each edge named by its ref of that build, with its ends in the frame of the layout. It changes nothing: the model is yours to edit, and a ref may name another edge after it changes. Call it before you edit a fillet or a chamfer again after one failed, with the edges the build's error names (a ref where it is one of the last build), instead of lowering the radius blind or wrapping it in try.",
     inputSchema: tryFilletInput
   },
+  try_params: {
+    title: 'Try other params',
+    annotations: READ_ONLY,
+    description:
+      "Returns JSON and a reading of what the model gives with other values of its Params (set: the fields scene lists under params with an editable kind), built in a worker of its own and thrown away: whether it built or the model's error, what changed against the last build part by part, and the measurements and checks you ask for (measure and check, of whole parts by name), each worded as those tools word them and said to be of the trial. Use it to search a value (\"which clearance gives 0.3 mm between lid and base\") instead of editing the model and building again; it changes nothing, the person's values included, keeps no ref of the trial, is made over the values the person is trying (scene says), and is refused while a build runs or when there is no room for a second one. To keep a value, edit its default in the model.",
+    inputSchema: tryParamsInput
+  },
   scans: {
     title: 'List scans',
     annotations: READ_ONLY,
@@ -519,6 +534,7 @@ export const SERVER_INSTRUCTIONS = `torno's server reads and measures the CAD pa
 - diff: what changed between the last two successful builds: parts added or removed, volume, size and face counts.
 - expect: say before an edit what it should change (volume, faces, size, a measurement, parts unchanged); the build after it is checked against that.
 - try_fillet: try a fillet or chamfer of some edges on the last build and throw it away: whether it works, the largest radius that does, which edges or pairs fail.
+- try_params: build the model with other values of its Params in a throwaway worker and measure or check there, to search a value without editing the model.
 - scans: the scans the person imported, and how each is aligned to the model.
 - scan_clash: what of a scan is inside a part, as clusters with their depth.
 - scan_deviation: how far a part, or some of its faces, lie from a scan (min, mean, max, percentiles).

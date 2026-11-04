@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest'
 import type { BuildState } from '../../shared/build'
 import type { Described, SectionLoop, Sectioned } from '../../shared/geometry'
 import type { Mark, NewMark } from '../../shared/marks'
-import type { Part, Scene } from '../../shared/scene'
+import type { Param, Part, Scene } from '../../shared/scene'
 import type { Camera, LookRequest, SectionDrawingRequest, ShowRequest, ViewState } from '../../shared/view'
-import { KernelError } from '../kernel/client'
+import { KernelError, type TrialResult } from '../kernel/client'
 import { addMarkTool } from './markTools'
-import { MAX_SECTION_POINTS, checkTool, diffTool, measureTool, sectionTool, thinned, tryFilletTool } from './readTools'
+import { MAX_SECTION_POINTS, checkTool, diffTool, measureTool, sectionTool, thinned, tryFilletTool, tryParamsTool } from './readTools'
 import { TOOLS } from './schemas'
 import { type ToolDeps, type ToolResult, describeTool } from './tools'
 import { lookTool, sceneTool, showTool } from './viewTools'
@@ -1065,5 +1065,85 @@ describe('try_fillet', () => {
   it('says where a part torno moved for display is, as the other tools of one part do', async () => {
     const said = data(await tryFilletTool(spread(() => FAILS), 'box', { part: 'lid', edges: ['lid/E4'], radius: 3, layout: 'print' }))
     expect(said).toMatchObject({ arranged: [45, 0, 0], note: MOVED })
+  })
+})
+
+describe('try_params', () => {
+  const param = (name: string, def: unknown, more: Partial<Param> = {}): Param => ({ name, type: typeof def === 'boolean' ? 'bool' : 'float', default: def, value: def, literal: true, doc: null, editable: typeof def === 'boolean' ? 'bool' : 'float', ...more })
+  const WITH_PARAMS: Scene = { ...SCENE, params: [param('wall', 2), param('lid', true), param('ribs', 3, { type: 'int', editable: 'int' }), param('shape', 'round', { type: 'Literal', editable: 'choice', choices: ['round', 'square'] }), param('inner', 36, { literal: false, editable: null })] }
+  const trialScene: Scene = { ...WITH_PARAMS, seconds: 0.4, parts: [part('assembly', 'tub', { bbox: { min: [-20, -15, -3], max: [20, 15, 9] }, volume: 7000 }), part('assembly', 'lid'), part('print', 'tub'), part('print', 'lid')], overrides: { applied: { wall: 2.4 }, dropped: [] } }
+  const OK_TRIAL: TrialResult = { ok: true, scene: trialScene, answers: [{ ok: true, result: { kind: 'bbox', size: [40, 30, 12], min: [-20, -15, -3], max: [20, 15, 9], exact: true, how: 'box' } }, { ok: false, error: { kind: 'bad_ref', message: 'no part nope' } }] }
+
+  function trying(result: TrialResult | Error = OK_TRIAL) {
+    const tried: Array<{ set: object; queries: object[] }> = []
+    const deps = fake(() => ({}), {
+      scene: () => ({ revision: 4, scene: WITH_PARAMS }),
+      trial: async (_id, set, queries) => {
+        tried.push({ set, queries })
+        if (result instanceof Error) throw result
+        return result
+      }
+    })
+    return { deps, tried }
+  }
+
+  it('asks the kernel for a trial of whole parts, and says what it gave, of the trial and not of a build', async () => {
+    const { deps, tried } = trying()
+    const result = await tryParamsTool(deps, 'box', { set: { wall: 2.4 }, measure: [{ kind: 'bbox', a: 'tub' }, { kind: 'bbox', a: 'nope' }] })
+    expect(tried).toEqual([{ set: { wall: 2.4 }, queries: [{ name: 'measure', args: { kind: 'bbox', layout: 'assembly', a: { ref: 'assembly:tub' } } }, { name: 'measure', args: { kind: 'bbox', layout: 'assembly', a: { ref: 'assembly:nope' } } }] }])
+    expect(deps.queries).toEqual([])
+    const said = data(result)
+    expect(said).toMatchObject({ trial: true, of: 4, set: { wall: 2.4 }, applied: { wall: 2.4 }, built: true })
+    expect(said.reading).toMatch(/^Tried wall 2.4 \(file 2\) on the model of r4 and thrown away, nothing changed \(these are of the trial, not of any build\): /)
+    expect(said.reading).toContain('tub')
+    expect(said.reading).toContain('nope: not answered: no part nope')
+    expect(JSON.stringify(said.diff)).toContain('tub')
+  })
+
+  it('takes checks of whole parts, the printing ones of the print layout', async () => {
+    const { deps, tried } = trying({ ok: true, scene: trialScene, answers: [{ ok: true, result: { kind: 'clearance', value: 0.3, exact: true } }, { ok: true, result: { kind: 'thin', min: 0.8, found: [] } }] })
+    await tryParamsTool(deps, 'box', { set: { wall: 2.4 }, check: [{ kind: 'clearance', a: 'tub', b: 'lid' }, { kind: 'thin', a: 'tub', min: 0.8 }] })
+    expect(tried[0].queries).toEqual([
+      { name: 'check', args: { kind: 'clearance', layout: 'assembly', a: 'tub', b: 'lid' } },
+      { name: 'check', args: { kind: 'thin', layout: 'print', a: 'tub', min: 0.8 } }
+    ])
+  })
+
+  it.each([
+    [{}, 'try_params needs set'],
+    [{ set: { gone: 1 } }, "gone is not a field of the model's Params; those that can be tried: wall, lid, ribs, shape"],
+    [{ set: { wall: 'thick' } }, 'wall is a float: give a number, not "thick"; those that can be tried'],
+    [{ set: { ribs: 2.5 } }, 'ribs is an int: give a whole number, not 2.5'],
+    [{ set: { lid: 1 } }, 'lid is a bool: give true or false, not 1'],
+    [{ set: { shape: 'hexagon' } }, 'shape is one of ["round","square"], not "hexagon"'],
+    [{ set: { inner: 3 } }, 'inner cannot be tried'],
+    [{ set: { wall: 3 }, measure: [{ kind: 'bbox', a: 'tub/F3' }] }, 'a trial measures whole parts by name'],
+    [{ set: { wall: 3 }, measure: [{ kind: 'bbox', a: 'M3' }] }, 'a trial measures whole parts by name'],
+    [{ set: { wall: 3 }, measure: [{ kind: 'radius', a: 'tub' }] }, 'a trial measures a whole part: kind is bbox'],
+    [{ set: { wall: 3 }, measure: [{ kind: 'distance', a: 'tub' }] }, 'distance is between two parts: give b'],
+    [{ set: { wall: 3 }, check: [{ kind: 'clearance', a: 'tub' }] }, 'clearance is of two parts: give b'],
+    [{ set: { wall: 3 }, check: [{ kind: 'overlap', a: 'tub/E1', b: 'lid' }] }, 'a trial checks whole parts by name']
+  ])('refuses %j, saying what it takes', async (args, why) => {
+    const { deps, tried } = trying()
+    const result = await tryParamsTool(deps, 'box', args as never)
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain(why)
+    expect(tried).toEqual([])
+  })
+
+  it('says the model did not build with the values, with its error, and what the kernel refuses (no room) as that', async () => {
+    const failed = await tryParamsTool(trying({ ok: false, error: { kind: 'exception', message: 'wall too thick', traceback: 'File "box.py", line 9\nValueError: wall too thick' } }).deps, 'box', { set: { wall: 99 } })
+    expect(failed.isError).toBe(true)
+    expect(text(failed)).toContain('Tried wall 99 (file 2) on the model of r4 and thrown away, nothing changed: it did not build: wall too thick')
+    expect(text(failed)).toContain('ValueError: wall too thick')
+    const crowded = await tryParamsTool(trying({ ok: false, error: { kind: 'no_room', message: 'there is not memory' } }).deps, 'box', { set: { wall: 3 } })
+    expect(text(crowded)).toContain('could not be tried (no_room): there is not memory')
+    const lost = await tryParamsTool(trying(new KernelError('no_build', 'box is not open')).deps, 'box', { set: { wall: 3 } })
+    expect(lost.isError).toBe(true)
+  })
+
+  it('is not available to a session whose kernel cannot try', async () => {
+    const result = await tryParamsTool(fake(), 'box', { set: { wall: 3 } })
+    expect(text(result)).toBe('this session cannot try other Params')
   })
 })

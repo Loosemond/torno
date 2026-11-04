@@ -16,7 +16,7 @@ import { type Config, configOf, listed, recentWith, recentWithout } from './rece
 import { startHttp } from './http'
 import { buildContextFor, contextFor, tellsInstructions } from './context'
 import { listReferences } from './sessions/reference'
-import { buildState, closeWorkspace, findObject, keptScenes, lastScene, letGoForTest, marksChecks, openObjectId, openWorkspace, openWorkspaceInfo, openedObjects, placedMark, queryObject, recheckAlignments, registerIpc } from './ipc'
+import { buildState, closeWorkspace, findObject, keptScenes, lastScene, letGoForTest, marksChecks, openObjectId, openWorkspace, openWorkspaceInfo, openedObjects, placedMark, queryObject, recheckAlignments, registerIpc, trialObject } from './ipc'
 import { cannotStart, environmentCommand } from './kernel/client'
 import { ReadyKeeper } from './readiness'
 import { NoAnswer, latestView, requestHighlight, requestLook, requestSaveView, requestSectionDrawing, requestShow } from './look'
@@ -378,6 +378,7 @@ const toolDeps: ToolDeps = {
     return theWindow().then((win) => requestHighlight(win, { objectId, layout, refs, ...(note ? { note } : {}) }))
   },
   query: queryObject,
+  trial: trialObject,
   scans: (objectId) => listedScans(objectId),
   scanPaths: (objectId, id) => scans.paths(objectId, id),
   scansBusy: (objectId) => scans.working(objectId),

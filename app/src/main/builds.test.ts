@@ -69,6 +69,11 @@ class FakeKernel implements KernelClient {
     const answer = this.answers.get(name)
     return this.queryError ? Promise.reject(this.queryError) : Promise.resolve((answer ? answer(args) : { dir, name, args }) as T)
   }
+  trials: Array<{ dir: string; model: string; overrides: object; queries: object[] }> = []
+  async trial(dir: string, model: string, overrides: Record<string, number | boolean | string>, queries: Array<{ name: string; args: object }>) {
+    this.trials.push({ dir, model, overrides, queries })
+    return { ok: true as const, scene: sceneOf(model), answers: [] }
+  }
   cancel(): void {
     this.cancels += 1
     const running = this.calls.at(-1)
@@ -1257,5 +1262,19 @@ describe("the person's overrides of Params", () => {
     await flush()
     expect(kernel.calls).toHaveLength(2)
     expect(scenes).toHaveLength(2)
+  })
+
+  it('are the ground of a trial, which asks for its own on top and starts and changes no build', async () => {
+    const { kernel, builds } = setup({ overrides: { values: () => ({ wall: 2.4, lid: true }), reconcile: async () => ({ stale: false }) } })
+    builds.open(bracket)
+    kernel.succeed(0)
+    await flush()
+    const scenes = builds.scenes('bracket').length
+    const tried = await builds.trial('bracket', { wall: 3 }, [{ name: 'measure', args: {} }])
+    expect(tried.ok).toBe(true)
+    expect(kernel.trials).toEqual([{ dir: '/ws/bracket', model: 'bracket.py', overrides: { wall: 3, lid: true }, queries: [{ name: 'measure', args: {} }] }])
+    expect(kernel.calls).toHaveLength(1)
+    expect(builds.scenes('bracket')).toHaveLength(scenes)
+    await expect(builds.trial('never-opened', {}, [])).rejects.toMatchObject({ kind: 'no_build' })
   })
 })

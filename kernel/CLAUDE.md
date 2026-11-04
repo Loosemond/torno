@@ -152,6 +152,15 @@ is the detail of this folder, under the headings it has there.
   busy with those. The busy answer names the time the query it was given up on had (`_Worker.stuck`): 30 s, or
   120 s behind an export.
   A worker leaves through `os._exit`.
+- **A trial is a worker that answers once and leaves** (`trial` request: `dir`, `model`, `overrides`, `queries`,
+  `timeout`; `Supervisor._trial_request`, `worker._answers`). The supervisor forks it as it forks a build, with
+  the overrides, but it never becomes live, holds no build, and a live worker is never retired for it:
+  `_has_room` asks the same memory as `_make_room` (`ROOM_LEAST` and `ROOM_SPARE` more than the folder's live
+  worker holds) and the trial is refused `no_room` when it is not there, `busy` while a build or another trial
+  runs; a build that starts cancels a trial. The worker loads the model, builds the scene, answers each of at most
+  `MOST_TRIAL_QUERIES` queries in its own process (`queries.run` over its shapes: a query that fails fails alone)
+  and writes one frame with the scene (no mesh) and `answers`, then exits. Its refs are of no build and main gives
+  none. It has the build's timeout and its output is captured the same way.
 - **Files of a build are made by its worker and never written by the kernel** (`export.py`). `export` (`format`
   `step`, `stl` or `3mf`, `layout`, `parts`, `tolerance` mm and `angle` degrees for a mesh, `colors`, `name`)
   answers with the file's bytes as the reply's blob (`queries.WithBlob`, sent by `worker._serve`; every other

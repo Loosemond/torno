@@ -1,6 +1,6 @@
 import { valueText } from '../../shared/dimension'
 import type { CheckedBed, CheckedClearance, CheckedMesh, CheckedOverhang, CheckedOverlap, CheckedThin, Measured, MeasuredValue, ScanSectioned, SectionLoop, Sectioned } from '../../shared/geometry'
-import type { Part, Scene } from '../../shared/scene'
+import type { Param, Part, Scene } from '../../shared/scene'
 import { type SectionDrawingResult, type SectionPlane, axisForm, cutText, planeText } from '../../shared/view'
 import type { ObjectInfo } from '../../shared/workspace'
 import { KernelError, isBusy } from '../kernel/client'
@@ -43,6 +43,13 @@ export interface TryFilletToolArgs {
   edges?: unknown
   radius?: unknown
   kind?: unknown
+  layout?: string
+}
+
+export interface TryParamsToolArgs {
+  set?: unknown
+  measure?: unknown
+  check?: unknown
   layout?: string
 }
 
@@ -336,6 +343,147 @@ export async function tryFilletTool(deps: ToolDeps, objectId: string, args: TryF
     ? `${head}${tried.operation} ${sizeText(tried.operation, tried.size)} of ${tried.edgeCount} edge${tried.edgeCount === 1 ? '' : 's'} works.`
     : `${head}${diagnosisText(tried).slice(WHY.length)}`
   return reply({ layout, ...ofBuild(deps, objectId), part: part.name, ...clean(tried), ...movedForDisplay(part, layout, { points: tried.edges ?? [] }), reading })
+}
+
+/** The most measurements, and as many checks, one trial carries: the kernel's `MOST_TRIAL_QUERIES` is for both together. */
+const MOST_TRIAL_EACH = 10
+const TRY_MEASURES = ['bbox', 'volume', 'area', 'mass', 'distance']
+const TRY_CHECKS = ['overlap', 'clearance', 'interference', 'mesh', 'overhang', 'thin', 'bed']
+const TRY_SET = 'try_params needs set, an object of the fields to change: {"set": {"wall": 2.4}, "measure": [{"kind": "bbox", "a": "lid"}]}'
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
+
+/** A name of a whole part: a trial has no face, edge or mark of any build to give. */
+function partName(v: unknown): string | null {
+  return typeof v === 'string' && v !== '' && !v.includes('/') && !/^M\d+$/.test(v) ? v : null
+}
+
+/** What `value` must be for the field, or null when it is: the sentence for the agent. */
+function paramFault(field: Param, value: unknown): string | null {
+  const name = field.name
+  switch (field.editable) {
+    case 'float':
+      return typeof value === 'number' && Number.isFinite(value) ? null : `${name} is a float: give a number, not ${JSON.stringify(value)}`
+    case 'int':
+      return typeof value === 'number' && Number.isInteger(value) ? null : `${name} is an int: give a whole number, not ${JSON.stringify(value)}`
+    case 'bool':
+      return typeof value === 'boolean' ? null : `${name} is a bool: give true or false, not ${JSON.stringify(value)}`
+    case 'choice':
+      return (field.choices ?? []).some((c) => c === value) ? null : `${name} is one of ${JSON.stringify(field.choices)}, not ${JSON.stringify(value)}`
+    default:
+      return `${name} cannot be tried: only a field whose default is a literal number or bool, or a Literal, can`
+  }
+}
+
+/**
+ * What the model gives with other values of its `Params` (`try_params`): built by the kernel in a worker of its own
+ * and thrown away, with the measurements and checks asked for answered there. Of whole parts by name only: a ref of
+ * a face or an edge is of a build, and a trial is of none. It changes nothing (not the model, not the person's
+ * values, not the build on screen), keeps nothing and is said, everywhere, to be of the trial.
+ */
+export async function tryParamsTool(deps: ToolDeps, objectId: string, args: TryParamsToolArgs): Promise<ToolResult> {
+  if (!deps.trial) return failure('this session cannot try other Params')
+  const found = built(deps, objectId)
+  if ('content' in found) return found
+  if (!isRecord(args.set) || Object.keys(args.set).length === 0) return failure(TRY_SET)
+  const fields = found.scene.params ?? []
+  const offered = fields.filter((p) => p.editable).map((p) => p.name)
+  const set: Record<string, number | boolean | string> = {}
+  for (const [name, value] of Object.entries(args.set)) {
+    const field = fields.find((p) => p.name === name)
+    if (!field) return failure(`${name} is not a field of the model's Params; those that can be tried: ${offered.join(', ') || 'none'}`)
+    const fault = paramFault(field, value)
+    if (fault !== null) return failure(`${fault}; those that can be tried: ${offered.join(', ')}`)
+    set[name] = value as number | boolean | string
+  }
+
+  const measures = args.measure === undefined ? [] : args.measure
+  const checks = args.check === undefined ? [] : args.check
+  if (!Array.isArray(measures) || !measures.every(isRecord) || measures.length > MOST_TRIAL_EACH) return failure(`measure is a list of at most ${MOST_TRIAL_EACH} measurements: [{"kind": "bbox", "a": "lid"}]`)
+  if (!Array.isArray(checks) || !checks.every(isRecord) || checks.length > MOST_TRIAL_EACH) return failure(`check is a list of at most ${MOST_TRIAL_EACH} checks: [{"kind": "clearance", "a": "lid", "b": "base"}]`)
+
+  const queries: Array<{ name: string; args: object }> = []
+  const asked: Array<{ what: 'measure' | 'check'; given: Record<string, unknown>; layout: string }> = []
+  for (const given of measures as Record<string, unknown>[]) {
+    const kind = given.kind
+    if (typeof kind !== 'string' || !TRY_MEASURES.includes(kind)) return failure(`a trial measures a whole part: kind is ${TRY_MEASURES.join(', ')}`)
+    const a = partName(given.a)
+    const b = given.b === undefined ? undefined : partName(given.b)
+    if (a === null || b === null) return failure(`a trial measures whole parts by name (a face, an edge or a mark is of a build, not of a trial): {"kind": "${kind}", "a": "lid"}`)
+    if ((kind === 'distance') !== (b !== undefined)) return failure(kind === 'distance' ? 'distance is between two parts: give b' : `${kind} is of a alone: leave b out`)
+    const layout = layoutFor(deps, objectId, found.scene, typeof given.layout === 'string' ? given.layout : args.layout)
+    if (typeof layout !== 'string') return layout
+    queries.push({ name: 'measure', args: { kind, layout, a: { ref: `${layout}:${a}` }, ...(b === undefined ? {} : { b: { ref: `${layout}:${b}` } }), ...(typeof given.density === 'number' ? { density: given.density } : {}) } })
+    asked.push({ what: 'measure', given: { ...given, a, ...(b === undefined ? {} : { b }) }, layout })
+  }
+  for (const given of checks as Record<string, unknown>[]) {
+    const kind = given.kind
+    if (typeof kind !== 'string' || !TRY_CHECKS.includes(kind)) return failure(`check kind is ${TRY_CHECKS.join(', ')}`)
+    const two = kind === 'overlap' || kind === 'clearance'
+    const whole = kind === 'bed' || kind === 'interference'
+    const a = given.a === undefined ? undefined : partName(given.a)
+    const b = given.b === undefined ? undefined : partName(given.b)
+    if (a === null || b === null) return failure('a trial checks whole parts by name (a face or an edge is of a build, not of a trial)')
+    if (two && b === undefined) return failure(`${kind} is of two parts: give b`)
+    if (!two && b !== undefined) return failure(`${kind} is of ${whole ? 'the whole layout' : 'the part a alone'}: leave b out`)
+    if (whole ? a !== undefined : a === undefined) return failure(whole ? `${kind} is of the whole layout: leave a out` : `${kind} is of the part a: give a`)
+    if (kind === 'thin' && typeof given.min !== 'number') return failure('thin needs min, the least wall in mm')
+    if (kind === 'bed' && !Array.isArray(given.size)) return failure('bed needs size, the bed in mm: [256, 256, 256]')
+    const printing = ['overhang', 'thin', 'bed'].includes(kind)
+    const wanted = typeof given.layout === 'string' ? given.layout : args.layout ?? (printing && found.scene.layouts.includes('print') ? 'print' : undefined)
+    const layout = layoutFor(deps, objectId, found.scene, wanted)
+    if (typeof layout !== 'string') return layout
+    const extra = kind === 'overhang' ? { angle: typeof given.angle === 'number' ? given.angle : OVERHANG_ANGLE } : kind === 'thin' ? { min: given.min } : kind === 'bed' ? { size: given.size } : {}
+    queries.push({ name: 'check', args: { kind, layout, ...(a === undefined ? {} : { a }), ...(b === undefined ? {} : { b }), ...extra } })
+    asked.push({ what: 'check', given: { ...given, ...(a === undefined ? {} : { a }), ...(b === undefined ? {} : { b }) }, layout })
+  }
+
+  let trial
+  try {
+    trial = await deps.trial(objectId, set, queries)
+  } catch (e) {
+    return failure(messageOf(e))
+  }
+  const tried = Object.entries(set).map(([name, value]) => `${name} ${JSON.stringify(value)} (file ${JSON.stringify(fields.find((p) => p.name === name)?.default)})`).join(', ')
+  if (!trial.ok) {
+    const { kind, message, traceback } = trial.error
+    const last = (traceback ?? '').split('\n').filter((line) => line.trim() !== '').slice(-3).join('\n')
+    return failure(`Tried ${tried} on the model of r${found.revision} and thrown away, nothing changed: it ${kind === 'busy' || kind === 'no_room' || kind === 'timeout' || kind === 'crash' ? `could not be tried (${kind}): ` : 'did not build: '}${message}${last ? `\n${last}` : ''}`)
+  }
+
+  const { layouts, notes } = sceneDiff(found.scene, trial.scene)
+  const applied = trial.scene.overrides?.applied ?? {}
+  const dropped = trial.scene.overrides?.dropped ?? []
+  const answers: Array<Record<string, unknown>> = []
+  const lines: string[] = []
+  trial.answers.forEach((answer, i) => {
+    const one = asked[i]
+    if (!one) return
+    const label = one.what === 'measure' ? `${one.given.kind} ${one.given.a}${one.given.b ? ` to ${one.given.b}` : ''}` : `${one.given.kind}${one.given.a ? ` ${one.given.a}` : ''}${one.given.b ? ` and ${one.given.b}` : ''}`
+    if (!answer.ok) {
+      answers.push({ [one.what]: one.given, layout: one.layout, error: answer.error.message })
+      lines.push(`${label}: not answered: ${answer.error.message}`)
+      return
+    }
+    const reading =
+      one.what === 'measure'
+        ? measureReading(answer.result as Measured, { text: String(one.given.a) }, one.given.b === undefined ? undefined : { text: String(one.given.b) })
+        : checkReading(one.given as unknown as Pick<CheckToolArgs, 'kind' | 'a' | 'b'>, answer.result as object)
+    answers.push({ [one.what]: one.given, layout: one.layout, ...clean(answer.result as object), reading: reading ?? 'the kernel did not answer with that' })
+    lines.push(reading ?? `${label}: the kernel did not answer with that`)
+  })
+  const head = `Tried ${tried} on the model of r${found.revision} and thrown away, nothing changed (these are of the trial, not of any build)`
+  return reply({
+    trial: true,
+    of: found.revision,
+    set,
+    applied,
+    ...(dropped.length > 0 ? { dropped } : {}),
+    built: true,
+    seconds: trial.scene.seconds,
+    diff: { layouts, ...(notes.length > 0 ? { notes } : {}) },
+    answers,
+    reading: `${head}: ${lines.length > 0 ? lines.join('; ') : 'built; see diff for what changed'}.`
+  })
 }
 
 /** A check in a line. Null for a reply that is none. */

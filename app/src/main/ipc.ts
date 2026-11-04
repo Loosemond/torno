@@ -20,7 +20,7 @@ import { loadAssets } from './export/html'
 import { type ModelDeps, checkModelFile, makeModelFile } from './export/model'
 import { defaultExportPath, exportPath, prepareExports, writeExport } from './export/save'
 import { type InstructionList } from './instructions'
-import { KernelError, type KernelClient, startKernel } from './kernel/client'
+import { KernelError, type KernelClient, type TrialResult, startKernel } from './kernel/client'
 import { toArrayBuffer } from './kernel/frames'
 import { forgetViews, reportView, resolveRequest } from './look'
 import { type AskedAnchor, type Retrying, asPlaced, asReplaced, checkMarks, followMarks, nearestReply, retrying } from './marks/reanchor'
@@ -421,6 +421,12 @@ export function placedMark<M extends NewMark>(mark: M, objectId: string): M {
 export function queryObject<T = unknown>(id: string, name: string, args: object): Promise<T> {
   if (!current) return Promise.reject(new KernelError('no_build', 'no workspace is open'))
   return current.builds.query<T>(id, name, args)
+}
+
+/** The open workspace's trial of an object: its model built with other values of its `Params` in a worker the kernel throws away. */
+export function trialObject(id: string, set: Record<string, number | boolean | string>, queries: Array<{ name: string; args: object }>): Promise<TrialResult> {
+  if (!current) return Promise.reject(new KernelError('no_build', 'no workspace is open'))
+  return current.builds.trial(id, set, queries)
 }
 
 /**
