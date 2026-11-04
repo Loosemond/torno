@@ -86,7 +86,7 @@ export function ViewBar({ viewport }: { viewport: Viewport }) {
       if (e.target instanceof Element && e.target.closest(TYPING)) return
       const named = MAIN_VIEWS[which(e, 'views')]
       if (named) goTo(named.view)
-      else if (pressed(e, 'fit')) viewport.fit()
+      else if (pressed(e, 'fit')) viewport.fit({ selection: true })
       else if (pressed(e, 'ortho')) {
         borrowed.current = 'none'
         setOrtho(viewport, !store.getState().ortho)
@@ -208,7 +208,7 @@ export function ViewBar({ viewport }: { viewport: Viewport }) {
       </div>
       <span className="viewbar-rule" aria-hidden="true" />
 
-      <button type="button" className="bar-button" title={`Fit the parts in view (${hint('fit')})`} onClick={() => viewport.fit()}>
+      <button type="button" className="bar-button" title={`Fit the selection in view, or the parts (${hint('fit')})`} onClick={() => viewport.fit({ selection: true })}>
         Fit
       </button>
       <span className="viewbar-rule" aria-hidden="true" />

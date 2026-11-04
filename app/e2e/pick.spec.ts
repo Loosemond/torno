@@ -242,6 +242,38 @@ test('a drag turns the camera and selects nothing', async () => {
     .toBeLessThan(0.05)
 })
 
+test('a drag turns the view about the point of the part under the pointer', async () => {
+  await page.getByRole('button', { name: 'Top', exact: true }).click()
+  await expect.poll(async () => Math.abs((await camera()).zoom)).toBeGreaterThan(0)
+  const [x, y] = await pageXY(ON_BASE)
+  await page.mouse.move(x, y)
+  await page.mouse.down()
+  await page.mouse.move(x + 30, y + 8)
+  await page.mouse.up()
+  // The target moved along the view onto the top of the base (z = 2.5), the camera was not moved by that.
+  await expect.poll(async () => (await camera()).target[2]).toBeCloseTo(2.5, 1)
+  await page.getByRole('button', { name: 'Top', exact: true }).click()
+})
+
+test('F frames the selection, and pressed again all the parts', async () => {
+  await page.keyboard.press('F')
+  await expect.poll(async () => (await camera()).position).not.toBeNull()
+  const dist = async () => {
+    const c = await camera()
+    return Math.hypot(...c.position.map((v, i) => v - c.target[i])) / c.zoom
+  }
+  await expect.poll(async () => (await camera()).target[2]).toBeGreaterThan(0)
+  const all = await dist()
+  await clickOver(ON_POST)
+  await expect.poll(async () => (await state()).selection.length).toBe(1)
+  await page.keyboard.press('F')
+  await expect.poll(async () => Math.abs((await camera()).target[2] - 22.5) < 0.01).toBe(true)
+  expect(await dist()).toBeLessThan(all)
+  await page.keyboard.press('F')
+  await expect.poll(async () => Math.abs((await camera()).target[2] - 22.5) > 1).toBe(true)
+  await page.keyboard.press('Escape')
+})
+
 test('Insert puts the selected refs in the prompt of the running session, and does not send them', async () => {
   const base = (await pickOver(ON_BASE))!
   const post = (await pickOver(ON_POST))!

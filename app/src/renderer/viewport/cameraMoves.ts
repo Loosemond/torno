@@ -74,3 +74,15 @@ export function standingAt(c: Camera): { position: THREE.Vector3; target: THREE.
   }
   return { position, target }
 }
+
+/**
+ * Where the orbit's target goes to turn the view about `point`: the point of the camera's axis level with it. Only
+ * the target moves, along the view, so the camera looks as it did; null for a point that is not in front of the camera.
+ */
+export function pivotOn(position: Vec3, forward: Vec3, point: Vec3): Vec3 | null {
+  const length = Math.hypot(...forward)
+  if (!(length > 0)) return null
+  const ahead = ((point[0] - position[0]) * forward[0] + (point[1] - position[1]) * forward[1] + (point[2] - position[2]) * forward[2]) / (length * length)
+  if (!(ahead > 0)) return null
+  return [position[0] + forward[0] * ahead, position[1] + forward[1] * ahead, position[2] + forward[2] * ahead]
+}

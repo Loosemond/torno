@@ -119,7 +119,7 @@ const ROWS = [
 
   ...TOOL_KEYS.map((t) => row(`tool.${t.name}`, [t.key], t.does, 'Viewport', 'viewport')),
   row('views', VIEW_KEYS.map((v) => v.key), 'Iso, front, right and top view', 'Viewport', 'viewport'),
-  row('fit', ['F'], 'Fit the parts in view', 'Viewport', 'viewport'),
+  row('fit', ['F'], 'Fit the selection in view, or the parts; again, the parts', 'Viewport', 'viewport'),
   row('ortho', ['O'], 'Perspective or orthographic', 'Viewport', 'viewport'),
   row('explode', ['E'], 'Draw the parts apart, or together again', 'Viewport', 'viewport'),
   row('page', ['W'], 'All projects of the folder, on one page (there a letter filters them by name)', 'Viewport', 'viewport'),

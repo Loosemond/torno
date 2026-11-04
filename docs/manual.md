@@ -327,8 +327,8 @@ to start one. A model that says which of its parts belong together (an optional
 `groups(p)` beside `assembly`, group name to part names) has them listed under a
 header each, which folds the group, hides or shows all of it, or, on "Show only",
 shows that group alone in the layout; ask the agent to group parts and it edits
-`groups(p)`. In the viewport, drag to orbit, drag with the right or
-middle button to pan, scroll to zoom; a triad in the bottom left corner shows which way X
+`groups(p)`. In the viewport, drag to orbit (about the point of a part under the pointer when the drag starts), drag with the right or
+middle button to pan, scroll to zoom, `F` to fit the selection (pressed again, all the parts); a triad in the bottom left corner shows which way X
 (red), Y (green) and Z (blue) run in the project's own frame, as the agent's pictures
 do, and in the bottom right corner are a scale bar (orthographic) or the step of the grid,
 `grid 5 mm` (perspective); the bar at the top switches layout
@@ -1454,7 +1454,7 @@ until the camera is first moved; the window remembers that in its own storage, n
 | Viewport | `B` | Region of a scan: paint what something is |
 | Viewport | `L` | Align scan: stand a scan where the model is |
 | Viewport | `1` `2` `3` `4` | Iso, front, right and top view |
-| Viewport | `F` | Fit the parts in view |
+| Viewport | `F` | Fit the selection in view, or the parts; again, the parts |
 | Viewport | `O` | Perspective or orthographic |
 | Viewport | `E` | Draw the parts apart, or together again |
 | Viewport | `W` | All projects of the folder, on one page (there a letter filters them by name) |
