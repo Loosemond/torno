@@ -14,9 +14,9 @@ is as useful as a pull request.
 - **Ideas and bigger changes.** Open an issue first, so we can agree on the shape of it before you spend time on
   code. torno is deliberately not a modeller (no sketcher, no feature tree, no editing solids by hand). The model is
   the Python file, and changes that keep it that way fit best.
-- **Security.** Please don't open a public issue. Use [private vulnerability
-  reporting](https://github.com/luisg0nc/torno/security/advisories/new) instead. torno runs a local HTTP server
-  for the agent's tools, guarded by a token for each session, so anything that gets around that matters.
+- **Security.** Please don't open a public issue. [SECURITY.md](SECURITY.md) says how to report it privately and
+  what torno's security model is. torno runs a local HTTP server for the agent's tools, guarded by a token for
+  each session, so anything that gets around that matters.
 
 ## Setting up
 
