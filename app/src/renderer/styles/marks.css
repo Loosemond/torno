@@ -250,6 +250,34 @@
   padding-bottom: 6px;
 }
 
+/* The line that heads the marks when there are checks: how many pass, fail and are not measured, each a way to the first. */
+.checks-summary {
+  margin: var(--space-1) 0 0;
+  padding: 4px var(--space-4);
+  font-size: var(--text-small);
+  color: var(--muted);
+}
+
+.checks-count {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: inherit;
+  font-weight: 500;
+}
+
+.checks-count[data-state='pass'] {
+  color: var(--ok);
+}
+
+.checks-count[data-state='fail'] {
+  color: var(--fail);
+}
+
+.checks-count[data-state='unmeasured'] {
+  color: var(--warn);
+}
+
 /* The line that follows a delete: what was deleted, and the way back. */
 .marks-undo {
   margin: var(--space-1) 0 0;
@@ -496,6 +524,35 @@
 
 .dimension-expect input::placeholder {
   color: var(--muted);
+}
+
+/* How the check stands against its own past, and the values of the builds behind it: muted, as what is not of the build on show. */
+.dimension-since {
+  margin: 0;
+  color: var(--ink);
+}
+
+.dimension-since[data-state='fail'] {
+  color: var(--fail);
+}
+
+.dimension-history {
+  margin: 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.dimension-sample[data-verdict='fail'] .verdict-icon {
+  color: var(--fail);
+}
+
+.dimension-sample[data-verdict='pass'] .verdict-icon {
+  color: var(--ok);
+}
+
+.dimension-sample .verdict-icon {
+  margin-left: 3px;
+  vertical-align: -1px;
 }
 
 .dimension-verdict {

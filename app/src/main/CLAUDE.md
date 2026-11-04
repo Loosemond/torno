@@ -119,6 +119,15 @@ is the detail of this folder, under the headings it has there. Paths are from `a
     of a dimension when it gives an end another ref or point, and
     `MarkStore.measured` keeps nothing measured through other ends, or for a
     resolved mark.
+  - `history` (`DimensionMark.history`, `DimensionSample`: build and value) is what the kernel said of a dimension on
+    each of the last 20 builds of this run (`HISTORY_LENGTH`, `withSample` in `shared/dimension.ts`). It is main's
+    alone and in memory only (`MarkStore.histories`, by folder and mark id; cleared by `forget`): never in
+    `marks.json`, since revisions count from 1 in every run, and never taken from the window or a tool (the sanitiser
+    does not read it). It is added to the marks only for the window (`MarkStore.shown`, in the `marks:changed`
+    broadcast and `marks:list`); `list()`, the tools, the prompts and `state.md` never carry it. It starts again when an end
+    is put on other geometry (`reanchor`). The verdict of each sample is worked out where it is shown (`samplesOf`), from
+    the expectation as it is now; `since(mark, revision)` says `fails since r12; passed on r11`. Telling the agent
+    the same is not done here.
   - Sent and unresolved, it is "pinned": with every prompt, under
     `Dimensions (measured on rN):` (`dimensionsHead`: it also says when a
     build is running or the latest failed, so that these are not of the last

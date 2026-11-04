@@ -746,6 +746,22 @@ export class Viewport {
   }
 
   /**
+   * Frames one part, where it is drawn, without turning the camera: a double click on its row in the layers.
+   * False when it is not drawn (switched off, or not in this layout).
+   */
+  framePart(name: string): boolean {
+    const part = this.shownParts().find((one) => one.name === name)
+    const box = part ? drawnBox([part], this.apart.target()) : null
+    if (!box) return false
+    this.framedApart = null
+    const c = this.cameraGoal()
+    const dir = c.target.map((t, i) => t - c.position[i])
+    this.move.drop()
+    this.applyCamera(this.onScreen(box, { dir, up: c.up }, c.ortho))
+    return true
+  }
+
+  /**
    * Frames a scan with the visible parts, without turning the camera: "Frame" on a scan's row. The views and
    * `fit` frame the parts, which lie somewhere inside a scan of their surroundings; this is how the scan is
    * found. False when the scan is not drawn (its mesh has not come, or it is switched off).

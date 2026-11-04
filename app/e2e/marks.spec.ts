@@ -419,6 +419,27 @@ test('marks belong to a layout: another layout shows none of them, and going to 
   await expect(row('M6').locator('.mark-layout')).toHaveText('print')
 })
 
+test("the count of open marks on a part in the layers lists only its marks, and the chip above the list brings them all back", async () => {
+  // M6 is a pin of the print layout on the post; M1 and M2 are on the base, in the layout shown.
+  const count = page.locator('[data-layer="base"] .layer-marks')
+  await expect(count).toBeVisible()
+  const open = Number(await count.textContent())
+  expect(open).toBeGreaterThanOrEqual(2)
+  await expect(row('M6')).toHaveCount(1)
+  await count.click()
+  await expect(page.locator('.marks-filter')).toHaveText(/Only marks on base/)
+  await expect(row('M1')).toHaveCount(1)
+  await expect(row('M2')).toHaveCount(1)
+  await expect(row('M6')).toHaveCount(0)
+  expect((await state()).marksOnPart).toBe('base')
+  // A view of the list only: nothing of the marks changes, and the agent is told them all.
+  expect(marksOnDisk().marks.map((m) => m.id)).toContain('M6')
+  await page.getByRole('button', { name: 'Show all marks' }).click()
+  await expect(page.locator('.marks-filter')).toHaveCount(0)
+  await expect(row('M6')).toHaveCount(1)
+  expect((await state()).marksOnPart).toBeNull()
+})
+
 test('what was wrong with a marks file is said in the panel in full, to a window that was not listening too, until it is dismissed', async () => {
   // Main reads the file of an object the window is not showing: nobody hears the problem said.
   const first = await page.evaluate(() => window.torno.marks.list('plain'))

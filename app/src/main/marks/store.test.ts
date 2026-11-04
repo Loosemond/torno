@@ -982,3 +982,47 @@ describe('a region of a scan', () => {
     await expect(store.replace('bracket', 'M1', { anchor: ANCHOR, revision: 2, camera: CAMERA } as Replacement)).rejects.toThrow('M1 is a region: only a pin, a pick or an arrow is put somewhere else')
   })
 })
+
+describe('what a dimension measured on the builds of this run', () => {
+  const TOP: Anchor = { point: [5, 3, 3], normal: [0, 0, 1], part: 'plate', ref: 'plate/F5' }
+  const BOTTOM: Anchor = { point: [5, 3, -3], normal: [0, 0, -1], part: 'plate', ref: 'plate/F0' }
+  const distance = (more: object = {}): NewMark => ({ ...BASE, kind: 'dimension', measure: 'distance', a: TOP, b: BOTTOM, ...more }) as NewMark
+  const at = (value: number, measuredRevision: number) => ({ value, how: 'between planes', points: [[5, 3, 3], [5, 3, -3]] as [[number, number, number], [number, number, number]], measuredRevision })
+  const of = (m: DimensionMark) => ({ measure: m.measure, a: m.a, ...(m.b ? { b: m.b } : {}), ...(m.expected === undefined ? {} : { expected: m.expected }) })
+  const shownOf = async (): Promise<DimensionMark> => (store.shown('bracket', await store.list('bracket')) as DimensionMark[])[0]
+
+  it('is told to the window with the marks, build after build, and is in no file and in no other listing', async () => {
+    const added = (await store.add('bracket', distance({ expected: 6 }), 'draft', at(6, 1))) as DimensionMark
+    await store.remeasured('bracket', [{ id: 'M1', of: of(added), result: at(5.5, 2) }])
+    await store.remeasured('bracket', [{ id: 'M1', of: of(added), result: at(6, 3) }])
+    expect((await shownOf()).history).toEqual([{ revision: 1, value: 6 }, { revision: 2, value: 5.5 }, { revision: 3, value: 6 }])
+    // The event that told the window carries the same, and the listing the agent's tools read does not.
+    expect((store.shown('bracket', changes.at(-1)!.marks)[0] as DimensionMark).history).toHaveLength(3)
+    expect(changes.at(-1)!.marks[0]).not.toHaveProperty('history')
+    expect((await store.list('bracket'))[0]).not.toHaveProperty('history')
+    expect(JSON.stringify(onDisk('bracket'))).not.toContain('history')
+    // Nor is it taken from whoever gives a mark.
+    await store.add('bracket', distance({ history: [{ revision: 1, value: 1 }] }))
+    expect(((await store.list('bracket')) as DimensionMark[])[1]).not.toHaveProperty('history')
+  })
+
+  it('records a build with no value, replaces a build measured again, and is not recorded by a change that measured nothing', async () => {
+    const added = (await store.add('bracket', distance({ expected: 6 }), 'draft', at(6, 1))) as DimensionMark
+    await store.remeasured('bracket', [{ id: 'M1', of: of(added), result: { measuredRevision: 2, refused: 'no' } }])
+    await store.remeasured('bracket', [{ id: 'M1', of: of(added), result: at(7, 2) }])
+    await store.update('bracket', 'M1', { note: 'thick enough' })
+    expect((await shownOf()).history).toEqual([{ revision: 1, value: 6 }, { revision: 2, value: 7 }])
+  })
+
+  it('starts again when its ends are put on other geometry, and when the workspace is left', async () => {
+    const added = (await store.add('bracket', distance({ expected: 6 }), 'draft', at(6, 1))) as DimensionMark
+    await store.remeasured('bracket', [{ id: 'M1', of: of(added), result: at(6, 2) }])
+    await store.reanchor('bracket', [{ id: 'M1', judged: [added.a, added.b!], anchors: [{ ...added.a, ref: 'plate/F7' }, added.b!], anchorState: 'ok', checkedRevision: 3 }])
+    expect((await shownOf()).history).toBeUndefined()
+    const [moved] = (await store.list('bracket')) as DimensionMark[]
+    await store.remeasured('bracket', [{ id: 'M1', of: of(moved), result: at(6, 3) }])
+    expect((await shownOf()).history).toEqual([{ revision: 3, value: 6 }])
+    store.forget()
+    expect((await shownOf()).history).toBeUndefined()
+  })
+})

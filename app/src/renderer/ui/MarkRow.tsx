@@ -24,6 +24,8 @@ const KIND_ICON: Record<MarkKind, ReactNode> = { pin: ICONS.pin, pick: ICONS.sel
 const KIND_NAME: Record<MarkKind, string> = { pin: 'Pin', pick: 'Pick', arrow: 'Arrow', stroke: 'Stroke', shape: 'Shape', dimension: 'Dimension', region: 'Region' }
 /** What the row says of a dimension the agent has been given: it stays, with its value, until it is resolved. */
 export const PINNED = 'pinned'
+/** What the row of a check the agent has not been given says: it is under Checks, not under To send. */
+export const TO_SEND = 'to send'
 const ANCHOR_NOTE = {
   ok: '',
   drifted: 'The surface it was on has moved since it was placed',
@@ -294,6 +296,11 @@ export function MarkRow({
       {mark.kind === 'dimension' && mark.status === 'sent' && (
         <span className="mark-status" data-status={mark.status} title="The agent has it. It stays here with its value until it is resolved">
           {PINNED}
+        </span>
+      )}
+      {mark.kind === 'dimension' && mark.status === 'draft' && mark.expected !== undefined && (
+        <span className="mark-status" data-status="draft" title="Not sent yet: it goes to the agent with your next prompt">
+          {TO_SEND}
         </span>
       )}
       <span className="mark-actions" onClick={(e) => e.stopPropagation()}>

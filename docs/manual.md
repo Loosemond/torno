@@ -336,7 +336,13 @@ again. Drag the right edge of the column to make it wider (`Left` and `Right` wi
 double click it for the default width; the column is never narrower than that, and leaves the view
 its room beside the session pane. What is folded, where the line is and how wide the column is are
 kept by the window, not in the folder. The
-layers (parts) of the open project each have a visibility switch. Parameters lists the fields of
+layers (parts) of the open project each have a visibility switch, and for a model of ten parts or twenty they
+are also the way to the part: the pointer on a row lights the part in the view, a click on its name selects it (as
+a click with Select would, so "Insert" and "Note" work on it) and a double click brings it into view, the target on
+the row shows only that part, and when some parts are switched off the title says `3 hidden · Show all`. After the
+name, a muted number counts the open marks on the part (in the colour of a failing check when one of them is
+one); a click on it lists only those marks in Marks, under a line `Only marks on lid` with a cross that brings the
+rest back. That is a view of the list: the agent is told every mark as before. Parameters lists the fields of
 the model's `Params` (folded to its title at first; a model with none has no section): each
 field's name, its default in the monospace face (four digits at most, the whole value on hover) and
 its comment as the model has it, and, for a default the model works out (an expression, not a
@@ -1016,7 +1022,10 @@ the camera stays still).
 
 - A mark you change after it was sent (its note, or a shape's place, size,
   kind or intent) is a draft again, and is told once more as `(changed)`.
-- The Marks list is grouped by who acts next: **To send** (yours, "with your
+- The Marks list is grouped by who acts next: **Checks** (every dimension that
+  has an expected value and is not resolved, sent or not: the failing first,
+  then those with no value of the build, then those that pass; a draft one says
+  `to send` in its row), **To send** (yours, "with your
   next prompt"), **From the agent** (marks it left for you to read or answer;
   **Answer in chat** puts the mark's id in the prompt, and the tick says
   you have seen it), **To review**, **With the agent** (your sent marks), then
@@ -1101,9 +1110,21 @@ is ringed on the part and in the agent's pictures, its chip saying by how much
 it misses after the cross (`40 mm ✗ 2 under`), and the line at the bottom
 counts those that fail and those with no value.
 
+When the project has checks, a line heads the Marks list: `Checks on r12: 3 pass
+· 1 fails · 1 not measured`. Each count is a button that goes to the first such
+check. A dimension with no expected value is not counted: it was kept to be
+read, and stays in the group its status puts it in.
+
 - Once sent, its row says **pinned**: it is one of the checks the agent is
   told about with every prompt until it passes. Changing what is expected or
   the tolerance makes it a draft again, sent as `(changed)`.
+- torno remembers what each dimension measured on the last 20 builds of the run,
+  and its open row lists them, newest last: `r9 38.6 ✗ · r10 39.2 ✗ · r11 40 ✓ ·
+  r12 41.3 ✗`, with a line above it when a check has changed its mind: `fails
+  since r12; passed on r11`. That is the first thing to ask when a check fails:
+  did it pass before, and on which build did it stop? The memory is not kept
+  between runs (builds are numbered from 1 again), and each verdict is judged
+  against what is expected now. The agent is not told this way.
 - A **resolved** dimension is no longer measured. A dimension of yours that
   has an expected value is yours alone to resolve.
 - After every build, every dimension that is not resolved is measured again
@@ -1917,6 +1938,10 @@ On the screen:
   marks, and their titles say how many parts and scans there are. Drag the line above Marks up and down, and double
   click it: it moves without lag, the sections above give way down to their titles, and the shares come back.
   Start torno again: what was folded, and where the line was, are as you left them. Legible in light and dark.
+- **Layers of a model with many parts.** Open a project of ten parts or more: the pointer on a layer row lights that
+  part in the view in the accent (and nothing else changes), the target shows it alone, `Show all` in the title brings
+  the rest back, and the count of marks on a part lists only its marks. The rows must not crowd: name, count, and on
+  hover the opacity, the target and the eye, at the width of the column.
 - **Parameters.** In a project whose model has a `Params` dataclass with comments and one default that is an
   expression, unfold Parameters under the layers: a row for each field in the model's order, the value in the
   monospace face, the comment as written (cut to two lines, whole on hover), "worked out in the model" on the expression's.

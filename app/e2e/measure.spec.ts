@@ -295,6 +295,9 @@ test('with an expected value the hole fails: the row says so, and the chip in th
   expect(dimension(root, 'M2')).toMatchObject({ expected: 8.5, value: 8 })
   await expect(row('M2', page).locator('.mark-value')).toHaveAttribute('data-verdict', 'fail')
   await expect(fields.locator('.dimension-verdict')).toHaveText('Fails: 0.5 under')
+  // The summary heading the marks counts it, and its count goes to the check.
+  await expect(page.locator('.checks-summary')).toHaveText(/^Checks on r\d+: 1 fails$/)
+  await expect(page.getByRole('list', { name: 'Checks' }).locator('.mark-row[data-mark="M2"]')).toHaveCount(1)
   // The row, open and with the pointer on it: its value, its verdict and the way to a note, none of them cut.
   await row('M2', page).hover()
   const note = row('M2', page).locator('.mark-note')
@@ -411,7 +414,11 @@ test('a dimension is given to the agent with the next prompt like any mark, and 
   await fields.getByRole('textbox', { name: 'Expected' }).fill('6')
   await fields.getByRole('textbox', { name: 'Expected' }).press('Enter')
   await expect(fields.locator('.dimension-verdict')).toHaveText('Passes')
-  await expect(page.getByRole('list', { name: 'To send' }).locator('.mark-row[data-mark="M1"]')).toHaveCount(1)
+  // With something expected of it, it is a check: under Checks, and says it is yet to be sent.
+  await expect(page.getByRole('list', { name: 'Checks' }).locator('.mark-row[data-mark="M1"]')).toHaveCount(1)
+  await expect(page.getByRole('list', { name: 'To send' })).toHaveCount(0)
+  await expect(row('M1', page).locator('.mark-status')).toHaveText('to send')
+  await expect(page.locator('.checks-summary')).toContainText('1 pass')
   expect(dimension(root, 'M1')).toMatchObject({ status: 'draft', sentBefore: true, expected: 6, verdict: 'pass' })
 })
 
@@ -571,6 +578,10 @@ test('a build that makes the plate 5 mm thick fails them: the rows, the status l
   await expect(row('M1', page)).toBeInViewport()
   await expect(row('M1', page).locator('.dimension-verdict')).toHaveText('Fails: 1 under')
   await expect(row('M1', page).locator('.dimension-how')).toHaveText('wall, along the normal, measured from what is under its ends now')
+  // The regression: it passed on r1 and fails since r2, with both values in the open row, and the summary counts both.
+  await expect(row('M1', page).locator('.dimension-since')).toHaveText('fails since r2; passed on r1')
+  await expect(row('M1', page).locator('.dimension-history')).toHaveText('r1 6 · r2 5')
+  await expect(page.locator('.checks-summary')).toHaveText('Checks on r2: 2 fail')
   await page.evaluate(() => (document.activeElement as HTMLElement).blur())
 
   // The agent is told of both with the prompt, and with the one after: they are not news that is told once.
@@ -604,6 +615,10 @@ test('built as it should be again, they pass: the status line is clear, and the 
   await expect(row('M1', page).locator('.mark-value')).toHaveText('6 mm')
   await expect(row('M1', page).locator('.mark-value')).toHaveAttribute('data-verdict', 'pass')
   await expect(statusLine().locator('.status-dimensions')).toHaveCount(0)
+  await expect(page.locator('.checks-summary')).toHaveText('Checks on r3: 2 pass')
+  await row('M1', page).click()
+  await expect(row('M1', page).locator('.dimension-since')).toHaveText('passes since r3; failed on r2')
+  await expect(row('M1', page).locator('.dimension-history')).toHaveText('r1 6 · r2 5 · r3 6')
   const context = await prompted()
   expect(context).toMatch(/Dimensions\(measuredonr\d+\):2pinneddimensionspassOpenmarks:M1,M2$/)
   expect(context).not.toContain('FAIL')

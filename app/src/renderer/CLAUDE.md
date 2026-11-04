@@ -127,6 +127,15 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   much it misses after its cross, in `--fail` (`40 mm ✗ 2 under`: `labelValue`'s `off`, from `offBy`), on screen
   and in a picture for the agent alike. A spec that hands a tool a press at a point checks first that no chip is
   drawn there (`__tornoTest.chipAt`, `clearOfChips` in `e2e/tools.spec.ts` and `e2e/measure.spec.ts`).
+- When the project has checks (`isCheck`: an open dimension with an expected value) a line heads the Marks, outside
+  the list's scroll (`ui/ChecksSummary.tsx`): `Checks on r12: 3 pass · 1 fails · 1 not measured`, each count a
+  button to the first such check (`goToRow`), in `--ok`, `--fail`, `--warn`, never a mark's colour. The not
+  measured count is said only when it lasts (`useLasting`, as the status line's does). The group "Checks"
+  (`groupMarks(marks, revision).checks`) holds those checks, drafts too (their row says `to send`), the failing first, then
+  those with no value of the build, then those that pass, ahead of the other groups; a dimension with nothing
+  expected stays in the group its status gives. An open check lists what it measured on the builds of this run
+  (`dimension-history`, `r9 38.6 ✗ · r10 40 ✓`, at most 8, all in its title) and, where worth saying, `fails since
+  r12; passed on r11` (`since`); both are main's `history`, never kept by the window.
 - The Marks list is grouped by what is to be done (`ui/markGroups.ts`): "To send" (drafts, headed `To send N · with your next prompt`),
   "From the agent" (its own open marks, for the person to read or answer: "Answer in chat" puts the id in the
   prompt), "To review", "With the agent" (the person's sent marks) and the fold "Resolved"; a heading only for a group that has marks, and the heading says
@@ -171,6 +180,15 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   Its parts follow, indented, with `data-in-group`; a folded group draws none (`actions.setFolded`, kept in the
   scene file as `folded`, and dropped for a group the model no longer has). The parts in no group come last. A
   model without groups draws the list as it always was (`e2e/groups.spec.ts`).
+- A part's row is also the way to the part (#94, `ui/Layers.tsx`): the pointer or the keys' focus on it is `peek([name])`
+  (no highlight of the agent's, no locked tools; a row that goes while it is lit takes the light away), its name is a
+  button that selects the part as a ref (`setSelection([name])`) and, double clicked, brings it into view
+  (`actions.framePart`, `Viewport.framePart`: where it is drawn, the camera not turned), the target is "Show only"
+  (`soloLayers(layout, [name])`) and the title says `N hidden · Show all` while a part of the layout is off. After the
+  name, a muted count of the open marks on the part in the layout shown (`ui/layerMarks.ts` `marksByPart`; `--fail` when
+  one is a check that fails on the build); a click lists only the marks on that part in the Marks panel
+  (`store.marksOnPart`, the window's alone and dropped with the object; a chip `Only marks on lid` with a cross
+  above the list; `goToRow` clears it). It filters what the list shows and nothing else: the agent is told every mark.
 - A part whose build says its shape is broken (`partDefects` of `shared/sanity.ts`: not valid, inside out, not
   closed, mesh disagrees) has its first defect in a word after its name (`.layer-defect`, `--fail`, `+N` for the
   others) and every one in the row's title; the status line counts the layout's broken parts after its parts

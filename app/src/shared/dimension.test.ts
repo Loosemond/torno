@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { valueAgainstExpected, dimensionText, exactText, notMeasuredText, shownDimension, isOffEdge, isUnmeasured, offEdgeReason, lastValue, measuredValue, offBy, standingOf, unmeasuredText, unmetDimensions, verdictOf, verdictOn } from './dimension'
+import { HISTORY_LENGTH, samplesOf, since, sinceText, withSample, valueAgainstExpected, dimensionText, exactText, notMeasuredText, shownDimension, isOffEdge, isUnmeasured, offEdgeReason, lastValue, measuredValue, offBy, standingOf, unmeasuredText, unmetDimensions, checksOf, isCheck, verdictOf, verdictOn } from './dimension'
 import type { DimensionMark, Mark } from './marks'
 
 const dim = (over: Partial<DimensionMark> = {}): DimensionMark =>
@@ -128,9 +128,26 @@ describe('how a dimension stands on a build', () => {
       dim({ id: 'M6', status: 'draft', expected: 8.5, verdict: 'fail' }),
       { id: 'M7', kind: 'pin', status: 'sent' } as Mark
     ]
-    const { failing, unmeasured } = unmetDimensions(marks, 3)
+    const { failing, unmeasured, passing } = unmetDimensions(marks, 3)
     expect(failing.map((m) => m.id)).toEqual(['M1', 'M6'])
     expect(unmeasured.map((m) => m.id)).toEqual(['M3', 'M4'])
+    expect(passing.map((m) => m.id)).toEqual(['M2'])
+  })
+
+  it('checksOf counts only the dimensions that have something expected of them', () => {
+    const marks = [
+      dim({ id: 'M1', expected: 8.5, verdict: 'fail' }),
+      dim({ id: 'M2', expected: 8, verdict: 'pass' }),
+      dim({ id: 'M3' }),
+      dim({ id: 'M4', measuredRevision: 2, expected: 8 }),
+      dim({ id: 'M5', anchorState: 'orphaned' }),
+      dim({ id: 'M6', status: 'resolved', expected: 8, verdict: 'pass' })
+    ]
+    const { failing, unmeasured, passing } = checksOf(marks, 3)
+    expect(failing.map((m) => m.id)).toEqual(['M1'])
+    expect(passing.map((m) => m.id)).toEqual(['M2'])
+    expect(unmeasured.map((m) => m.id)).toEqual(['M4'])
+    expect(marks.filter(isCheck).map((m) => m.id)).toEqual(['M1', 'M2', 'M4'])
   })
 })
 
@@ -153,5 +170,52 @@ describe('a dimension against what was expected', () => {
   it('says nothing of a dimension with no value of that build, or nothing expected', () => {
     expect(valueAgainstExpected(dim({ value: 6, expected: 8, measuredRevision: 3 }), 4)).toBeUndefined()
     expect(valueAgainstExpected(dim({ value: 6 }), 3)).toBeUndefined()
+  })
+})
+
+describe('the values of a dimension across builds', () => {
+  const at = (...values: Array<[number, number | undefined]>) => values.map(([revision, value]) => (value === undefined ? { revision } : { revision, value }))
+
+  it('keeps a build once, oldest first, and the last twenty', () => {
+    expect(withSample([{ revision: 2, value: 1 }], { revision: 3, value: 2 })).toEqual(at([2, 1], [3, 2]))
+    expect(withSample(at([2, 1], [3, 2]), { revision: 3, value: 5 })).toEqual(at([2, 1], [3, 5]))
+    expect(withSample(undefined, { revision: 1 })).toEqual([{ revision: 1 }])
+    let history = withSample(undefined, { revision: 1, value: 0 })
+    for (let r = 2; r <= 30; r += 1) history = withSample(history, { revision: r, value: r })
+    expect(history).toHaveLength(HISTORY_LENGTH)
+    expect(history[0].revision).toBe(11)
+    expect(history[19].revision).toBe(30)
+  })
+
+  it('judges each value against what is expected now', () => {
+    const mark = dim({ measure: 'distance', expected: 40, history: at([9, 38.6], [10, 40], [11, undefined]) })
+    expect(samplesOf(mark)).toEqual([{ revision: 9, value: 38.6, verdict: 'fail' }, { revision: 10, value: 40, verdict: 'pass' }, { revision: 11 }])
+    expect(samplesOf(dim({ history: at([1, 8]) }))).toEqual([{ revision: 1, value: 8 }])
+  })
+
+  it('says since which build a check fails, and the last it passed on', () => {
+    const mark = dim({ measure: 'distance', expected: 40, history: at([9, 38.6], [10, 39.2], [11, 40], [12, 41.3]) })
+    const s = since(mark, 12)
+    expect(s).toEqual({ state: 'fail', since: 12, other: 11, builds: 1 })
+    expect(sinceText(s!)).toBe('fails since r12; passed on r11')
+  })
+
+  it('says it passes again, and ignores a build with no value', () => {
+    const mark = dim({ measure: 'distance', expected: 40, history: at([4, 41], [5, undefined], [6, 40]) })
+    expect(sinceText(since(mark, 6)!)).toBe('passes since r6; failed on r4')
+  })
+
+  it('says a check that never passed only when it has failed on more than one build', () => {
+    const history = at([2, 1], [3, 1])
+    expect(sinceText(since(dim({ measure: 'distance', expected: 40, history }), 3)!)).toBe('fails since r2; never passed this run')
+    expect(since(dim({ measure: 'distance', expected: 40, history: at([3, 1]) }), 3)).toBeUndefined()
+  })
+
+  it('says nothing for a pass that never failed, a stale history, a resolved check or nothing expected', () => {
+    expect(since(dim({ measure: 'distance', expected: 40, history: at([1, 40], [2, 40]) }), 2)).toBeUndefined()
+    expect(since(dim({ measure: 'distance', expected: 40, history: at([1, 40], [2, 41]) }), 3)).toBeUndefined()
+    expect(since(dim({ measure: 'distance', expected: 40, status: 'resolved', history: at([1, 40], [2, 41]) }), 2)).toBeUndefined()
+    expect(since(dim({ measure: 'distance', history: at([1, 40], [2, 41]) }), 2)).toBeUndefined()
+    expect(since(dim({ measure: 'distance', expected: 40, history: at([1, 40], [2, 41]) }), undefined)).toBeUndefined()
   })
 })
