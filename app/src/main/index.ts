@@ -49,6 +49,7 @@ import { valueAgainstExpected } from '../shared/dimension'
 import { HOOK_DEADLINE_MS, InstructionList } from './instructions'
 import { Trust } from './trust'
 import { KnownModels } from './sessions/models'
+import { UserProfiles, projectProfile } from './profile'
 
 // Environment switches:
 //   TORNO_TEST=1            the window is created hidden and never shown (tests, headless checks)
@@ -344,6 +345,10 @@ const toolDeps: ToolDeps = {
   expectations,
   redact: (text) => redactAddresses(text),
   object: findObject,
+  profile: (id) => {
+    const obj = findObject(id)
+    return obj ? projectProfile(obj.dir) : undefined
+  },
   build: buildState,
   scene: lastScene,
   scenes: keptScenes,
@@ -403,7 +408,7 @@ const verdicts = new Verdicts()
 const editDeps = { ...toolDeps, ...(off.has('digest') ? { digest: false } : {}), verdicts: (id: string, revision: number | undefined) => verdicts.of(id, revision) }
 
 /** `<object>/.torno/state.md` of every open object: what an agent without the tools reads instead. */
-const stateFiles = new StateFiles({ object: findObject, build: buildState, scene: lastScene, scenes: keptScenes, marks: (objectId) => marks.list(objectId), scans: (objectId) => scans.list(objectId), views: savedViews })
+const stateFiles = new StateFiles({ object: findObject, build: buildState, scene: lastScene, scenes: keptScenes, marks: (objectId) => marks.list(objectId), scans: (objectId) => scans.list(objectId), views: savedViews, profile: toolDeps.profile })
 marks.on('changed', ({ objectId }) => stateFiles.changed(objectId))
 // What the marks say of the last build, whenever they change: its verdicts from then on.
 marks.on('changed', ({ objectId, marks: all }) => verdicts.record(objectId, lastScene(objectId)?.revision, all))
@@ -536,6 +541,8 @@ void app.whenReady().then(async () => {
   registerIpc({
     // The models the last chat offered, for the page of a new object: kept beside the recent folders, or for this run alone.
     knownModels: new KnownModels(configPath ? join(dirname(configPath), 'models.json') : null),
+    userProfiles: new UserProfiles(configPath ? join(dirname(configPath), 'profiles.json') : null),
+    onProfile: (objectId) => stateFiles.changed(objectId),
     // What torno needs, found before it fails. The CLI is looked for on the PATH under test and never run: a person's login is not a test's.
     ready: new ReadyKeeper({
       probe: adapter.probe,

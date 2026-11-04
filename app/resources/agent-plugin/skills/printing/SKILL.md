@@ -9,9 +9,17 @@ Every number here is typical, for a 0.4 mm nozzle and PLA or PETG. It is not a p
 a typical number only as an `assumed` field of `Params` (a comment saying "assumed") until the person gives the
 printer and the material; then record their answer as a field commented "person".
 
+## The print profile
+
+If the context says "Print profile of this project", the person has chosen a printer and a material for it. Their
+numbers replace every typical number below: take the gaps of each fit, the least wall, the overhang angle, the density
+and the bed from that line, record them as `Params` fields commented "person", and do not ask for them again. `check`
+bed, thin and overhang then need no values, and `check` clearance takes `fit` (press, sliding or loose) to judge the
+gap against the material's band. A profile is the person's numbers, not measured: a pass is not a print.
+
 ## Ask once
 
-When a fit or printability decides the design, ask before the first model, in the one round the `torno-model` skill
+With no print profile, when a fit or printability decides the design, ask before the first model, in the one round the `torno-model` skill
 allows (`AskUserQuestion`): the nozzle, the material and the bed (X x Y x Z in mm). Each option may carry a typical
 value labelled as typical. If they answer "build with assumptions", build with the typical values and list them.
 
@@ -28,7 +36,7 @@ ranges per side:
 | loose | 0.30 to 0.50 mm |
 
 Each is a named field of `Params` (`slide_gap = 0.25  # assumed`), never a number in a function. Check the result
-with `mcp__torno__check {"kind": "clearance", "a": "lid", "b": "tub"}` in a layout that places the parts as
+with `mcp__torno__check {"kind": "clearance", "a": "lid", "b": "tub"}` (add `"fit": "sliding"` when there is a profile) in a layout that places the parts as
 assembled.
 
 ## Walls and small features

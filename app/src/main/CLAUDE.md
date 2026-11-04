@@ -279,6 +279,25 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `assumed`). The answer to an edit adds `Assumed: …; no source: n` (`paramsLine` in `context.ts`) only when the set
   differs from the build before's, compared from the two kept scenes, so no state is tracked.
 
+## Print profile
+
+- The printer and material an object is made for (`shared/profile.ts`: `Profile`, the one rule for the types, the
+  starter materials, `fitVerdict`, `leastWall`, `profileLine`) are the person's numbers, never the kernel's. The
+  person's own printers and materials are in torno's user data (`profiles.json` beside `config.json`,
+  `UserProfiles` in `main/profile.ts`, in memory with no config file), never in a workspace. The object's choice is
+  `<object>/.torno/profile.json`, a copy of the values (`projectProfile` reads it at each question, `setProjectProfile`
+  writes it through `writeOwn`; the window's `profile:set`, nothing else writes it), not ignored: it travels.
+- `ToolDeps.profile` gives `check` and `measure` their defaults when the call leaves a value out: `bed` the printer's
+  bed, `thin` the least wall (the material's, else two nozzles), `overhang` the material's angle, `mass` its density.
+  A call that gives a value keeps it. A reading that used the profile ends `by your profile (Bambu X1C, PETG): the
+  person's numbers, not measured`, and the data has `profile`. `check` clearance with `fit` is judged against the
+  material's band per side (`fitJudged`: `passes`/`FAILS`, how far outside, overlap fails) and always says it is not a
+  claim that the part prints; `fit` without a material, or on another kind, is refused. The model's own `checks(p)`
+  are not given defaults: they declare their numbers.
+- A new conversation is told it in one line (`profileLine`, in `contextFor` with the references, only if it fits; not
+  in the system prompt, which is at its cap), `state.md` has a `## Print profile` section, and `scene` gives it as
+  `printProfile`. A change of the profile has `state.md` written anew (`onProfile`).
+
 ## Explode
 
 - **The agent.** `look` takes `explode` (a number, or `{amount, axis,
@@ -447,7 +466,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   there, and adds nothing against a line the person negated (`!thumb.png`). The thumbnails ask it for
   `thumb.png` and `thumb.json`, the state file for `state.md`, a conversation put on file for `session.json`,
   a chat's log for `chat/`, an export for `exports/`, a picture for `views/`. What is the
-  object's travels: `scene.json`, `marks.json`, `scans.json`, `agent.json`.
+  object's travels: `scene.json`, `marks.json`, `scans.json`, `profile.json`, `agent.json`.
 - **`.torno` is named in one module, `src/main/own.ts`** (`FOLDER`), and every write under it goes through
   `ownTorno(dir)` first (`writeOwn` for a file written whole): a link or a file in its place is refused with a
   plain reason, nothing is written, and the person is told once for each object, in the Marks panel

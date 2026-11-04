@@ -39,6 +39,8 @@ import { readChoice, writeChoice } from './sessions/choice'
 import { drawingOf } from './sessions/drawing'
 import type { Sessions } from './sessions/manager'
 import type { KnownModels } from './sessions/models'
+import { type UserProfiles, projectProfile, setProjectProfile } from './profile'
+import { type Profile, profileOf } from '../shared/profile'
 import { lastConversation } from './sessions/chatlog'
 import { readReference } from './sessions/reference'
 import { storedConversation } from './sessions/resume'
@@ -65,7 +67,7 @@ function handle(channel: string, fn: (event: Electron.IpcMainInvokeEvent, ...arg
 //           workspace:recent, workspace:forget, workspace:hasExample, workspace:openExample, workspace:keepExample,
 //           object:open, object:rebuild, object:sceneFile,
 //           session:current, session:start, session:trust, session:instructions, session:revealInstruction, session:stop, session:chooseView,
-//           chat:history, chat:lastConversation, chat:reference, chat:changes, chat:undo, chat:send, chat:interrupt, chat:setModel, chat:setEffort, chat:models,
+//           chat:history, chat:lastConversation, chat:reference, chat:changes, chat:undo, chat:send, chat:interrupt, chat:setModel, chat:setEffort, chat:models, profile:choices, profile:savePrinter, profile:saveMaterial, profile:get, profile:set,
 //           marks:list, marks:add, marks:update, marks:acknowledge, marks:remove, marks:restore, marks:replace, marks:problem (also sent to the renderer),
 //           marks:dismissProblem, geometry:describe, geometry:measure,
 //           scans:list, scans:pick, scans:import, scans:convert, scans:rename, scans:remove, scans:align, scans:mesh,
@@ -440,6 +442,10 @@ export function registerIpc(
     sessions?: Sessions
     /** The models the last chat's CLI offered, for a session not started yet. Absent: Claude Code's aliases. */
     knownModels?: KnownModels
+    /** The person's printers and materials (`profiles.json` beside the config file). */
+    userProfiles?: UserProfiles
+    /** The profile of an object changed: its state file is written anew. */
+    onProfile?: (objectId: string) => void
     marks?: MarkStore
     onBuild?: (state: BuildState) => void
     onMarksChecked?: (objectId: string, revision: number | undefined) => void
@@ -760,6 +766,26 @@ export function registerIpc(
     await requireSessions().setMode(String(sessionId), mode)
   })
   handle('chat:models', () => opts.knownModels?.list() ?? [...MODEL_ALIASES])
+
+  // The printer and material of a project (`.torno/profile.json`), and the person's own to choose from.
+  const requireProfiles = (): UserProfiles => {
+    if (!opts.userProfiles) throw new Refusal('Printers and materials are not kept here')
+    return opts.userProfiles
+  }
+  handle('profile:choices', () => opts.userProfiles?.list() ?? { printers: [], materials: [] })
+  handle('profile:savePrinter', (_event, printer: unknown) => requireProfiles().savePrinter(printer).catch((e: Error) => Promise.reject(new Refusal(e.message))))
+  handle('profile:saveMaterial', (_event, material: unknown) => requireProfiles().saveMaterial(material).catch((e: Error) => Promise.reject(new Refusal(e.message))))
+  handle('profile:get', (_event, objectId: string): Profile | null => {
+    const obj = findObject(String(objectId))
+    return (obj ? projectProfile(obj.dir) : undefined) ?? null
+  })
+  handle('profile:set', async (_event, objectId: string, profile: unknown): Promise<Profile | null> => {
+    const obj = findObject(String(objectId))
+    if (!obj) throw new Refusal('That project is not open')
+    const kept = await setProjectProfile(obj.dir, profileOf(profile))
+    opts.onProfile?.(obj.id)
+    return kept ?? null
+  })
 
   // The renderer names the object; the store finds its folder, and rejects an object the workspace does not have.
   handle('marks:list', async (_event, objectId: string) => requireMarks().shown(String(objectId), await requireMarks().list(String(objectId))))

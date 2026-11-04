@@ -9,6 +9,7 @@ import type { Part, Scene } from '../shared/scene'
 import type { SavedView } from '../shared/views'
 import type { ObjectInfo } from '../shared/workspace'
 import { probe } from '../test/diagnosisFixtures'
+import { STARTER_MATERIALS } from '../shared/profile'
 import { StateFiles, stateText, writtenLine } from './statefile'
 
 const part = (layout: string, name: string, min: number[], max: number[]): Part => ({ key: `${layout}:${name}`, name, layout, bbox: { min, max }, bboxExact: true, volumeExact: true }) as Part
@@ -398,5 +399,16 @@ describe('StateFiles', () => {
     fail = false
     failing.changed('bracket')
     await vi.waitFor(() => expect(writes).toBe(1))
+  })
+})
+
+describe('the print profile in the state file', () => {
+  const obj = { id: 'bracket', name: 'bracket', dir: '/ws/bracket', model: 'bracket.py' } as ObjectInfo
+  it('is a section when the project has one, and nothing otherwise', () => {
+    const OK: BuildState = { objectId: 'bracket', status: 'ok', revision: 3, seconds: 1, stale: false }
+    const text = stateText(obj, OK, undefined, [], undefined, undefined, undefined, { material: STARTER_MATERIALS[1] })
+    expect(text).toContain('## Print profile')
+    expect(text).toContain('material PETG')
+    expect(stateText(obj, OK, undefined, [])).not.toContain('Print profile')
   })
 })
