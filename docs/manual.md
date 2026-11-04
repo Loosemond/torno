@@ -1252,7 +1252,9 @@ replace its own proposals (12 at most) and never a view of yours.
 
 `W`, or "All projects" at the top of the list (beside its title once a project is open), shows every project of the folder
 as a card; a workspace of several projects starts there. `/` or a letter
-filters by name, the arrows move, `Enter` opens, `Esc` goes back. A card has:
+filters by name, the arrows move, `Enter` opens, `Esc` goes back. The head (title, buttons,
+filter) stays at the top as the cards scroll. "By name" or "Recently changed" orders the cards; the choice is kept
+for the folder. A card has:
 
 - **A picture** of the project's last build as you last looked at it (its
   layout, the parts switched on, its section or explode), 480 × 360, without
@@ -1263,7 +1265,8 @@ filters by name, the arrows move, `Enter` opens, `Esc` goes back. A card has:
   has changed since` when a `.py` file of the object or of `common/` is newer.
 - **How the build stands**, for a project opened in this run: `Built, r6`,
   building, or failed, with the picture of the last build that worked dimmed.
-  Otherwise `Not opened in this run`.
+  Otherwise `Model saved 3 h ago`, read from the date of its `.py` files
+  (nothing is built for it; the tooltip says `Not opened in this run`).
 - **Marks and dimensions**: how many marks are open and how many are not sent
   yet; how many dimensions fail and pass. Of a project not opened in this run
   there is no verdict, only `1 dimension failed as of its last run`.

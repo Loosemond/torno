@@ -374,7 +374,9 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `standingOf`). Otherwise it is null, and `lastRun` says how many open dimensions the object has and how many
   failed when they were last measured: told as `1 dimension failed as of its last run`, in no colour of a
   verdict, never as a pass. Likewise the build line: of a build of this run it is in ink behind the status
-  line's dot (`buildLine`: `standing`); of an object not opened here it is muted and has no dot.
+  line's dot (`buildLine`: `standing`); of an object not opened here it is muted and has no dot, and says
+  `Model saved N ago` from `sourcesMtimeMs` (the newest `.py` of the object and `common/`, read from the files
+  as `behind` is; absent when it has no model), the plain `Not opened in this run` being its tooltip.
 - **Main alone keeps it** (`show/cards.ts` `keepThumbnail`, `saveThumbnail`, `thumbnailOnFile`; `ipc.ts` only
   joins them to the open workspace): `<object>/.torno/thumb.png` and `thumb.json` (`at`, `layout`, `parts`,
   `model`, `sourcesMtimeMs`, `bytes`, `hash`, and `cut`, `apart`, `hidden` when the picture is cut, drawn
