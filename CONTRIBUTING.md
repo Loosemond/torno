@@ -5,12 +5,9 @@ is as useful as a pull request.
 
 ## Before you start
 
-- **Bugs.** [Open an issue](https://github.com/luisg0nc/torno/issues) and include:
-  - your OS, and on Linux your desktop and whether it runs on Wayland or X11
-  - the torno commit (`git rev-parse --short HEAD`)
-  - the Claude Code and build123d versions (the "Ready to work" block on the first screen shows both)
-  - what you did, what you expected and what happened instead
-  - the model, if you can share it. A small one that shows the problem is best.
+- **Bugs.** [Open an issue](https://github.com/luisg0nc/torno/issues/new/choose) with the bug form. It asks for
+  what a report needs: your platform, the torno commit, the versions the "Ready to work" block shows, what you did
+  and what happened, and a small model that shows the problem if you can share one.
 - **Ideas and bigger changes.** Open an issue first, so we can agree on the shape of it before you spend time on
   code. torno is deliberately not a modeller (no sketcher, no feature tree, no editing solids by hand). The model is
   the Python file, and changes that keep it that way fit best.
