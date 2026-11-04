@@ -679,6 +679,12 @@ export const actions = {
     setColumn({ ...column, folded: { ...column.folded, [section]: folded } })
   },
 
+  /** The width the person gave the left column (null: the default); the window keeps it. */
+  setLeftWidth(width: number | null): void {
+    const { column } = store.getState()
+    if (column.width !== width) setColumn({ ...column, width })
+  },
+
   /** The height the splitter gave the marks, once it is let go; null puts back their share. */
   setMarksHeight(height: number | null): void {
     const { column } = store.getState()

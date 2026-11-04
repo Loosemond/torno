@@ -29,15 +29,15 @@ import { KeySheet, useKeysKey } from './ui/KeySheet'
 import { ReadinessSheet, useReadyFeed } from './ui/Readiness'
 import { Welcome } from './ui/Welcome'
 import { giveKeysBack } from './ui/typing'
+import { LeftEdge } from './ui/LeftEdge'
+import { LEFT_DEFAULT, VIEWPORT_MIN } from './state/column'
 
-const LEFT_WIDTH = 248
 const DOCK_DEFAULT = 520
 const DOCK_MIN = 320
-const VIEWPORT_MIN = 240 // free viewport width the dock always leaves beside the left column
 const KEY_STEP = 16
 
-function clampDock(width: number): number {
-  const max = Math.max(DOCK_MIN, window.innerWidth - LEFT_WIDTH - VIEWPORT_MIN)
+function clampDock(width: number, left: number = LEFT_DEFAULT): number {
+  const max = Math.max(DOCK_MIN, window.innerWidth - left - VIEWPORT_MIN)
   return Math.round(Math.min(Math.max(width, DOCK_MIN), max))
 }
 
@@ -242,6 +242,8 @@ export function App() {
   // React renders once at the end rather than on every pointer move.
   const drag = useRef<{ startX: number; startWidth: number; width: number } | null>(null)
 
+  const leftNow = (): number => document.querySelector('.left')?.getBoundingClientRect().width ?? LEFT_DEFAULT
+
   function onEdgeDown(e: PointerEvent<HTMLDivElement>) {
     if (e.button !== 0) return
     e.currentTarget.setPointerCapture(e.pointerId)
@@ -252,7 +254,7 @@ export function App() {
   function onEdgeMove(e: PointerEvent<HTMLDivElement>) {
     const d = drag.current
     if (!d) return
-    d.width = clampDock(d.startWidth + d.startX - e.clientX)
+    d.width = clampDock(d.startWidth + d.startX - e.clientX, leftNow())
     shell.current!.style.setProperty('--dock-w', `${d.width}px`)
   }
 
@@ -270,7 +272,7 @@ export function App() {
     const way = which(e, 'dock.resize')
     if (way < 0) return
     e.preventDefault()
-    setDockWidth((w) => clampDock(w + (way === 0 ? KEY_STEP : -KEY_STEP)))
+    setDockWidth((w) => clampDock(w + (way === 0 ? KEY_STEP : -KEY_STEP), leftNow()))
   }
 
   // Leaving a workspace ends its sessions. `leaving` is where to, while that is
@@ -391,6 +393,7 @@ export function App() {
         {/* The line that gives the marks more room than their share, from the sections above. */}
         {page === 'object' && <ColumnSplit />}
         {page !== 'new' && <MarksPanel />}
+        <LeftEdge shell={shell} />
       </aside>
 
       <aside className="dock" data-region="session" aria-label="Session" hidden={!dockOpen}>

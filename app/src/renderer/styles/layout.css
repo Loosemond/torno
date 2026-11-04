@@ -330,3 +330,40 @@ button {
   width: 16px;
   height: 16px;
 }
+
+/* The right edge of the left column: a band of 9 px to take hold of, a hairline of the accent when it is hot. */
+.left-edge {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: -5px;
+  z-index: 2;
+  width: 9px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.left-edge::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 2px;
+  background: transparent;
+}
+
+.left-edge:hover::after,
+.left-edge:focus-visible::after,
+.shell[data-resizing-left] .left-edge::after {
+  background: var(--accent);
+}
+
+.left-edge:focus-visible {
+  outline: none;
+}
+
+.shell[data-resizing-left] {
+  cursor: col-resize;
+  user-select: none;
+}

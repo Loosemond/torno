@@ -435,8 +435,8 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   its least), at the drag and whenever the column or a section in it is resized, comes or goes (a `ResizeObserver` and
   a `MutationObserver`): `--marks-h` is the height kept cut to that room, so a shorter window or Parameters coming
   above never push Marks under the status line, `aria-valuenow` is that height, and what is kept is not touched. What is
-  folded and the splitter's height are the window's (`store.column`, in `localStorage` under `torno.column`, read
-  and written in try/catch), never the workspace's.
+  folded, the splitter's height and the column's width are the window's (`store.column`, in `localStorage` under `torno.column`, read
+  and written in try/catch), never the workspace's. The column's right edge (`ui/LeftEdge.tsx`, `role="separator"`, `left.resize` Left/Right) makes it wider than its default 248 px (`LEFT_DEFAULT`), up to what leaves the viewport `VIEWPORT_MIN` beside the dock (`clampLeft`); its drag writes `--left-w` on the shell, a double click puts the default back, and the dock's own limit reads the column's width now.
 - **Objects folds to a switcher by default** (`switcherShown`): folded, with an object open or a new one being
   made, in a workspace of more than one object, the list is one row, the open object's name in ink
   (`ObjectSwitcher`; "New project", pressed, on the page of a new object). Its accessible name is the object's
