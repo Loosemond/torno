@@ -7,7 +7,7 @@ import type { ScanInfo, ScanTransform, ScanView } from '../../shared/scans'
 import type { Camera, SectionPlane, ViewName } from '../../shared/view'
 import type { AlignPoint } from './alignPoints'
 import type { BrushRing } from './brushRing'
-import { CameraMove, standingAt } from './cameraMoves'
+import { CameraMove, pivotOn, standingAt } from './cameraMoves'
 import { PartsApart, asBuilt, drawnAt, drawnBox, reachingApart, leavesView } from './explode'
 import { groundOf } from './ground'
 import { Highlights, MARK_LAYERS, type HighlightLayer } from './highlight'
@@ -17,6 +17,7 @@ import { overlayFonts, type LabelStyle } from './overlay'
 import { OverlayPass } from './overlayPass'
 import { STALE_FADE, colorFor, colorsByName, edgeTint, mix } from '../../shared/palette'
 import { aimKeyLight, makeLights } from './lights'
+import { selectionBox } from './selectionBox'
 import { buildPart, type BuiltPart, disposePart } from './partMesh'
 import { type Hit, pickUnder, pointerRay } from './picking'
 import { NAMED_ASPECT, PictureMaker, type ImageRequest, type Picture } from './picture'
@@ -65,6 +66,10 @@ export class Viewport {
   private readonly orthographic = new THREE.OrthographicCamera()
   private camera: AnyCamera = this.perspective
   private readonly controls: OrbitControls
+  /** Where the last press on the canvas was, and with which button. */
+  private lastDown: { x: number; y: number; button: number } | null = null
+  /** The selection `fit` last framed, until the camera is moved or something else is framed. */
+  private fittedSelection: string | null = null
   private readonly lights = makeLights()
   private readonly keyLight = this.lights.key
   private readonly ground = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial())
@@ -166,6 +171,8 @@ export class Viewport {
     this.controls.screenSpacePanning = true
     this.controls.zoomToCursor = true
     this.controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.PAN }
+    // Before the controls' own listener, so that their `start` knows where the press was.
+    canvas.addEventListener('pointerdown', (e) => (this.lastDown = { x: e.clientX, y: e.clientY, button: e.button }), true)
     this.controls.addEventListener('start', this.onControlStart)
     this.controls.addEventListener('end', this.onControlEnd)
     this.controls.addEventListener('change', this.onCameraChange)
@@ -642,10 +649,28 @@ export class Viewport {
    * Frames the visible parts without turning the camera. Of where the camera is going when it is on its way
    * (a view key pressed just before): the turn is not left halfway.
    */
-  fit(): void {
+  fit(opts?: { selection?: boolean }): void {
     // Framed by the person's own asking: theirs from now, also when the parts come together.
     this.framedApart = null
-    this.fitVisible()
+    // With `selection`: what is selected, and then, pressed again, everything.
+    const refs = opts?.selection ? this.highlights.refsOf('selection') : []
+    const key = refs.join(' ')
+    const box = refs.length > 0 && this.fittedSelection !== key ? selectionBox(this.partNamed, refs) : null
+    if (box) {
+      this.fittedSelection = key
+      this.frameBox(box)
+    } else {
+      this.fittedSelection = null
+      this.fitVisible()
+    }
+  }
+
+  /** Frames a box from the way the camera looks. */
+  private frameBox(box: { min: number[]; max: number[] }): void {
+    const c = this.cameraGoal()
+    const dir = c.target.map((t, i) => t - c.position[i])
+    this.move.drop()
+    this.applyCamera(this.onScreen(box, { dir, up: c.up }, c.ortho))
   }
 
   private fitVisible(): void {
@@ -1167,7 +1192,22 @@ export class Viewport {
   /** The person takes over from a camera move: it stops where it is, and the press is answered from the camera as it is. */
   private readonly onControlStart = (): void => {
     this.navigating = true
+    this.fittedSelection = null
     this.move.drop()
+    // A turn is about what is under the pointer when it starts: only the target moves, along the view.
+    const down = this.lastDown
+    if (down && down.button === 0) this.pivotAt(down.x, down.y)
+  }
+
+  private pivotAt(clientX: number, clientY: number): void {
+    const hit = this.pick(clientX, clientY, { edges: false })
+    const at = this.canvasPoint(clientX, clientY)
+    if (!hit || !at) return
+    const ray = pointerRay(this.camera, at.ndc)
+    const point: Vec3 = [0, 1, 2].map((i) => ray.origin[i] + ray.direction[i] * hit.distance) as Vec3
+    const forward = this.camera.getWorldDirection(new THREE.Vector3()).toArray() as Vec3
+    const target = pivotOn(this.camera.position.toArray() as Vec3, forward, point)
+    if (target) this.controls.target.fromArray(target)
   }
 
   private readonly onControlEnd = (): void => {
