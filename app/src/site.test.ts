@@ -37,6 +37,15 @@ describe('site/index.html', () => {
     for (const from of Object.values(copied)) expect(existsSync(join(root, from)), from).toBe(true)
   })
 
+  it('has no live project, and has the two calls to action', () => {
+    expect(links.filter((u) => /demo\//.test(u))).toEqual([])
+    expect(links).toContain('#run')
+    expect(links.filter((u) => u === 'https://github.com/luisg0nc/torno').length).toBeGreaterThanOrEqual(2)
+    expect(html).toContain('Collaborate on GitHub')
+    expect(links).toContain('https://github.com/luisg0nc/torno/blob/main/CONTRIBUTING.md')
+    expect(links).toContain('https://github.com/luisg0nc/torno/issues')
+  })
+
   it('reduces motion when asked', () => {
     expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)/)
   })

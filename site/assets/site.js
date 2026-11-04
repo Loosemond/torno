@@ -176,3 +176,19 @@
     reveals.forEach(function (r) { ob.observe(r) })
   }
 })()
+
+// Copy button for the commands: shown only where the Clipboard API is there; else the text stays to select.
+;(function () {
+  var btn = document.querySelector('.copy')
+  if (!btn || !navigator.clipboard || !navigator.clipboard.writeText) return
+  btn.hidden = false
+  btn.addEventListener('click', function () {
+    var el = document.getElementById(btn.getAttribute('data-copy'))
+    var done = function (t) { btn.textContent = t; setTimeout(function () { btn.textContent = 'Copy' }, 1800) }
+    navigator.clipboard.writeText(el.textContent).then(function () { done('Copied') }, function () {
+      var r = document.createRange(); r.selectNodeContents(el)
+      var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r)
+      done('Select and copy')
+    })
+  })
+})()
