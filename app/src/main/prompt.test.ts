@@ -150,7 +150,7 @@ describe("Claude Code's prompt, with the skills", () => {
   })
 
   it('names each skill, and keeps what every prompt needs to be read: dimensions listed, scans, refs, the contract', () => {
-    for (const named of ['torno:torno-model', 'torno:build123d', 'torno:scans', 'torno:dimensions']) expect(SYSTEM_PROMPT).toContain(named)
+    for (const named of ['torno:torno-model', 'torno:build123d', 'torno:scans', 'torno:dimensions', 'torno:printing']) expect(SYSTEM_PROMPT).toContain(named)
     // #6: when to ask the reviewer subagent Claude Code is given with --agents; the whole text, of a session without the skills, does not name it.
     expect(SYSTEM_PROMPT).toContain('After a change of several steps, before saying it is done, have the torno-reviewer subagent check it')
     expect(FULL_PROMPT).not.toContain('torno-reviewer')
