@@ -31,7 +31,7 @@ export type KeyScope = 'global' | 'window' | 'viewport' | 'measure' | 'section' 
  * in this order.
  */
 export const TOOL_KEYS = [
-  { name: 'select', label: 'Select', key: 'V', group: 'inspect', does: 'Select: click a face, an edge or a part', next: null },
+  { name: 'select', label: 'Select', key: 'V', group: 'inspect', does: 'Select: click a face or an edge, double-click for its part; Shift-click adds or takes out. The choice by the selection says what a click takes', next: null },
   { name: 'measure', label: 'Measure', key: 'M', group: 'inspect', does: 'Measure: two clicks, or a double click on a round thing; nothing is kept unless you keep it', next: 'Measure: click the first end, or double click something round', then: 'Measure: click the second end' },
   { name: 'section', label: 'Section', key: 'X', group: 'inspect', does: 'Section: cut the parts by a plane', next: 'Section: drag the handle to move the plane' },
   { name: 'pin', label: 'Pin', key: 'P', group: 'mark', does: 'Pin: click a point and leave a note', next: 'Pin: click the part, then write a note' },

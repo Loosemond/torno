@@ -1,7 +1,7 @@
 import { NO_SCAN_YET, doesOf, hint, pressed } from '../../shared/keys'
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { ShapeKind } from '../../shared/marks'
-import { BETWEEN, ROUND, SHAPES, TOOLS, TOOL_GROUPS, setBetween, setRound, setShape, setTool, useBetween, useRound, useShape, useTool, type ToolName } from '../state/tools'
+import { BETWEEN, ROUND, SELECT_SCOPES, SHAPES, TOOLS, TOOL_GROUPS, setBetween, setRound, setSelectScope, setShape, setTool, useBetween, useRound, useSelectScope, useShape, useTool, type ToolName } from '../state/tools'
 import { count } from '../../shared/format'
 import { useRegion } from '../state/region'
 import { keepHeld, useHeld } from '../state/measured'
@@ -75,6 +75,7 @@ export function ToolPalette() {
   return (
     <>
     {tool === 'measure' && <MeasureChoice />}
+    {tool === 'select' && <SelectChoice />}
     <div className="toolbox" role="toolbar" aria-label="Tools" aria-orientation="vertical">
       {TOOL_GROUPS.map((g, i) => (
         <Fragment key={g.group}>
@@ -250,6 +251,22 @@ function MeasureChoice() {
         <kbd className="num">{hint('measure.wall')}</kbd> thickness
       </span>
       <MeasureLast />
+    </div>
+  )
+}
+
+/** In the same corner while the Select tool is in hand: what a click takes. It holds from then on. */
+function SelectChoice() {
+  const scope = useSelectScope()
+  return (
+    <div className="measure-choice" role="group" aria-label="What a click selects">
+      <div className="segmented" role="group" aria-label="A click selects">
+        {SELECT_SCOPES.map((c) => (
+          <button key={c.scope} type="button" title={c.title} aria-pressed={c.scope === scope} onClick={() => setSelectScope(c.scope)}>
+            {c.label}
+          </button>
+        ))}
+      </div>
     </div>
   )
 }
