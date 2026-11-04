@@ -72,6 +72,21 @@ def build_timeout(value: Any) -> float | None:
     return min(float(value), MAX_TIMEOUT)
 
 
+def _is_overrides(value: Any) -> bool:
+    """Field name to a bool, a finite number or a string: the only values a field of `Params` is offered with."""
+    return (
+        isinstance(value, dict)
+        and len(value) <= 1000
+        and all(
+            isinstance(k, str)
+            and isinstance(v, (bool, int, str, float))
+            and (not isinstance(v, float) or math.isfinite(v))
+            for k, v in value.items()
+        )
+        and _unwritable(value) is None
+    )
+
+
 def _is_result(header: Any) -> bool:
     """Whether a worker's frame is a build result: ``ok`` with a scene, or not with an error.
 
@@ -344,9 +359,13 @@ class Supervisor:
                 id, "bad_request", "build timeout must be a positive, finite number of seconds"
             )
             return
+        overrides = request.get("overrides")
+        if overrides is not None and not _is_overrides(overrides):
+            self._fail(id, "bad_request", "build overrides must be an object of field name to a bool, number or string")
+            return
         self._cancel_building("replaced by a newer build")
         retired = self._make_room(dir)
-        self._building = self._fork(id, dir, model, timeout)
+        self._building = self._fork(id, dir, model, timeout, overrides)
         started = {"id": id, "event": "build.started", "pid": self._building.pid}
         self._send({**started, "retired": retired})
 
@@ -437,7 +456,9 @@ class Supervisor:
 
     # Workers
 
-    def _fork(self, id: Any, dir: str, model: str, timeout: float) -> _Worker:
+    def _fork(
+        self, id: Any, dir: str, model: str, timeout: float, overrides: dict[str, Any] | None = None
+    ) -> _Worker:
         ours, theirs = socket.socketpair()
         if sys.platform == "darwin":
             # For speed only: a system that refuses the size keeps its own, and the build goes on.
@@ -459,7 +480,7 @@ class Supervisor:
                 for live in self._live.values():
                     live.sock.close()
             finally:
-                worker_module.run(theirs, capture.fileno(), dir, model, parent, deadline)
+                worker_module.run(theirs, capture.fileno(), dir, model, parent, deadline, overrides)
         theirs.close()
         ours.setblocking(False)
         now = time.monotonic()

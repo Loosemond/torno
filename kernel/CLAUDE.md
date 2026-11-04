@@ -263,6 +263,16 @@ is the detail of this folder, under the headings it has there.
   (`loader.read_params`: name, type as written, default, whether that default is a literal in the source, the
   field's comment) and the build's scene carries it as `params`; `scene` lists it. Nothing in torno writes the
   model file: it is the person's, outside `.torno/`. A `Params` that cannot be read is no failure: `[]`.
+  Each field also says `value` (what this build used), `editable` (`float`, `int`, `bool` or `choice`: only a field
+  whose default is a literal number or bool, or a `Literal` of literals, with a default among them), `choices` and
+  `metadata` (the plain numbers `min`, `max`, `step` of the field's own `metadata`).
+- **A build may carry overrides of `Params`** (`overrides`, field name to a bool, number or string; anything
+  else is a `bad_request`). The loader makes every `Params()` it calls (`assembly`, `printables`, `make_<part>`,
+  `groups`, `checks`) as `dataclasses.replace(Params(), **applied)` (`loader._params`); `apply_overrides` takes only
+  an `editable` field's value of its type (a whole number for a float is made a float, a bool is no number), and
+  drops the rest. The scene's `overrides` says `applied` and `dropped` (`name`, `reason` naming the type wanted),
+  so none is lost silently. A range in a field's metadata is for the window to keep, not enforced here. A model
+  that makes `Params()` itself, not taking `p`, does not see an override.
 - **Groups are read by the worker too.** Under the `Params` convention, an optional `groups(p)` (group name to
   part names) is called with `Params()` by `loader._groups`, inside the load's `try`, and checked against the
   part names of every layout: a dict of str to a list of str, no empty group or name, no `/`, not `M<n>`, not a

@@ -85,7 +85,20 @@ def test_build_bracket_replies_started_then_scene_and_blob(kernel, ws):
     assert scene["seconds"] > 0
     assert scene["output"] == ""
     # The model's Params, read by the worker that built it.
-    assert scene["params"] == [{"name": "width", "type": "float", "default": 40, "literal": True, "doc": None}]
+    assert scene["params"] == [
+        {
+            "name": "width",
+            "type": "float",
+            "default": 40,
+            "value": 40,
+            "literal": True,
+            "editable": "float",
+            "choices": None,
+            "metadata": {},
+            "doc": None,
+        }
+    ]
+    assert scene["overrides"] == {"applied": {}, "dropped": []}
     assert scene["groups"] == []
     assert scene["uses"] == []
     bufs = [buf for p in scene["parts"] for buf in p["mesh"].values()]
@@ -175,6 +188,24 @@ def test_timeout_that_is_not_a_positive_finite_number_is_a_bad_request(kernel, w
             "message": "build timeout must be a positive, finite number of seconds",
         },
     }
+
+
+def test_a_build_carries_overrides_of_params_and_the_scene_says_what_it_took(kernel, ws):
+    reply, _ = kernel.build(ws / "bracket", "bracket.py", overrides={"width": 55.5, "gone": 1})
+    assert reply["ok"], reply
+    scene = reply["scene"]
+    assert scene["overrides"]["applied"] == {"width": 55.5}
+    assert [d["name"] for d in scene["overrides"]["dropped"]] == ["gone"]
+    assert [(p["default"], p["value"]) for p in scene["params"]] == [(40, 55.5)]
+
+
+@pytest.mark.parametrize("overrides", ["[1]", '"x"', '{"a": null}', '{"a": [1]}', '{"a": {"b": 1}}', '{"a": NaN}'])
+def test_overrides_that_are_no_object_of_plain_values_are_a_bad_request(kernel, ws, overrides):
+    dir = str(ws / "bracket")
+    kernel.send_raw(f'{{"id":"t","op":"build","dir":"{dir}","model":"bracket.py","overrides":{overrides}}}')
+    reply, _ = kernel.recv(5)
+    assert reply["ok"] is False and reply["error"]["kind"] == "bad_request"
+    assert "overrides" in reply["error"]["message"]
 
 
 def test_enormous_timeout_is_capped_and_the_build_runs(kernel, ws):
@@ -880,7 +911,7 @@ def test_scene_that_cannot_be_serialised_is_an_exception_reply(monkeypatch):
     from torno_kernel import loader, tess, worker
     from torno_kernel.frames import read_frame
 
-    monkeypatch.setattr(loader, "load_model", lambda dir, model: ({"main": {}}, [], [], []))
+    monkeypatch.setattr(loader, "load_model", lambda dir, model, overrides=None, report=None: ({"main": {}}, [], [], []))
     scene = {"model": "nan.py", "layouts": ["main"], "parts": [{"volume": float("nan")}]}
     monkeypatch.setattr(tess, "build_scene", lambda layouts, model, kept: (scene, b"blob", {"k": 1}))
     channel = io.BytesIO()
@@ -1576,7 +1607,7 @@ def memory(routed, monkeypatch, available, rss):
     monkeypatch.setattr(supervisor, "_rss", lambda pid: rss.get(pid))
     forked = []
 
-    def fork(id, dir, model, timeout):
+    def fork(id, dir, model, timeout, overrides=None):
         forked.append(routed.worker(dir, request_id=id))
         return forked[-1][0]
 
