@@ -17,6 +17,17 @@ _PRINT_FUNCTIONS = ("printables", "printable")
 _MAKER_PREFIX = "make_"
 
 
+class Layouts(dict):
+    """The model's layouts, layout → name → shape, and which of the parts in them are ``references``: bought
+    parts the model puts in the assembly to be seen and checked against, never printed, counted or exported
+    as a part (``references(p)``), and the ``tags`` the model gave the faces and edges of their parts (``_tags``):
+    ``(layout, part)`` → tag → ``{"faces": [...], "edges": [...]}``. A dict in every other respect, so what reads
+    layouts reads this."""
+
+    references: frozenset[str] = frozenset()
+    tags: dict[tuple[str, str], dict[str, dict[str, list[int]]]] = {}  # noqa: RUF012 - replaced, never changed in place
+
+
 class LoadError(Exception):
     """A model could not be found or loaded. ``kind`` is a protocol error kind."""
 
@@ -47,12 +58,6 @@ def choose_model(dir: Path) -> Path:
     raise LoadError("no_model", f"more than one model file in {dir}: {names}")
 
 
-class Layouts(dict):  # type: ignore[type-arg]
-    """The layouts of a scene, layout → name → shape, and the tags the model gave their parts (``_tags``)."""
-
-    tags: dict[tuple[str, str], dict[str, dict[str, list[int]]]]
-
-
 def load_scene(dir: Path, model: str) -> dict[str, dict[str, Any]]:
     """Import ``dir/model`` and return its scene as layout → name → shape."""
     return load_model(dir, model)[0]
@@ -67,9 +72,11 @@ def load_model(
     try:
         module = _import_model(path)
         scene = _collect_scene(module)
+        scene = _references(module, scene) if scene else scene
         groups = _groups(module, scene) if scene else []
         checks = _checks(module, scene, groups) if scene else []
-        scene = Layouts(scene)
+        if not isinstance(scene, Layouts):
+            scene = Layouts(scene)
         scene.tags = _tags(module, scene) if scene else {}
     except LoadError:
         raise
@@ -112,6 +119,63 @@ def used_files(dir: Path, model: str) -> list[str]:
 
 
 _MARK_ID = re.compile(r"M\d+")
+
+
+# The layout of parts to print: bought parts have no place in it.
+_NOT_FOR_REFERENCES = "print"
+
+
+def _references(module: ModuleType, scene: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """The model's ``references(p)``: bought parts (name → shape, in the frame of the assembly) added to every layout
+    but the one to print, and named in the ``Layouts`` returned.
+
+    Read only under the ``Params`` convention; the scene as it was without it. A reference is a part for everything
+    that looks at the build (it is drawn, picked, measured, and a ``clearance`` or ``overlap`` may name it) and not
+    for what makes a thing (the print layout, ``bed``, ``mass``, a mesh export). What is wrong with it fails the build.
+    """
+    function = getattr(module, "references", None)
+    if not callable(function) or not hasattr(module, "Params"):
+        return scene
+    made = function(module.Params())
+    shape = "references() must return a dict of name to shape"
+    if not isinstance(made, dict):
+        raise LoadError("exception", f"{shape}, got {type(made).__name__}")
+    parts = {name for layout in scene.values() for name in layout}
+    for name, value in made.items():
+        if not isinstance(name, str) or not name:
+            raise LoadError("exception", f"{shape}, got the name {name!r}")
+        if "/" in name:
+            raise LoadError("exception", f"references(): a reference name has no /: {name}")
+        if _MARK_ID.fullmatch(name):
+            raise LoadError("exception", f"references(): {name} has the form of a mark's id; name it otherwise")
+        if name in parts:
+            raise LoadError("exception", f"references(): {name} is also the name of a part; a reference has a name of its own")
+        if not _is_solid_shape(value):
+            raise LoadError("exception", f"references(): {name} is not a shape with a solid in it, got {type(value).__name__}")
+    if not made:
+        return scene
+    into = [layout for layout in scene if layout != _NOT_FOR_REFERENCES]
+    if not into:
+        raise LoadError(
+            "exception", "references() need an assembly(p) (or make_<part>(p) parts) to stand in: the print layout has none of them"
+        )
+    laid = Layouts({layout: dict(named) for layout, named in scene.items()})
+    one = {name: _one_shape(value) for name, value in made.items()}
+    for layout in into:
+        laid[layout].update(one)
+    laid.references = frozenset(one)
+    return laid
+
+
+def _one_shape(value: Any) -> Any:
+    """A bought part as one shape. A library's part (a bearing from bd_warehouse, a STEP with an assembly in it) is a
+    compound of children, a ball, a ring, a cage; those cannot be drawn as a part, so it is taken as the compound of
+    its solids (where they are), which keeps the geometry and loses the labels."""
+    if not getattr(value, "children", None):
+        return value
+    from build123d import Compound
+
+    return Compound(list(value.solids()))
 
 
 def _groups(module: ModuleType, scene: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:

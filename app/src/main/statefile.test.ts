@@ -90,6 +90,12 @@ describe('stateText', () => {
     expect(stateText(obj, OK, { revision: 3, scene: SCENE }, [])).not.toContain('≈')
   })
 
+  it('marks a reference (a bought part) in the list of parts', () => {
+    const parts = [part('assembly', 'base', [0, 0, 0], [10, 10, 2]), { ...part('assembly', '608', [0, 0, 0], [22, 22, 7]), role: 'reference' as const }]
+    const text = stateText(obj, OK, { revision: 3, scene: { ...SCENE, layouts: ['assembly'], parts } }, [])
+    expect(text).toContain('- assembly: base 10 × 10 × 2 mm, 608 (reference) 22 × 22 × 7 mm')
+  })
+
   it("names the model's groups of parts in each layout that has any of their parts, before the parts", () => {
     const parts = [part('assembly', 'flat-a', [0, 0, 0], [10, 10, 2]), part('assembly', 'flat-b', [20, 0, 0], [30, 10, 2]), part('assembly', 'key', [0, 30, 0], [4, 34, 4]), part('print', 'key', [0, 30, 0], [4, 34, 4])]
     const scene = { ...SCENE, layouts: ['assembly', 'print'], parts, groups: [{ name: 'flat', parts: ['flat-a', 'flat-b'] }] }

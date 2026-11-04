@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PALETTE, colorFor, colorsByName, edgeTint, mix } from './palette'
+import { PALETTE, REFERENCE_COLOR, colorFor, colorsByName, colorsOfParts, edgeTint, mix } from './palette'
 
 const HEX = /^#[0-9A-F]{6}$/i
 
@@ -37,6 +37,17 @@ describe('colorsByName', () => {
 
   it('does not depend on the order parts arrive in', () => {
     expect(colorsByName(['lid', 'base']).get('lid')).toBe(colorsByName(['base', 'lid', 'base']).get('lid'))
+  })
+})
+
+describe('colorsOfParts', () => {
+  it('draws a reference in the neutral tone and gives it no place in the palette', () => {
+    const colors = colorsOfParts([{ name: 'lid' }, { name: '608', role: 'reference' }, { name: 'base' }])
+    expect(colors.get('608')).toBe(REFERENCE_COLOR)
+    expect(PALETTE).not.toContain(REFERENCE_COLOR)
+    // As if the bearing were not there: adding one to a model changes no part's colour.
+    expect(colors.get('base')).toBe(colorsByName(['base', 'lid']).get('base'))
+    expect(colors.get('lid')).toBe(colorsByName(['base', 'lid']).get('lid'))
   })
 })
 

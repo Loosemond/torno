@@ -20,6 +20,7 @@ from .queries import (
     box_of,
     boxed_exactly_of,
     need_layout,
+    need_made,
     need_solid,
     resolve,
     volume_of,
@@ -568,6 +569,7 @@ def _mass(
     if not usable:
         raise QueryError("bad_request", "density is a positive number, in g/cm³")
     need_solid(target.shape, target.key)
+    need_made(kept, target.key, target.ref or target.key, "a mass")
     volume = volume_of(target.shape, target.key, kept)
     how = f"PLA {number(PLA)} g/cm³ (default)" if default else f"at {number(density)} g/cm³"
     if not volume.exact:

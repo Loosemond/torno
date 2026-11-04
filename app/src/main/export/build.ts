@@ -6,7 +6,7 @@ import { type ExportData, type ExportMark, type ExportObject, type ExportPart, t
 import { isFaceted } from '../../shared/faceted'
 import { count, number } from '../../shared/format'
 import { type Mark, type Vec3, isUnchecked, markAnchors, markEndParts, shapeOutline, strokePoints } from '../../shared/marks'
-import { colorFor, colorsByName } from '../../shared/palette'
+import { colorFor, colorsOfParts } from '../../shared/palette'
 import { meshIdentity } from '../../shared/regions'
 import { type ScanInfo, alignmentOf, parseScanMesh } from '../../shared/scans'
 import { type Part, type Scene, bufView } from '../../shared/scene'
@@ -173,7 +173,7 @@ const exportable = (mark: Mark): mark is Exclude<Mark, { kind: 'region' }> => ma
 
 /** The colour of each part as torno draws it, by name: the one the person gave it, or the palette's. */
 export function partColors(scene: Scene, file: SceneFile): Map<string, string> {
-  const palette = colorsByName(scene.parts.map((part) => part.name))
+  const palette = colorsOfParts(scene.parts)
   return new Map(
     scene.parts.map((part) => {
       const layer = own(file.layers, part.name)
@@ -397,7 +397,7 @@ export async function exportPlan(deps: ExportDeps, req: ExportRequest, assets: P
       scans: placedScans(scans, scene.layouts).map(({ scan }) => ({ id: scan.id, name: scan.name, triangles: scan.imported.triangles })),
       layoutParts: scene.layouts.map((layout) => ({
         layout,
-        parts: scene.parts.filter((part) => part.layout === layout).map((part) => ({ name: part.name, solid: hasSolid(part), ...(off.has(part.name) ? { off: true as const } : {}), ...(part.arranged?.some((d) => d !== 0) ? { arranged: true as const } : {}) }))
+        parts: scene.parts.filter((part) => part.layout === layout).map((part) => ({ name: part.name, solid: hasSolid(part), ...(off.has(part.name) ? { off: true as const } : {}), ...(part.arranged?.some((d) => d !== 0) ? { arranged: true as const } : {}), ...(part.role === 'reference' ? { reference: true as const } : {}) }))
       }))
     })
   }

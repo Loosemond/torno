@@ -52,7 +52,7 @@ export function RefChip({ value, prose = false, of }: { value: string; prose?: b
       onClick={(e) => {
         if (info.act === 'focus') actions.focusMark(value)
         else if (info.act === 'build') actions.setErrorOpen(true)
-        else actions.setSelection([value])
+        else actions.setSelection(info.lights.length > 0 ? info.lights : [value])
         // Made with the pointer, the next letter is the view's: what the chip did, it did to the view. (Enter on it keeps the focus.)
         if (e.detail > 0) giveKeysBack(e.currentTarget)
       }}

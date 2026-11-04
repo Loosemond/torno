@@ -60,7 +60,7 @@ export function stateText(obj: ObjectInfo, build: BuildState | undefined, last: 
       const parts = last.scene.parts.filter((p) => p.layout === layout)
       const groups = groupsIn(last.scene, layout)
       const grouped = groups.length > 0 ? `groups ${groups.map((g) => `${g.name} (${g.parts.join(', ')})`).join(', ')}; ` : ''
-      lines.push(`- ${layout}: ${grouped}${parts.map((p) => `${p.name} ${p.bboxExact === true ? '' : '≈ '}${sizes(p.bbox.max.map((max, i) => toHundredth(max - p.bbox.min[i])))} mm`).join(', ') || 'no parts'}`)
+      lines.push(`- ${layout}: ${grouped}${parts.map((p) => `${p.name}${p.role === 'reference' ? ' (reference)' : ''} ${p.bboxExact === true ? '' : '≈ '}${sizes(p.bbox.max.map((max, i) => toHundredth(max - p.bbox.min[i])))} mm`).join(', ') || 'no parts'}`)
     }
     // Exact only where the kernel says so.
     if (last.scene.parts.some((p) => p.bboxExact !== true)) lines.push('', 'A size with ≈ is approximate (the part has freeform or turned faces): measure it for a number to rely on.')

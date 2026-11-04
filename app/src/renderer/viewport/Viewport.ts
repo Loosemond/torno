@@ -17,7 +17,7 @@ import { overlayFonts, type LabelStyle } from './overlay'
 import { OverlayPass } from './overlayPass'
 import { partChanged } from '../../shared/diff'
 import { Ghosts, type GhostItem } from './ghosts'
-import { STALE_FADE, colorFor, colorsByName, edgeTint, mix } from '../../shared/palette'
+import { STALE_FADE, colorFor, colorsOfParts, edgeTint, mix } from '../../shared/palette'
 import { aimKeyLight, makeLights } from './lights'
 import { selectionBox } from './selectionBox'
 import { buildPart, type BuiltPart, disposePart } from './partMesh'
@@ -302,7 +302,7 @@ export class Viewport {
 
     this.layouts = [...scene.layouts]
     if (!this.layouts.includes(this.layout)) this.layout = this.layouts[0] ?? ''
-    this.colors = colorsByName(scene.parts.map((p) => p.name))
+    this.colors = colorsOfParts(scene.parts)
     this.refresh()
     this.showGhosts(stood)
 

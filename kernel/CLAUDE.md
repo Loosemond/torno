@@ -308,8 +308,9 @@ is the detail of this folder, under the headings it has there.
   name to tag name to a face, an edge or a list of them. Each is matched to the kernel's index by `IsSame` in
   `TopExp.MapShapes` maps, the same as `topo` walks, in `load_model`, before `tess.build_scene` runs `arrange.spread`
   (a moved shape is no longer the same one; the order of faces and edges survives it). They travel with the layouts
-  (`loader.Layouts.tags`, `(layout, part)` → tag → `{"faces": [...], "edges": [...]}`, empty lists left out), so
-  `load_model` still returns four things. A tag that is not a letter or `_` then letters, digits, `_ . -`, a part no
+  (`loader.Layouts.tags`, `(layout, part)` → tag → `{"faces": [...], "edges": [...]}`, empty lists left out; the one
+  `Layouts` class that also holds `references`), so `load_model` still returns four things. References are in the
+  assembly's dict only, so a `tags` that takes a face of one guards `if name in parts`. A tag that is not a letter or `_` then letters, digits, `_ . -`, a part no
   layout has, a result of the wrong shape, an empty list, a shape that is not a face or an edge, or one the part
   does not have (a face of another part or taken before the part was changed: the tag is stale) fails the build as
   an `exception` that says which; a part named that this layout lacks but another has is skipped. The scene carries
@@ -330,6 +331,21 @@ is the detail of this folder, under the headings it has there.
   results as `checks`: `status` (`pass`, `fail`, `error` for one that could not be measured, `not run`), `value`,
   `unit`, `min`, `max`, `exact` and `how` of the kernel, and the `declared` dict. A check that does not pass never
   fails the build; a `thin` that finds none says so by sampling, never as a proof.
+
+- **References are bought parts, read by the worker** (`loader._references`). Under the `Params` convention an optional
+  `references(p)` (name to shape, in the assembly's frame) is called with `Params()` after the layouts are collected and
+  before `groups(p)` and `checks(p)`, which may name them. They are added to every layout but `print` (a model with
+  only a print layout fails the build, saying it needs an assembly), as `loader.Layouts`, a dict that also holds which
+  names are references (`Layouts.references`), so the signature of `load_model` is as it was. A shape with children (a
+  bearing of bd_warehouse, a STEP with an assembly in it) is taken as the compound of its solids, where they are. A
+  name is refused when it is a part's, has a `/`, has the form `M<n>`, or the value has no solid. A vendor STEP is
+  read by the model itself (`import_step`); the kernel reads no file. `tess.build_scene` tells such a part `role:
+  "reference"` and notes it in `kept[("reference", key)]` (`queries.is_reference`), which is all the queries know.
+  A reference is an obstacle: `clearance`, `overlap` and `interference` take it against the parts (`interference`
+  never against another reference, and names them in `references`). It is not made: `bed` leaves it out (and says
+  so), `mass`, `mesh`, `overhang`, `thin` and a STL or 3MF refuse it (`queries.need_made`; a group in a model's
+  `thin`, `overhang` or `mesh` check skips them, and naming one is refused when the model loads), while a STEP may
+  hold it when asked. `describe` says `role: "reference"`.
 
 - **The scene says what the model imported (`uses`).** After the load, the worker (`loader.used_files`, from
   `sys.modules`, never from a declaration) lists the Python files under the workspace (the folder above the

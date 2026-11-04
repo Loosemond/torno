@@ -37,6 +37,14 @@ describe('makeSectionDrawing', () => {
     expect(made.svg).toContain('tub 800 mm²')
   })
 
+  it('puts what the build was made from in the title block, when it is known', async () => {
+    const asked: number[] = []
+    const made = await makeSectionDrawing(deps({ identity: (_id, revision) => (asked.push(revision), { sources: '9f3e1a2b4c5d', head: 'a1b2c3d', dirty: true }) }), 'hollow')
+    expect(asked).toEqual([4])
+    expect(made.svg).toContain('sources 9f3e1a2b4c5d, on a1b2c3d with changes')
+    expect((await makeSectionDrawing(deps(), 'hollow')).svg).not.toContain('Source')
+  })
+
   it('names the parts that are on only when some are switched off', async () => {
     const asked: unknown[] = []
     await makeSectionDrawing(deps({ asked, view: () => view({ visible: ['assembly:tub'] }) }), 'hollow')
@@ -50,10 +58,5 @@ describe('makeSectionDrawing', () => {
     await expect(makeSectionDrawing(deps({ query: (async () => ({ ...cut, parts: [], bounds: null })) as SectionDeps['query'] }), 'hollow')).rejects.toThrow(NOTHING_CUT)
     let revision = 4
     await expect(makeSectionDrawing(deps({ last: () => ({ revision, scene }), query: (async () => ((revision = 5), cut)) as SectionDeps['query'] }), 'hollow')).rejects.toThrow(NEW_BUILD)
-  })
-
-  it('leaves the source out until torno knows it', async () => {
-    expect((await makeSectionDrawing(deps(), 'hollow')).svg).not.toContain('Source')
-    expect((await makeSectionDrawing(deps({ source: () => 'abc123' }), 'hollow')).svg).toContain('abc123')
   })
 })

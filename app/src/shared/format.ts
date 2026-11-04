@@ -70,7 +70,7 @@ export function count(n: number): string {
 }
 
 /** What names a build (`r12`) or a part's face or edge (`plate/E7`) in a sentence. */
-const NAMED = /(\br\d+\b|[\w.-]+\/[FE]\d+\b)/
+const NAMED = /(\br\d+\b|[\w.-]+\/(?:[FE]\d+|@[A-Za-z_]\w*(?:[.-]\w+)*)\b)/
 
 /**
  * A sentence in pieces: every second one, from the second, names a build or

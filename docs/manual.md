@@ -39,7 +39,9 @@ Linux or macOS. Developed on Arch with Wayland (Hyprland). macOS is tested on Gi
   kernel in that environment with `uv run --no-sync` and never changes it. A
   workspace with no `pyproject.toml` is built with the build123d of torno's
   own kernel environment (`kernel/.venv`, which uv makes the first time it is
-  needed).
+  needed), which also has `bd_warehouse` (screws, nuts, clearance holes,
+  bearings), so a model there can import it. A workspace with its own
+  `pyproject.toml` has `bd_warehouse` only if it lists it.
 - Importing a scan needs `trimesh` and `pillow`, which uv fetches the first
   time a scan is imported. The checks against a scan use the `scipy` of the
   workspace's environment, which build123d brings.
@@ -333,6 +335,23 @@ first: the mark follows the face by its name when the numbers shift, or the face
 brings it back. A tag that names nothing the part has (a shape of another part, a face taken before an edit, an empty
 list) fails the build and says which. torno never writes `tags(p, parts)`.
 
+**Bought parts.** A printed part is usually made around something bought: a screw, a bearing, a board. A model says so
+with an optional `references(p)` beside `assembly` (name to shape, in the assembly's frame):
+
+```python
+def references(p: Params):
+    return {"608": Pos(0, 0, 4) * SingleRowDeepGrooveBallBearing(size="M8-22-7", bearing_type="SKT")}
+```
+
+A reference is drawn in a neutral grey, listed in Layers with the tag "bought", and picked and measured like a part. It is an
+obstacle: `check clearance`, `overlap` and `interference` take it against the parts (never one reference against another), and
+`checks(p)` and `groups(p)` may name it. It is not made: it is in no `print` layout, not counted by `check bed`, has no mass, takes no
+`thin`, `overhang` or `mesh` check, and is in no STL or 3MF; a STEP holds it only when ticked in the export sheet. Its name is
+its own (not a part's, no `/`, not of the form `M<n>`), and a model with only a `print` layout cannot have one. Standard parts come
+from `bd_warehouse`, which torno's own kernel environment has (`simple=True` for a screw); a vendor's STEP is read by the
+model itself (`import_step`) and returned among the references, as torno reads no file of its own accord. A reference that is a
+library's compound of many solids is taken as the solids it holds, in one shape.
+
 **Builds.** Saving a file in the project's folder (dotfiles, `out/`, `cache/`,
 `.torno/` and `__pycache__/` are ignored, as are `build/`, `dist/`,
 `node_modules/`, `.venv/` and `.git/`) or in the workspace's `common/` starts
@@ -487,6 +506,11 @@ hold, sizes you know, how it will be made), and then for what you have, each wit
   scaled to 1280 px on its long edge; the original is copied to `reference/photo-<n>.<ext>` in the project.
 - **Doodles** ("Draw…"): up to 6, drawn on a board (below). Claude gets each as a PNG with dark ink on white,
   over a light grid (1 square = 40 px of the board, no scale, and the prompt says so), whichever theme you drew it in, and `reference/` keeps it.
+- **Bought parts** ("Add a bought part…", or dropped): a vendor's STEP file (`.step` or `.stp`) of a screw, a bearing, a
+  board, a motor; up to 4, 50 MB each (a larger file is refused, and is never read whole). The file is copied as it is into `reference/` under its own name
+  (made safe for a file name; `608zz.step`, or `608zz-2.step` if two have the name), and the prompt names it and tells Claude to read it in the
+  model with `import_step` and return it among `references(p)` (see "Bought parts" under the model), not as a part to print. torno reads
+  nothing of it itself.
 - **Scans** ("Add a scan…", or dropped): up to 4. They are imported into the project as "Import scan…" does, not
   copied and not aligned; Claude is told each scan's file name and id, and that it is not aligned (you align it in
   torno); `brief.md` keeps the path it came from, with `~` for your home folder.
@@ -511,7 +535,7 @@ cube, to be replaced), `brief.md` (your words and a line for each reference with
 `.torno/` folder is made as for any project. It is made in a hidden temporary folder beside it and renamed into
 place as the last step, so it is whole or not there, and it never goes into or over a folder that exists (an
 empty one of that name is used). A temporary folder a crash left is swept away at the next opening of the
-workspace once it is ten minutes old, unless it holds files in `reference/` (your doodles may be nowhere else):
+workspace once it is ten minutes old, unless it holds files in `reference/` (your doodles and STEP files may be nowhere else):
 such a leftover, a hidden `.<name>.torno-new-<hex>` folder in the workspace, is yours to look at and delete. Then torno opens the project, imports the scans, starts Claude Code in a
 chat and sends one prompt with everything. The prompt asks Claude to list the sizes that decide fit or function and
 say where each comes from (your words, a note, a scan, another project, or nowhere), and to ask you for those that come
@@ -713,9 +737,10 @@ is a new line, and a prompt sent while the agent is at work waits its turn
   can be done wrongly, and the sheet "See changes" shows what the file is
   now. Nothing is kept of a turn of an earlier session, so there is no
   "Undo" there.
-- **Refs are live.** `M4`, `lid/F12` and `lid/E3` in the agent's text and in
+- **Refs are live.** `M4`, `lid/F12`, `lid/E3` and `lid/@top` (a name the model
+  gives a face or an edge) in the agent's text and in
   the cards are chips: hovering one lights it in the view, clicking a mark
-  focuses it, clicking a face or an edge selects it. A ref that names nothing
+  focuses it, clicking a face or an edge selects it (a name of several selects them all). A ref that names nothing
   now (a mark that is gone, a part not shown) says why and does nothing. What is
 no ref of this project is only text: an `M3` clearance hole when the project has
 no mark `M3`, a build `r9` that has not been made, a part the build does not have.
@@ -874,8 +899,8 @@ that leave a valid but wrong part (a boolean that lost volume, an edge taken fro
 an older shape), the usual OCCT errors (fillets, booleans, `StdFail_NotDone`; of a
 failed fillet, to read why and try one with `try_fillet` before editing again), an
 API reference of build123d 0.13.0 that the agent searches offline in any
-workspace, and the sizes of screw, nut and insert holes (`bd_warehouse` is not in
-torno's kernel); `torno:scans` and `torno:dimensions` what the
+workspace, and the sizes of screw, nut and insert holes and how to use `bd_warehouse`
+(which torno's kernel has) and `references(p)` for bought parts; `torno:scans` and `torno:dimensions` what the
 instructions would otherwise say of scans and of dimensions; `torno:printing`
 the rules of a part for an FDM printer (fits per side, walls as multiples of the
 line width, overhangs, holes, orientation and the bed), with typical numbers
@@ -1695,7 +1720,7 @@ the pointer, which has no keys:
 <!-- pointer: generated from POINTER in app/src/shared/pointer.ts; `TORNO_README=write pnpm -C app exec vitest run src/readme.test.ts` writes it -->
 | Pointer | What it does |
 |---|---|
-| Drag | Turn the view; with Arrow or Draw in hand, a drag that starts on the part draws instead |
+| Drag | Turn the view about the point under the pointer; with Arrow or Draw in hand, a drag that starts on the part draws instead |
 | Right drag | Pan the view (a middle drag does too) |
 | Scroll | Zoom, towards the pointer |
 | Double click | With Measure in hand: measure something round, its diameter or its radius |
@@ -2213,6 +2238,22 @@ On the screen:
 - **Torno left on another workspace with a session working.** Give the agent something that takes minutes, or start a long build, and switch to another workspace for ten minutes, watching `ps -o rss -p <pid of the window>`: its memory stays flat and torno idles near zero. Idle with a large project it did; with a session working nobody has watched it.
 - **An exported file elsewhere.** Open one from `file://` in Firefox, in Safari and on a phone, with the network off, and look: parts, layouts, the explode slider, the section, a saved view and the marks work. Headless Firefox drew the parts; nobody has looked at it by eye there, or anywhere but in Electron's Chromium.
 - **The desktop entry.** `scripts/torno --install-desktop`, then start torno from your launcher: it is listed with its icon, the window comes up and is grouped under the entry (`StartupWMClass=torno`) with torno's icon. Given a folder (`gtk-launch torno ~/objects`) it opens that folder; given two, it refuses. With `claude` only on the `PATH` of a login shell, "New session" says it was not found there: start torno from a terminal, or put the command on the launcher's `PATH`.
+- **Build ghosts.** After an edit, the part as it was is drawn faint beside the new one: legible in light and dark, and gone when the next build lands.
+- **The section's hatch and plane label.** Cut a part: the cut face is hatched and the plane is named at its edge; both legible in light and dark, and the label clear of the bars.
+- **The Marks panel's resolve glyph, review walk and undo line.** The glyph on a row, "To review" stepped through one mark at a time, and the line that undoes a delete: each in its place, legible in both themes.
+- **The Checks group and its summary.** In the Marks panel the group of dimensions and its one-line count read at a glance; the model's Checks panel lists each check with its words.
+- **The empty chat pane and its chips.** With no conversation, the pane's words and the chips under them fit the column and are legible in both themes.
+- **The turn summary, "See changes" and "Undo".** After a turn, the summary line, the sheet of the diff and the Undo button sit well in the chat and in a narrow dock.
+- **The page of projects.** Its head and the order buttons are legible, and the cards keep their order when the window is narrow.
+- **The doodle board's grid.** The grid is faint on the board in light and dark, and is not in the PNG Claude gets.
+- **The prompt preview of a new project.** The preview of the first prompt reads clearly and matches what is sent.
+- **The scans walk-through.** Import, align and check a scan by the steps the panel offers: each step is where the eye goes next, in both themes.
+- **The export sheet by reader.** Each reader (a person, a printer, a drawing), and the picture, SVG and PDF formats: the sheet is one screen and legible in both themes.
+- **The sources line of Parameters.** A field's source word is shown after its comment, in the monospace face, and "no source" is quiet.
+- **The splitter of the left column.** The line between the left column and the view drags without lag and keeps its place at start.
+- **The edges of a field and F6.** A focused field shows its edge in both themes, and F6 moves the focus between the regions in a sensible order.
+- **The ask card.** A question from the agent shows its options and the faces they light in the view; legible in both themes.
+- **The edits menu.** The menu beside the model shows the three modes and the one in force, in both themes.
 
 With a real agent:
 

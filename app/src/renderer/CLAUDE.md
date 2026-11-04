@@ -173,6 +173,8 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 
 ## Layers
 
+- `ui/Layers.tsx`: a reference (`Part.role`, a bought part) has the neutral swatch (`colorsOfParts`) and the tag "bought"
+  (`.layer-bought`), and is otherwise a row like any (it can be picked, hidden, made translucent).
 - `ui/Layers.tsx`: the groups of the layout (`groupsIn`) come first, a header each (`li.layer-group`,
   `data-group`): a fold chevron (`aria-expanded`, `Fold flat` / `Unfold flat`), the name and the count in the
   monospace face, "Show only" (on hover, as the opacity slider; `actions.soloLayers`) and an eye whose
@@ -563,7 +565,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 - **The draft** (`state/onboard.ts`) lives in the window, for the workspace it was begun in, until the object is made
   or the person throws it away; nothing of it is on disk, and it is dropped when the workspace root changes. Caps
   are `MOST_REFERENCES` (shared with main), a photo or scan is refused as a duplicate by path and an object by id.
-  A doodle keeps its strokes as vectors as well as its PNG, so that it is opened again to change. `epoch()` goes up
+  A bought part (`steps`: a vendor's STEP file, by path; a dropped `.step`/`.stp`, 50 MB at most) is named in the preview and the prompt by the `reference/` file `stepFiles` gives it (`make.ts` `stepReferences`). A doodle keeps its strokes as vectors as well as its PNG, so that it is opened again to change. `epoch()` goes up
   at each discard: photos being read when the draft was thrown away are not put back. The held first prompt
   (`hold/take/dismiss`) is in the same store.
 - **Keys** are rows of `shared/keys.ts`: `new.back` (Esc) in the scope `newobject`, and the board's `board.undo` (Ctrl+Z) in the scope `sheet`. The

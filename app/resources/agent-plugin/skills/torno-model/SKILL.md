@@ -114,7 +114,8 @@ def tags(p: Params, parts):
   dimensions take a tag of one. `mcp__torno__scene` lists each part's tags with the faces and edges they are now.
 - A mark placed on a tagged face or edge keeps the tag, and every build looks for it first: it follows the face when
   the numbers shift or the face moves. Prefer a tag to a bare `F12` in anything that must outlive an edit.
-- A tag name is a letter or `_`, then letters, digits, `_`, `.` or `-`. A tag that names nothing the part has (a
+- `parts` is that layout's own dict, so a part the layout lacks is not in it (a reference is in the assembly only):
+  take a face of it only `if "608" in parts`. A tag name is a letter or `_`, then letters, digits, `_`, `.` or `-`. A tag that names nothing the part has (a
   face of another part or taken before an edit, a solid, an empty list) fails the build and says which. A part
   the layout lacks is skipped; a part no layout has fails.
 - The shapes are the layout's own, so in a `print` layout that poses a part differently a selection by direction
@@ -122,6 +123,37 @@ def tags(p: Params, parts):
   the pose, or tag them where the layouts agree.
 - Asked to name a face, edit `tags(p, parts)` in the model: torno keeps no tags of its own. No `torno` import is
   needed.
+
+## References: bought parts
+
+A printed part is usually made around something bought: a screw, a bearing, a board, a motor. Put it in the model with an
+optional `references(p)`, beside `assembly` and `groups`. It is called with the same `Params()` and returns a `dict`
+of name to shape, in the frame of the assembly:
+
+```
+from bd_warehouse.bearing import SingleRowDeepGrooveBallBearing
+
+def references(p: Params):
+    return {"608": Pos(0, 0, 4) * SingleRowDeepGrooveBallBearing(size="M8-22-7", bearing_type="SKT")}
+```
+
+- A reference is **not a part**. It is drawn in a neutral grey (with the tag "bought" in the layers list), picked and
+  measured like a part, and `mcp__torno__check` takes it as the obstacle it is: `clearance` and `overlap` between a
+  part and a reference, and `interference` of the layout (a reference is never judged against another reference). It is
+  not in the `print` layout, not counted by `bed`, has no mass, takes no `thin`, `overhang` or `mesh` check, and is in no
+  STL or 3MF; a STEP holds it only when the person ticks it. `mcp__torno__scene` and `describe` say `role: reference`.
+- It is in every layout but `print`, so it needs an `assembly(p)` (or `make_<part>(p)` functions). Its name is its own:
+  not a part's, no `/`, not of the form `M<n>`. `checks(p)` and `groups(p)` may name it
+  (`{"name": "bearing seat", "kind": "clearance", "a": "housing", "b": "608", "min": 0.05, "max": 0.3}`).
+- A standard part: use `bd_warehouse` (in torno's kernel, see the `build123d` skill), with `simple=True` for a screw.
+  A vendor's part: read its STEP in the model, `import_step(Path(__file__).parent / "reference" / "608zz.step")`
+  (`from pathlib import Path`; the folder `reference/` of the project is where the person puts such a file), and return it among the
+  references. torno reads no file itself. A STEP can be big and is read at every build: say so if a build is slow.
+  A part of many solids or an assembly is taken as the solids it holds, in one shape; its labels are lost.
+- Parts bought for several projects go in `common/` (a save there builds every project that imports from it), as
+  `common/parts.py` with a maker for each, rather than a copy in each model.
+- Give each a place that is true: a reference at the wrong place makes a `clearance` that passes for the wrong reason.
+  Say where it is from (a datasheet, a measurement) in a comment of `Params`.
 
 ## Checks
 

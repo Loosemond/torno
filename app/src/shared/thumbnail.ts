@@ -1,7 +1,7 @@
 import { keepsNothing } from './cut'
 import { type ExplodeState, explodeOffsets, explodeShown } from './explode'
 import type { Vec3 } from './marks'
-import { colorFor, colorsByName } from './palette'
+import { colorFor, colorsOfParts } from './palette'
 import type { Part, Scene } from './scene'
 import type { SceneFile } from './scenefile'
 import { type SectionPlane, sectionOf } from './view'
@@ -57,7 +57,7 @@ export function thumbnailPlan(scene: Scene, view?: ThumbnailView): ThumbnailPlan
   const seen = (part: Part): boolean => view?.layers[part.name]?.visible !== false && (view?.layers[part.name]?.opacity ?? 1) > 0
   const on = all.filter(seen)
   const parts = on.length > 0 ? on : all
-  const colours = colorsByName(scene.parts.map((part) => part.name))
+  const colours = colorsOfParts(scene.parts)
   const looks: ThumbnailPlan['looks'] = {}
   for (const part of parts) {
     const layer = view?.layers[part.name]

@@ -98,7 +98,7 @@ function ObjectCard({ id, itemKey, note }: { id: string; itemKey: string; note: 
   )
 }
 
-/** What the person has given so far, a card each, in the order of the kinds: photos, doodles, scans, objects. */
+/** What the person has given so far, a card each, in the order of the kinds: photos, doodles, bought parts, scans, objects. */
 export function ReferenceCards({ draft, onEditDoodle }: { draft: Draft; onEditDoodle: (key: string) => void }) {
   return (
     <ul className="ref-list" aria-label="What you have">
@@ -107,6 +107,24 @@ export function ReferenceCards({ draft, onEditDoodle }: { draft: Draft; onEditDo
       ))}
       {draft.doodles.map((d, n) => (
         <Card key={d.uid} kind="doodles" word="Doodle" itemKey={d.uid} file={`doodle-${n + 1}.png`} note={d.note} name={`doodle ${n + 1}`} thumb={<img src={d.url} alt="" draggable={false} />} onEdit={() => onEditDoodle(d.uid)} />
+      ))}
+      {draft.steps.map((s, n) => (
+        <Card
+          key={s.uid}
+          kind="steps"
+          word="Bought part"
+          itemKey={s.uid}
+          file={s.file}
+          detail={s.size === undefined ? undefined : sizeSaid(s.size)}
+          note={s.note}
+          name={`bought part ${n + 1}`}
+          thumb={
+            <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round" aria-hidden="true">
+              <path d="M16 4 26 10v12l-10 6-10-6V10z" />
+              <circle cx="16" cy="16" r="4" />
+            </svg>
+          }
+        />
       ))}
       {draft.scans.map((s, n) => (
         <Card

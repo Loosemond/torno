@@ -52,6 +52,12 @@ export interface Part {
    * read them.
    */
   tags?: Record<string, PartTag>
+  /**
+   * `reference` for a bought part the model puts in the assembly beside what it makes (`references(p)`, or a vendor STEP it
+   * reads): drawn in a neutral tone, picked, measured, and an obstacle for `clearance`, `overlap` and `interference`, but
+   * never printed, counted by `bed`, weighed, or put in a mesh export. Absent of a part to make.
+   */
+  role?: 'reference'
 }
 /** What a tag names on a part: faces and edges by index; an empty list is left out. */
 export interface PartTag { faces?: number[]; edges?: number[] }
