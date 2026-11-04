@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import { dirname, join, relative, sep } from 'node:path'
 import { watch as chokidarWatch } from 'chokidar'
 import { type BuildError, type BuildState, REBUILD_KEY } from '../shared/build'
+import { keepNotes } from '../shared/modelChecks'
 import type { Scene } from '../shared/scene'
 import type { ObjectInfo } from '../shared/workspace'
 import { type BuildResult, type KernelClient, KernelError } from './kernel/client'
@@ -478,6 +479,8 @@ export class Builds {
   private succeeded(entry: Entry, scene: Scene, blob: Buffer): void {
     const id = entry.obj.id
     const revision = entry.state.revision + 1
+    // The checks the model declares, against the build before: one removed or made easier to pass is noted, and stays noted while it is.
+    if (entry.lastGood) scene.checkNotes = keepNotes(entry.lastGood.scene.checkNotes ?? [], entry.lastGood.scene.checks, scene.checks, revision)
     if (entry.lastGood) entry.previousGood = { revision: entry.lastGood.revision, scene: entry.lastGood.scene }
     entry.lastGood = { revision, scene, blob }
     entry.failure = undefined

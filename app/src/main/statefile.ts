@@ -5,6 +5,7 @@ import type { Mark } from '../shared/marks'
 import type { BuildDigest } from '../shared/sanity'
 import { type ScanInfo, importText } from '../shared/scans'
 import { groupsIn } from '../shared/groups'
+import { checkText, noteText } from '../shared/modelChecks'
 import type { Scene } from '../shared/scene'
 import { type SavedView, viewGone } from '../shared/views'
 import type { ObjectInfo } from '../shared/workspace'
@@ -59,6 +60,13 @@ export function stateText(obj: ObjectInfo, build: BuildState | undefined, last: 
     }
     // Exact only where the kernel says so.
     if (last.scene.parts.some((p) => p.bboxExact !== true)) lines.push('', 'A size with ≈ is approximate (the part has freeform or turned faces): measure it for a number to rely on.')
+  }
+  const checks = last?.scene.checks ?? []
+  if (last && (checks.length > 0 || (last.scene.checkNotes ?? []).length > 0)) {
+    lines.push('', '## Checks', '', `The checks the model declares in checks(p), measured on r${last.revision}. A pass is what was measured, not proof that the part is right; a thin wall found by sampling is never exact.`, '')
+    for (const c of checks) lines.push(`- ${c.status === 'pass' ? 'pass' : c.status === 'fail' ? 'FAIL' : c.status}: ${checkText(c)}${c.status === 'pass' || c.status === 'fail' ? `; ${c.exact === false ? 'approximate' : 'exact'}${c.how ? `: ${c.how}` : ''}` : ''}`)
+    const notes = last.scene.checkNotes ?? []
+    if (notes.length > 0) lines.push('', 'Made easier to pass, or gone, since they were first declared:', ...notes.map((n) => `- ${noteText(n)}`))
   }
   if (views && views.length > 0) lines.push('', `Saved views: ${views.map((view) => viewSaid(view, last?.scene)).join(', ')}.`)
   if (scans && scans.length > 0) {

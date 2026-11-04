@@ -176,9 +176,9 @@ def run(
 
     Each result has the declaration's ``name`` and ``kind``, the ``layout`` it was measured in, ``status``
     (``pass``, ``fail``, ``error`` for a check that could not be measured, ``not run`` past the ``budget``),
-    the ``declared`` dict as written, and, once measured, the ``value`` (null when nothing was found to
-    measure), its ``unit``, the least and the most it may be (``min``, ``max``: null for no bound), whether it is
-    ``exact`` and ``how``. An ``error`` and a ``not run`` have a ``reason``.
+    the ``declared`` dict as written, the ``unit`` of its value and the least and the most it may be (``min``,
+    ``max``: null for no bound), and, once measured, the ``layout``, the ``value`` (null when nothing was found to
+    measure), whether it is ``exact`` and ``how``. An ``error`` and a ``not run`` have a ``reason``.
     """
     held: dict[Any, Any] = {} if kept is None else kept
     started = time.monotonic()
@@ -189,7 +189,15 @@ def run(
         layouts.setdefault(layout, []).append(part)
     results = []
     for declaration in declarations:
-        base = {"name": declaration["name"], "kind": declaration["kind"], "declared": declaration}
+        low, high = wanted(declaration)
+        base = {
+            "name": declaration["name"],
+            "kind": declaration["kind"],
+            "declared": declaration,
+            "unit": _KINDS[declaration["kind"]][2],
+            "min": low,
+            "max": high,
+        }
         if time.monotonic() - started > budget:
             results.append({**base, "status": "not run", "reason": f"the {budget:g} s for checks ran out"})
             continue
@@ -246,7 +254,6 @@ def _measure(
 
     kind = declaration["kind"]
     layout = _layout(declaration, layouts, members)
-    unit = _KINDS[kind][2]
     low, high = wanted(declaration)
 
     def ask(args: dict[str, Any]) -> dict[str, Any]:
@@ -320,16 +327,7 @@ def _measure(
         raise QueryError("bad_request", f"unknown kind {kind}")
     if ok is None:
         ok = value is not None and _within(value, low, high)
-    return {
-        "status": "pass" if ok else "fail",
-        "layout": layout,
-        "value": value,
-        "unit": unit,
-        "min": low,
-        "max": high,
-        "exact": exact,
-        "how": how,
-    }
+    return {"status": "pass" if ok else "fail", "layout": layout, "value": value, "exact": exact, "how": how}
 
 
 def _within(value: float, low: float | None, high: float | None) -> bool:

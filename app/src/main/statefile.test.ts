@@ -47,6 +47,15 @@ afterEach(() => {
 })
 
 describe('stateText', () => {
+  it('lists the checks of the model and what was made easier to pass', () => {
+    const fits = { name: 'lid fits', kind: 'clearance', status: 'fail' as const, value: 0.12, unit: 'mm', min: 0.15, max: 0.25, exact: true, how: 'least distance between the parts' }
+    const note = { name: 'walls', what: 'loosened' as const, text: 'walls: min 1.2 → 0.6 mm', since: 2, from: fits }
+    const text = stateText(obj, OK, { revision: 3, scene: { ...SCENE, checks: [fits], checkNotes: [note] } }, [])
+    expect(text).toContain('## Checks')
+    expect(text).toContain('- FAIL: lid fits (0.12 mm, wanted 0.15 to 0.25 mm); exact: least distance between the parts')
+    expect(text).toContain('- walls: min 1.2 → 0.6 mm (since r2)')
+    expect(stateText(obj, OK, { revision: 3, scene: SCENE }, [])).not.toContain('## Checks')
+  })
   it('writes the digest of a build that worked under it, naming the tools as tools', () => {
     const sound = (name: string, more: Partial<Part> = {}): Part => ({ ...part('assembly', name, [0, 0, 0], [10, 10, 10]), volume: 1000, faceCount: 6, edgeCount: 12, valid: true, solids: 1, openShells: 0, ...more }) as Part
     const before = { revision: 2, scene: { ...SCENE, layouts: ['assembly'], parts: [sound('base'), sound('post')] } }

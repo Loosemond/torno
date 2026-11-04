@@ -268,6 +268,31 @@ keeps its own Y and Z. The picture, the bounding boxes and `scene` all show
 the parts where torno put them, and `scene` says how far each was moved
 (`arranged`). The model and what it exports are not changed.
 
+**Checks the model declares.** A model with `Params()` may also define `checks(p)`, a list of declarations
+that torno measures after every build, beside the dimensions you place yourself:
+
+```python
+def checks(p):
+    return [
+        {"name": "lid fits the tub", "kind": "clearance", "a": "lid", "b": "tub", "min": p.clearance - 0.05, "max": p.clearance + 0.05},
+        {"name": "tub is one body", "kind": "solids", "a": "tub", "equals": 1},
+        {"name": "walls", "kind": "thin", "a": "tub", "min": 1.2, "layout": "print"},
+        {"name": "fits the bed", "kind": "bed", "size": [256, 256, 256]},
+    ]
+```
+
+A declaration is data, not a function: torno measures it with the kernel's own queries, so each result says
+whether it is exact. `name` and `kind` are required; `a` and `b` are part names or group names (a group stands for its parts;
+never a face number, which changes with the model), `layout` is optional (the first layout, `assembly` before `print`,
+that has the parts; `print` for the kinds about printing when it has them). The kinds are `clearance` (the least
+distance, mm), `overlap` (the volume shared, nothing unless told), `solids` (how many a part has), `volume`
+(mm³), `thin` (a wall under `min` mm: found by sampling, so no result is a proof that there is none), `overhang`
+(faces facing down steeper than `angle`, 45 unless told), `mesh` (the part's mesh is closed) and `bed` (the layout fits
+`size`). What is wanted is `min` and/or `max`, `equals`, or `expected` with `tolerance` or `percent`.
+A declaration that is not one fails the build and says what is wrong, as a bad `groups(p)` does. A check that fails
+never fails the build, and never holds the agent back when it would stop; it is told with the build
+(What the agent is told) and listed in the window under Checks. torno never writes `checks(p)`.
+
 **Builds.** Saving a file in the project's folder (dotfiles, `out/`, `cache/`,
 `.torno/` and `__pycache__/` are ignored, as are `build/`, `dist/`,
 `node_modules/`, `.venv/` and `.git/`) or in the workspace's `common/` starts
@@ -719,6 +744,10 @@ Open marks: M2 (moved), M6 (unchecked)
   newer build is running or has failed, so that a FAIL of the build before is
   not read as a verdict on the edit. A line stays until its dimension passes
   or is resolved.
+- `Checks` is there when the model declares checks (`checks(p)`), after the dimensions: how many pass, fail,
+  could not be measured or were not run, and each that did not pass with its value and what was wanted
+  (`Checks (the model's own, on r3): 2 pass, 1 fails: lid fits the tub (0.12 mm, wanted 0.15 to 0.25 mm)`). It says
+  what was measured and never that the part is verified; passes that were found by sampling or are approximate are counted.
 - `Open marks` are the numbers of the marks still open, each with what the
   last build did to it. After `/clear`, the first prompt of the new
   conversation lists your open marks once more.
@@ -837,7 +866,7 @@ them: `scene`, `look`, `marks`, `describe` and `measure`. The others are found b
 
 | Tool | What it gives |
 |---|---|
-| `mcp__torno__scene` | The build status and error, what the model printed in the last build (`output`), the layouts, every part with its size, bounding box, volume and whether it is visible, the model's groups of parts, your camera, section and explode, the saved views, the scans, and how many dimensions pass, fail and are not measured. It notes when the parts of the print layout were spread along X. |
+| `mcp__torno__scene` | The build status and error, what the model printed in the last build (`output`), the layouts, every part with its size, bounding box, volume and whether it is visible, the model's groups of parts, your camera, section and explode, the saved views, the scans, how many dimensions pass, fail and are not measured, and the checks the model declares with how each stands. It notes when the parts of the print layout were spread along X. |
 | `mcp__torno__look` | A picture from the renderer you are looking at, with the marks drawn. With no arguments it is your view, cut by your section or drawn apart as you have it. It takes `view` (`iso`, `front`, `back`, `left`, `right`, `top`, `bottom`, the name of a saved view, or a camera), `layout`, `parts`, `size` (long edge, 1280 by default, 2000 at most), `marks` (false leaves them out), `section` (`'current'`, `null`, or a plane), `explode` (0 to 1, or `{amount, axis, scale}`; `null` together), `scans`, `scanColour` and `frame`. With `focus` (a ref such as `lid/F12` or `lid/E3`, a part, a group, a mark such as `M4`, or a box `{min, max}` in mm) and `margin` (a share of the box, 0.3 by default) it frames a detail up close: from the side `view` names (`front`, `iso`, …; without one, the way your camera looks), at the picture's whole resolution, with the parts drawn together. The caption says what was drawn, and, with a focus, what was framed and when the middle of it is hidden behind other parts. Also saved under `.torno/views/`. |
 | `mcp__torno__marks` | Your marks and the agent's as data, each with a line of text. |
 | `mcp__torno__describe` | The geometry of a part, a face or an edge (`lid`, `lid/F12`, `lid/E3`), or of a group of parts by its name: the box of its parts and their volume. |
@@ -1443,7 +1472,7 @@ place.
 | `agent.json` | whether Claude Code is shown as a chat or a terminal; without it, in a chat | travels |
 | `chat/<conversation>.jsonl` | what a chat session said and did, as text; no picture data, no address (a picture of `reference/` by its path) | ignored |
 | `session.json` | the conversation to resume | ignored |
-| `state.md` | the build, the parts, the views, the scans and the open marks as text | ignored |
+| `state.md` | the build, the parts, the checks of the model, the views, the scans and the open marks as text | ignored |
 | `thumb.png`, `thumb.json` | the card's picture, and what it is of | ignored |
 | `views/<n>.png` | the pictures and section drawings the agent asked for, the latest 20 | ignored (a picture of a scan may show the real world) |
 | `exports/` | where the save dialog of an export opens; empty unless you save there | ignored |
