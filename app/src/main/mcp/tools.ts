@@ -28,6 +28,7 @@ import { groupsIn } from '../../shared/groups'
 import type { Unmeasured } from '../marks/measure'
 import { movedForDisplay } from '../marks/spread'
 import type { AskedAnchor, NearestAnchor } from '../marks/reanchor'
+import { type ExpectArgs, type Expectations, expectTool } from './expectTools'
 import { onlyKeysWrong, unknownKeys } from './keys'
 import { addMarkTool, checkRef, highlightTool, resolveMarkTool } from './markTools'
 import { type DiffToolArgs, type MeasureToolArgs, type SectionToolArgs, type TryFilletToolArgs, checkTool, diffTool, measureTool, sectionTool, tryFilletTool } from './readTools'
@@ -95,6 +96,8 @@ export interface ToolDeps {
   views(objectId: string): Promise<SavedView[]>
   /** Has the window keep a view the agent proposes, of the object it has open: it is the agent's, and proposed, whatever the request. Rejects with a text. */
   saveView(objectId: string, req: SaveViewRequest): Promise<SaveViewResult>
+  /** What the agent expects of its next edit (`expect`), held in memory. Without it the tool says it is not available. */
+  expectations?: Expectations
 }
 
 type Block = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }
@@ -148,6 +151,7 @@ export function registerTools(server: McpServer, deps: ToolDeps, objectId: strin
   tool<SectionToolArgs>('section', (args) => sectionTool(deps, objectId, args))
   tool<Parameters<typeof checkTool>[2]>('check', (args) => checkTool(deps, objectId, args))
   tool<DiffToolArgs>('diff', (args) => diffTool(deps, objectId, args))
+  tool<ExpectArgs>('expect', (args) => expectTool(deps, objectId, args))
   tool<TryFilletToolArgs>('try_fillet', (args) => tryFilletTool(deps, objectId, args))
   tool<ScansArgs>('scans', (args) => scansTool(deps, objectId, args))
   tool<ScanClashArgs>('scan_clash', (args) => scanClashTool(deps, objectId, args))

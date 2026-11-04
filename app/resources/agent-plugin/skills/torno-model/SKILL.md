@@ -36,6 +36,15 @@ lists them. What torno's tools say of the build is current: a file that names an
 is about another way of working. Follow its advice on how to model, not on how to see the build, which is
 `mcp__torno__scene`, `mcp__torno__look` and `mcp__torno__measure`.
 
+## Saying what an edit should change
+
+Before an edit that should change something you can state, call `mcp__torno__expect` with what it should do: a part's
+`volume`, `faces`, `edges` or `size` as a `value` or a `change` with a `tolerance`, a `measure` check with the `expected`
+number, and `unchanged` for the parts it must leave alone. The answer to the edit then says in one line how many checks
+the next successful build met and which it did not, with the numbers. It is told once, holds nothing back, and is no
+mark; a miss is a reason to look, not a failure. A ref to a face of a part whose face count changed is said as moved and
+is not measured: describe it again.
+
 ## Which file
 
 - The project folder holds one model file: a top-level `*.py` that is not a test (`test_*.py`, `*_test.py`,

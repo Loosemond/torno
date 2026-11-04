@@ -106,6 +106,7 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
     parts: group.parts,
     ...(shown ? { visible: groupVisibility(group.parts, Object.fromEntries(group.parts.map((name) => [name, { visible: shown.has(name) }]))) } : {})
   }))
+  const expected = deps.expectations?.last(objectId)
   const result = {
     object: obj.id,
     model: scene.model,
@@ -152,6 +153,8 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
     section: view?.section ? sectionData(view.section) : null,
     // How their screen draws the parts apart, if it does. For display only: every part above is where it was built.
     explode,
+    // What the agent expected of an edit and how the build after it stood: told once with the edit, kept here.
+    ...(expected ? { expect: { revision: expected.revision, met: expected.met, notMet: expected.missed, ...(expected.note ? { note: expected.note } : {}) } } : {}),
     // Of the last build that worked (`build.revision`): call marks for which, and why.
     ...(checks.length > 0 ? { dimensions: { pass: count('pass'), fail: count('fail'), notMeasured: count('unmeasured', 'unmeasurable') } } : {}),
     // How each alignment stands, not a bare yes: one that is rough, in doubt or was never checked against this build is not "aligned: true".

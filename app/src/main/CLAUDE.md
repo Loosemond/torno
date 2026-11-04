@@ -131,7 +131,13 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `mcp/markTools.ts`; those that read the part in `mcp/readTools.ts`; those
   that ask about scans in `mcp/scanTools.ts`): `scene`, `look`, `marks`,
   `describe`, `highlight`, `show`, `save_view`, `add_mark`, `resolve_mark`,
-  `measure`, `section`, `check`, `diff`, `try_fillet`, `scans`, `scan_clash`, `scan_deviation`.
+  `measure`, `section`, `check`, `diff`, `expect`, `try_fillet`, `scans`, `scan_clash`, `scan_deviation`.
+  `expect` (`mcp/expectTools.ts`, `Expectations`, wired in `index.ts`) is the agent's note on one edit: checks on a
+  part's volume, faces, edges or size, a `measure` with `expected`, or `unchanged` parts, taken against the last
+  build and held in memory for the next successful build only (never a file, never a mark, never a Stop reason). It is
+  settled in `buildContextFor`'s wrapper in `index.ts` and told once as the last line of the edit's answer; `scene`
+  keeps the last verdict. Numbers not exact are `≈` and judged within the kernel's doubt; a ref of a part whose
+  face (or edge) count changed is told as moved and not measured.
   `diff` compares two of the last two successful builds (`Builds.scenes`; the blob of the older is not kept; each
   part by `partDiff` of `sanity.ts`)
   from what the kernel sent with each, asking it nothing: a number is `exact` only where both builds say so.
