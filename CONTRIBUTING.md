@@ -111,8 +111,8 @@ Two things tests must never do:
 - One change per commit. The message is a sentence that says what changed, from the person's side when it's a
   behaviour: "Keep Marks within the column when the room shrinks", not "fix layout bug".
 - A commit made with an AI agent ends with its `Co-Authored-By:` line.
-- In the pull request, say what it changes and why, which tests you ran, and what you checked by hand. For a
-  change to the window, add a screenshot or a short recording. Tests can't take them, so take them yourself.
+- The pull request template asks what it changes and why, which tests you ran, what you checked by hand and, for a
+  change to the window, a screenshot or a short recording. Tests can't take them, so take them yourself.
 
 ## Working with an AI agent
 
