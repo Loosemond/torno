@@ -5,6 +5,7 @@
 // TORNO_EVAL=1, under CI, and until the phrase is typed (`guard.mjs`). The person runs it by hand, after `pnpm build`:
 //
 //   TORNO_EVAL=1 pnpm -C app eval [--case <id>]… [--repeats 5] [--label <name>] [--model sonnet] [--budget 2]
+//                                 [--ablate skills,reviewer,stop,look]   (what main takes away: `src/main/ablations.ts`)
 //   pnpm -C app eval --compare <a.jsonl> <b.jsonl>        (two reports side by side; runs nothing)
 //
 // A run, for each case and repeat: the case is copied to a new temporary folder (never a person's workspace), the
@@ -32,7 +33,7 @@ const casesDir = join(here, 'cases')
 const DEFAULT_ANSWER = "I don't know: choose, and say what you chose."
 
 function parseArgs(argv) {
-  const o = { cases: [], repeats: 5, label: 'baseline', model: 'sonnet', budget: 2, compare: null, keep: false }
+  const o = { cases: [], repeats: 5, label: 'baseline', model: 'sonnet', budget: 2, compare: null, keep: false, ablate: '' }
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i]
     const next = () => argv[(i += 1)]
@@ -42,11 +43,13 @@ function parseArgs(argv) {
     else if (a === '--model') o.model = next()
     else if (a === '--budget') o.budget = Number(next())
     else if (a === '--keep') o.keep = true
+    else if (a === '--ablate') o.ablate = next()
     else if (a === '--compare') o.compare = [next(), next()]
     else throw new Error(`unknown argument: ${a}`)
   }
   if (!(o.repeats >= 1)) throw new Error('--repeats is a whole number, 1 or more')
   if (!(o.budget > 0)) throw new Error('--budget is in dollars, more than 0')
+  if (!/^[a-z,]*$/.test(o.ablate)) throw new Error('--ablate is a comma list: skills, reviewer, stop, look')
   if (!/^[A-Za-z0-9_-]{1,40}$/.test(o.label)) throw new Error('--label is letters, digits, - and _')
   return o
 }
@@ -311,10 +314,10 @@ async function oneRun(c, repeat, o, agent, electron, log) {
   const { ws, obj } = makeWorkspace(c, runDir)
   const resultsFile = join(runDir, 'results.jsonl')
   const started = Date.now()
-  const env = { ...process.env, TORNO_TEST: '1', TORNO_WORKSPACE: ws, TORNO_CONFIG: join(runDir, 'config.json'), TORNO_AGENT_CMD: `node ${join(here, 'tee.mjs')} ${resultsFile} ${agent}` }
+  const env = { ...process.env, TORNO_TEST: '1', TORNO_WORKSPACE: ws, TORNO_CONFIG: join(runDir, 'config.json'), TORNO_AGENT_CMD: `node ${join(here, 'tee.mjs')} ${resultsFile} ${agent}`, TORNO_EVAL: '1', TORNO_EVAL_ABLATE: o.ablate }
   delete env.TORNO_KEEP_BUILDS
   const app = await electron.launch({ args: ['.'], cwd: appDir, env })
-  let run = { case: c.id, repeat, label: o.label }
+  let run = { case: c.id, repeat, label: o.label, ablate: o.ablate.split(',').filter(Boolean) }
   try {
     const page = await app.firstWindow()
     await page.waitForSelector('[data-region="left"]')
@@ -427,7 +430,7 @@ async function main() {
       console.log(run.error ? `  error: ${run.error.split('\n')[0]}` : `  ${run.passed}/${run.total} checks, build ${run.buildOk ? 'ok' : 'failed'}, ${money(run.costUsd ?? 0)}`)
     }
   }
-  writeFileSync(`${base}.md`, markdown(`${o.label} at ${sha}, ${o.model}`, runs))
+  writeFileSync(`${base}.md`, markdown(`${o.label} at ${sha}, ${o.model}${o.ablate ? `, without ${o.ablate}` : ''}`, runs))
   console.log(`\n${readFileSync(`${base}.md`, 'utf8')}\nWrote ${base}.jsonl and ${base}.md`)
 }
 

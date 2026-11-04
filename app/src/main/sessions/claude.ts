@@ -105,7 +105,7 @@ export const TESTED_CLAUDE = { min: '2.1.300', max: '2.1.301' } as const
  */
 const toolName = (tool: string): string => `mcp__torno__${tool}`
 
-export function claudeAdapter(agentCmd?: string, pluginDir?: string): AgentAdapter {
+export function claudeAdapter(agentCmd?: string, pluginDir?: string, opts: { reviewer?: boolean } = {}): AgentAdapter {
   const [command = 'claude', ...before] = (agentCmd ?? '').split(' ').filter(Boolean)
   return {
     command: 'claude',
@@ -143,7 +143,8 @@ export function claudeAdapter(agentCmd?: string, pluginDir?: string): AgentAdapt
         '--settings',
         JSON.stringify(settings)
       ]
-      args.push('--agents', JSON.stringify(reviewerAgents(toolName)))
+      // `reviewer: false` only in an eval run that takes it away (`main/ablations.ts`).
+      if (opts.reviewer !== false) args.push('--agents', JSON.stringify(reviewerAgents(toolName)))
       if (pluginDir && ctx.skills !== false) args.push('--plugin-dir', pluginDir)
       if (ctx.systemPrompt) args.push('--append-system-prompt', ctx.systemPrompt)
       // `--flag=value`: one argument, so that what follows can never be read as a flag of its own.

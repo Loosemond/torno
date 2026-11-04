@@ -1,4 +1,5 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { LOOK_OFF } from '../ablations'
 import { z } from 'zod'
 import type { BuildState } from '../../shared/build'
 import { diagnosisText } from '../../shared/diagnosis'
@@ -38,6 +39,8 @@ import { type SceneArgs, lookTool, saveViewTool, sceneTool, showTool } from './v
 
 /** What the tools need of torno. All of it is about objects of the open workspace, by id. */
 export interface ToolDeps {
+  /** The tools an eval run takes away (`main/ablations.ts`): each answers that it is off. Absent in every other run. */
+  off?: ReadonlySet<string>
   /** Takes out of what the model printed what must not be told (the tokens of the sessions). */
   redact?(text: string): string
   object(objectId: string): ObjectInfo | undefined
@@ -135,7 +138,7 @@ export function registerTools(server: McpServer, deps: ToolDeps, objectId: strin
     server.registerTool(
       name,
       { title: of.title, description: of.description, annotations: of.annotations, ...('meta' in of ? { _meta: of.meta } : {}), inputSchema: z.looseObject('inputSchema' in of ? of.inputSchema : {}) },
-      async (args: unknown) => refusedKeys(name, args) ?? run(args as A)
+      async (args: unknown) => (deps.off?.has(name) ? failure(name === 'look' ? LOOK_OFF : `${name} is turned off in this eval run.`) : (refusedKeys(name, args) ?? run(args as A)))
     )
   }
   tool<SceneArgs>('scene', async (args) => sceneTool(deps, objectId, await deps.marks(objectId).catch(() => undefined), await deps.scans(objectId).catch(() => undefined), await deps.views(objectId).catch(() => undefined), args))
