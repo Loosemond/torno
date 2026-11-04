@@ -11,7 +11,7 @@ import { type ToolDeps, type ToolResult, failure, layoutFor, ofBuild } from './t
 
 type Vec3 = [number, number, number]
 
-export const FEATURE_KINDS = ['hole', 'boss', 'fillet', 'chamfer'] as const
+export const FEATURE_KINDS = ['hole', 'boss', 'fillet', 'chamfer', 'pattern'] as const
 type FeatureKind = (typeof FEATURE_KINDS)[number]
 
 export interface FeaturesToolArgs {
@@ -87,6 +87,32 @@ export interface Chamfer {
   exact: boolean
 }
 
+interface PatternBase {
+  count: number
+  diameter: number
+  axis: Vec3
+  faces: string[]
+  exact: boolean
+  arrangement: 'line' | 'grid' | 'circle'
+  step?: number
+  length?: number
+  direction?: Vec3
+  counts?: [number, number]
+  steps?: [number, number]
+  size?: [number, number]
+  directions?: [Vec3, Vec3]
+  radius?: number
+  centre?: Vec3
+  sweep?: number
+  full?: boolean
+}
+
+export type Pattern = PatternBase &
+  (
+    | ({ of: 'hole'; entries: Vec3[] } & Pick<Hole, 'end' | 'depth' | 'shape' | 'bottom' | 'counterbore' | 'countersink' | 'rounded'>)
+    | { of: 'boss'; bases: Vec3[]; height: number }
+  )
+
 export interface Featured {
   part: string
   kinds: FeatureKind[]
@@ -98,6 +124,8 @@ export interface Featured {
   filletCount?: number
   chamfers?: Chamfer[]
   chamferCount?: number
+  patterns?: Pattern[]
+  patternCount?: number
   left: Record<string, number>
   notFeatures: { arcs: number; freeCylinders: number; freeformFaces: number }
   exact: boolean
@@ -168,6 +196,18 @@ function holeWords(h: Hole): string {
   return `${dia(h.diameter)} ${end}${through}${bore}${sink}${round}${stepped}`
 }
 
+/** How the members of a pattern lie, in a phrase that follows them: ` on a 40 × 40 square`. */
+function arrangedText(p: Pattern): string {
+  if (p.arrangement === 'line') return `, in a row, ${number(p.step ?? 0)} apart`
+  if (p.arrangement === 'grid' && p.counts && p.size && p.steps) {
+    const [w, h] = p.size
+    if (p.counts[0] === 2 && p.counts[1] === 2) return Math.abs(w - h) < 1e-6 ? `, on a ${number(w)} × ${number(h)} square` : `, on a ${number(w)} × ${number(h)} rectangle`
+    return `, in a ${p.counts[0]} × ${p.counts[1]} grid, ${number(p.steps[0])} × ${number(p.steps[1])} apart`
+  }
+  if (p.arrangement === 'circle') return p.full ? `, on a circle of ⌀${number(2 * (p.radius ?? 0))}, every ${number(p.step ?? 0)}°` : `, on an arc of R${number(p.radius ?? 0)}, every ${number(p.step ?? 0)}°`
+  return ''
+}
+
 /** The holes and bosses of a part, in a line each kind; null for a reply that is none. */
 export function featuresReading(f: Featured): string | null {
   if (!Array.isArray(f.kinds) || typeof f.part !== 'string') return null
@@ -228,6 +268,15 @@ export function featuresReading(f: Featured): string | null {
       const parts = [...groups.entries()].map(([text, cs]) => `${cs.length} × ${text}`)
       const more = f.chamferCount > f.chamfers.length ? `; ${f.chamferCount - f.chamfers.length} more not listed` : ''
       said.push(`${plural(f.chamferCount, 'chamfer')} on ${of}: ${parts.join('; ')}${more}`)
+    }
+  }
+  if (f.kinds.includes('pattern')) {
+    if (!Array.isArray(f.patterns) || !finite(f.patternCount)) return null
+    if (f.patterns.length === 0) said.push(`no patterns of holes or bosses on ${of}`)
+    else {
+      const parts = f.patterns.map((p) => `${p.count} × ${p.of === 'hole' ? holeWords({ ...p, exact: p.exact } as unknown as Hole) : `${dia(p.diameter)} × ${p.exact ? '' : '≈ '}${number(p.height)} high`}${arrangedText(p)}`)
+      const more = f.patternCount > f.patterns.length ? `; ${f.patternCount - f.patterns.length} more not listed` : ''
+      said.push(`${plural(f.patternCount, 'pattern')} on ${of}: ${parts.join('; ')}${more}`)
     }
   }
   const rest: string[] = []

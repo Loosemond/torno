@@ -119,7 +119,13 @@ is the detail of this folder, under the headings it has there.
   them, and whose setback from that line (the distance between parallel lines, so exact) is under half of what is
   left of each face (a hexagon's sides and a ramp are not); or a cone between a plane across a cylinder's axis and
   that cylinder (setbacks the radii's difference and the axial distance), unless it is a step of a hole, which is
-  told as a countersink. Positions are in the frame of the shapes
+  told as a countersink. A pattern (`patterns.py`) is holes (or bosses) alike in diameter, shape, end, depth and
+  direction, taken as one set whole, whose axes (their places across the axis, so wherever along it the hole
+  was measured) lie on a line at equal steps, in a grid (the rows along the way to the nearest of the others from the
+  first, a full rectangle) or at equal angles on a circle (three are a circle only if they fill it; a part of
+  one needs four); a set that is none of these is told as none, and its holes are still told one by one.
+  A line is tested before a grid and a grid before a circle, so four holes at the corners of a square are a 2 × 2
+  grid. Positions are in the frame of the shapes
   as built, so of an `arranged` part in the displayed frame. It is bounded as `check overhang` is: 10 s
   (`BUDGET`, then `complete` false and the runs left over are not told as none) and `MAX_FEATURES` (100) of a
   kind told, the rest counted in `left`. What it found is kept in the worker, under `("features", key)`, until

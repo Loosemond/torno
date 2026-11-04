@@ -193,7 +193,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
     (`works`, and when false the diagnosis of a failed build, `frame: 'object'`, its edges by ref) and a `reading`:
     `Tried on rN and thrown away, nothing changed:` and `diagnosisText`. Read-only: it changes no model and no mark.
   - `features` (`featuresTool` in `mcp/featureTools.ts`) has the kernel's live worker of the last good build list the
-    holes and bosses of one part (`features.py`; `part`, `kinds`, `layout`; the part is checked against the scene as
+    holes, bosses, fillets, chamfers and patterns of one part (`features.py`; `part`, `kinds`, `layout`; the part is checked against the scene as
     `try_fillet`'s is). It answers with the kernel's data (each feature with its numbers, `exact` and, when false,
     `how`; the faces it is made of and the ones it opens in as refs; counts of what was left out or is no feature)
     and a `reading` worded from that data alone: equal holes counted together, `≈` before a number the kernel did

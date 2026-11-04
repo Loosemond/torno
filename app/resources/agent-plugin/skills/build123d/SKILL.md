@@ -175,7 +175,8 @@ Before you move, resize or add to the holes of a part, call `mcp__torno__feature
 through or blind, and a counterbore or countersink, as the B-rep has them, so you need not describe their faces one
 by one or read the numbers off the code. A diameter it gives is exact; a depth it marks `≈` is not. With `kinds`
 `["fillet", "chamfer"]` it lists the fillets (radius, outside edge or inside corner, the edges they run along) and
-chamfers (setback), so you can see the radius a fillet has before you change it, then `try_fillet` the new one.
+chamfers (setback), so you can see the radius a fillet has before you change it, then `try_fillet` the new one; with
+`"pattern"` it says which holes lie in a row, a grid or on a circle at equal steps, and the step.
 
 ## Fillets and chamfers
 

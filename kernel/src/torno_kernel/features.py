@@ -24,7 +24,7 @@ from .ocp import (
 )
 from .queries import QueryError, need_part, need_solid
 
-KINDS = ("hole", "boss", "fillet", "chamfer")
+KINDS = ("hole", "boss", "fillet", "chamfer", "pattern")
 # What may be asked, s, of the 30 a query has; past it the components left are counted, never told as a no.
 BUDGET = 10.0
 # At most so many of a kind are told; the rest are counted.
@@ -61,6 +61,9 @@ def features(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any] 
       it runs along. Blends of one radius that touch are one.
     - ``chamfers``: a flat strip (or a cone, round a cylinder) between two faces, parallel to their edge: ``size``
       (or ``sizes`` along each of the ``between`` faces when they differ) and ``side``.
+    - ``patterns``: holes (or bosses) alike in every way whose axes lie at equal steps (``patterns.py``): a ``line``
+      (``step``), a ``grid`` (``counts``, ``steps``, ``size``) or a ``circle`` (``radius``, ``centre``, angular
+      ``step``), with the ``entries`` of its members.
     - ``bosses``: the same for convex ones that stand on a face and end in another: ``diameter``, ``height``,
       ``axis`` pointing up from the base, ``base`` and ``baseRef``, ``top`` and ``topRef``.
 
@@ -80,7 +83,7 @@ def features(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any] 
     found = _analysis(shape, name, key, kept, kinds)
     told: dict[str, Any] = {"part": name, "kinds": [k for k in KINDS if k in kinds], "left": {}}
     exact = True
-    for kind, plural in (("hole", "holes"), ("boss", "bosses"), ("fillet", "fillets"), ("chamfer", "chamfers")):
+    for kind, plural in (("hole", "holes"), ("boss", "bosses"), ("fillet", "fillets"), ("chamfer", "chamfers"), ("pattern", "patterns")):
         if kind not in kinds:
             continue
         items = found[plural]
@@ -177,9 +180,10 @@ def _analysis(shape: Any, name: str, key: str, kept: dict[Any, Any] | None, kind
     found = held.analyse(kinds)
     if not found["complete"] and kept is not None:
         # What was cut short is not kept as the answer: the next ask works it out again.
-        for kind in kinds:
-            held.done.pop(kind, None)
-        held.done.pop("runs", None)
+        held.done.clear()
+        held.arc_faces.clear()
+        held.blend_faces.clear()
+        held.free = 0
         held.late = False
     return found
 
@@ -331,10 +335,15 @@ class _Part:
             self._prepare()
         if "runs" not in self.done:
             self._runs()
-        if "fillet" in kinds and "fillet" not in self.done:
+        # The partial cylinders that are not blends are told as arcs, so the blends are known whatever is asked.
+        if ("fillet" in kinds or self.arc_faces) and "fillet" not in self.done:
             self.done["fillet"] = self._fillets()
         if "chamfer" in kinds and "chamfer" not in self.done:
             self.done["chamfer"] = self._chamfers()
+        if "pattern" in kinds and "pattern" not in self.done:
+            from .patterns import patterns
+
+            self.done["pattern"] = patterns(self.done.get("holes", []), self.done.get("bosses", []))
         holes = self.done.get("holes", [])
         arcs = len(self.arc_faces - self.blend_faces)
         return {
@@ -342,6 +351,7 @@ class _Part:
             "bosses": self.done.get("bosses", []),
             "fillets": self.done.get("fillet", []),
             "chamfers": self.done.get("chamfer", []),
+            "patterns": self.done.get("pattern", []),
             "notFeatures": {"arcs": arcs, "freeCylinders": self.free, "freeformFaces": self.freeform},
             "complete": not self.late,
             "seconds": time.monotonic() - started,

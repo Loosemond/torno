@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { BuildState } from '../../shared/build'
 import type { Part, Scene } from '../../shared/scene'
 import { KernelError } from '../kernel/client'
-import { type Boss, type Chamfer, type Featured, type Fillet, type Hole, alongText, featuresReading, featuresTool } from './featureTools'
+import { type Boss, type Chamfer, type Featured, type Fillet, type Hole, type Pattern, alongText, featuresReading, featuresTool } from './featureTools'
 import type { ToolDeps } from './tools'
 
 // `features` against a stand-in for the kernel: what is asked of it is kept, and what it says is what the test gives.
@@ -91,9 +91,9 @@ describe('features', () => {
     expect(deps.queries[0].args).toEqual({ layout: 'assembly', part: 'lid', kinds: ['boss'] })
     for (const [args, said] of [
       [{}, 'features needs part, the name of a part as scene lists it: {"part": "lid"}'],
-      [{ part: 'lid', kinds: 'hole' }, 'kinds is a list of hole, boss, fillet, chamfer: {"part": "lid", "kinds": ["hole"]}'],
-      [{ part: 'lid', kinds: ['gear'] }, 'kinds is a list of hole, boss, fillet, chamfer: {"part": "lid", "kinds": ["hole"]}'],
-      [{ part: 'lid', kinds: [] }, 'kinds is a list of hole, boss, fillet, chamfer: {"part": "lid", "kinds": ["hole"]}']
+      [{ part: 'lid', kinds: 'hole' }, 'kinds is a list of hole, boss, fillet, chamfer, pattern: {"part": "lid", "kinds": ["hole"]}'],
+      [{ part: 'lid', kinds: ['gear'] }, 'kinds is a list of hole, boss, fillet, chamfer, pattern: {"part": "lid", "kinds": ["hole"]}'],
+      [{ part: 'lid', kinds: [] }, 'kinds is a list of hole, boss, fillet, chamfer, pattern: {"part": "lid", "kinds": ["hole"]}']
     ] as const) {
       const r = await featuresTool(fake(), 'box', args as never)
       expect(r.isError, JSON.stringify(args)).toBe(true)
@@ -177,6 +177,21 @@ describe('the reading of features', () => {
         '2 chamfers on lid: 1 × 2 mm on an outside edge, 10 long; 1 × 2 and 3 mm on an outside edge, round a cylinder, 10 long'
     )
     expect(featuresReading(featured({ kinds: ['fillet', 'chamfer'], fillets: [], filletCount: 0, chamfers: [], chamferCount: 0 }))).toBe('no fillets on lid; no chamfers on lid')
+  })
+
+  it('tells a pattern as the holes it is of and how they lie', () => {
+    const base = { of: 'hole', count: 4, diameter: 3.4, axis: [0, 0, 1], end: 'through', depth: 8, shape: 'plain', faces: ['lid/F6'], exact: true, entries: [] } as const
+    const grid = { ...base, arrangement: 'grid', counts: [2, 2], steps: [40, 40], size: [40, 40] } as unknown as Pattern
+    const rect = { ...base, count: 6, arrangement: 'grid', counts: [3, 2], steps: [20, 15], size: [40, 15] } as unknown as Pattern
+    const row = { ...base, count: 3, diameter: 6, end: 'blind', depth: 4, bottom: 'flat', arrangement: 'line', step: 12, length: 24 } as unknown as Pattern
+    const ring = { ...base, count: 6, arrangement: 'circle', radius: 20, step: 60, sweep: 360, full: true } as unknown as Pattern
+    const posts = { of: 'boss', count: 3, diameter: 6, axis: [0, 0, 1], height: 10, faces: [], exact: true, arrangement: 'line', step: 20, length: 40, bases: [] } as unknown as Pattern
+    const said = featuresReading(featured({ kinds: ['pattern'], patterns: [grid, rect, row, ring, posts], patternCount: 5 }))
+    expect(said).toBe(
+      '5 patterns on lid: 4 × ⌀3.4 through, 8 long, on a 40 × 40 square; 6 × ⌀3.4 through, 8 long, in a 3 × 2 grid, 20 × 15 apart; ' +
+        '3 × ⌀6 blind, 4 deep, in a row, 12 apart; 6 × ⌀3.4 through, 8 long, on a circle of ⌀40, every 60°; 3 × ⌀6 × 10 high, in a row, 20 apart'
+    )
+    expect(featuresReading(featured({ kinds: ['pattern'], patterns: [], patternCount: 0 }))).toBe('no patterns of holes or bosses on lid')
   })
 
   it('names an axis along one of the layout’s as that, and any other by its components', () => {

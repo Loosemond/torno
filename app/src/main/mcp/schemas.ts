@@ -284,7 +284,7 @@ const tryFilletInput = {
 // Loose: what is not a list of kinds reaches the tool, which says what it takes (`featuresTool`).
 const featuresInput = {
   part: loose(z.string()).optional().describe('The name of a part, as listed by scene: "lid".'),
-  kinds: loose(z.array(z.enum(['hole', 'boss', 'fillet', 'chamfer']))).optional().describe('What to look for: hole, boss, fillet, chamfer. Default: all of them.'),
+  kinds: loose(z.array(z.enum(['hole', 'boss', 'fillet', 'chamfer', 'pattern']))).optional().describe('What to look for: hole, boss, fillet, chamfer, pattern (holes or bosses alike at equal steps on a line, in a grid or on a circle). Default: all of them.'),
   layout: z.string().optional().describe('The layout the part is in, as listed by scene. Default: the one on screen.')
 }
 
@@ -466,7 +466,7 @@ export const TOOLS = {
     title: 'List features of a part',
     annotations: READ_ONLY,
     description:
-      "Returns JSON and a reading of the holes, bosses, fillets and chamfers of a part of the last build that worked, found on its B-rep: for each hole its diameter, axis (pointing into the part), entry point, the face it opens in, depth, whether it is through or blind (and its bottom), and any counterbore, countersink or rounded mouth; for each boss its diameter, height and base; for each fillet its radius, sweep and length, whether it rounds an outside edge or an inside corner, and the faces and edges it joins; for each chamfer its setback (or setbacks, when uneven) in the same way; with the faces each is made of, as refs that describe and highlight take. Diameters, radii, angles, axes and depths between planes and round faces are exact, a depth taken between freeform faces says it is not (exact false, ≈ in the reading), and only analytic faces count: cylinders, cones and tori that go all the way round for holes and bosses, blends tangent to both faces for fillets, so slot ends are counted as arcs and told as neither (at most 100 of a kind are listed, the rest counted). Use it to answer how many holes there are, of what size and how deep, what the fillets are, and before you edit any of them, instead of describing faces one by one.",
+      "Returns JSON and a reading of the holes, bosses, fillets, chamfers and patterns of a part of the last build that worked, found on its B-rep: for each hole its diameter, axis (pointing into the part), entry point, the face it opens in, depth, whether it is through or blind (and its bottom), and any counterbore, countersink or rounded mouth; for each boss its diameter, height and base; for each fillet its radius, sweep and length, whether it rounds an outside edge or an inside corner, and the faces and edges it joins; for each chamfer its setback (or setbacks, when uneven) in the same way; for each pattern of holes or bosses alike how many there are and whether they lie in a row, a grid or on a circle, with the step; with the faces each is made of, as refs that describe and highlight take. Diameters, radii, angles, axes and depths between planes and round faces are exact, a depth taken between freeform faces says it is not (exact false, ≈ in the reading), and only analytic faces count: cylinders, cones and tori that go all the way round for holes and bosses, blends tangent to both faces for fillets, so slot ends are counted as arcs and told as neither (at most 100 of a kind are listed, the rest counted). Use it to answer how many holes there are, of what size and how deep, what the fillets are, and before you edit any of them, instead of describing faces one by one.",
     inputSchema: featuresInput
   },
   scans: {
@@ -510,7 +510,7 @@ export const SERVER_INSTRUCTIONS = `torno's server reads and measures the CAD pa
 - check: overlap and clearance between parts, a closed mesh, and for printing overhangs, thin walls and the fit on a bed.
 - diff: what changed between the last two successful builds: parts added or removed, volume, size and face counts.
 - try_fillet: try a fillet or chamfer of some edges on the last build and throw it away: whether it works, the largest radius that does, which edges or pairs fail.
-- features: the holes (diameter, depth, through or blind, counterbore, countersink), bosses, fillets (radius) and chamfers (size) of a part, exact, with the faces they are made of.
+- features: the holes (diameter, depth, through or blind, counterbore, countersink), bosses, fillets (radius), chamfers (size) and patterns (4 holes on a square, a bolt circle) of a part, exact, with the faces they are made of.
 - scans: the scans the person imported, and how each is aligned to the model.
 - scan_clash: what of a scan is inside a part, as clusters with their depth.
 - scan_deviation: how far a part, or some of its faces, lie from a scan (min, mean, max, percentiles).

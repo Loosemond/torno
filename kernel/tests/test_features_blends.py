@@ -186,3 +186,13 @@ def test_the_kinds_are_made_once_each_and_added_to_what_is_kept():
     assert "chamfer" not in held.done
     queries.run({"print:p": shape}, "features", {**args, "kinds": ["chamfer"]}, kept)
     assert kept["features", "print:p"] is held and held.done["chamfer"]
+
+
+def test_a_blend_that_is_freeform_is_counted_and_never_told_as_a_fillet(spline_prism):
+    from build123d import fillet
+
+    prism = spline_prism[0]
+    top = [e for e in prism.edges() if abs(e.center().Z - 5) < 1e-6]
+    result = ask(fillet(top, 0.5), kinds=["fillet", "chamfer"])
+    assert result["fillets"] == [] and result["chamfers"] == []
+    assert result["notFeatures"]["freeformFaces"] >= len(top)
