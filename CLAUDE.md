@@ -187,3 +187,10 @@ needs it (the manual's last section lists what is still to be checked). The one 
 `claude --version` and `claude auth status`, for what the first screen says is ready (`main/ready.ts`): once, outside tests
 only, each within 3 s. Under `TORNO_TEST=1` the command is only looked for on `PATH`; the stand-in answers both for the
 test of that check, which is given its runner.
+
+The one exception is the evals, `app/evals/` (`pnpm -C app eval`): a harness the person runs by hand, that drives the
+built app hidden with the real `claude` and spends their subscription. It is no test: no suite and no glob picks it up
+(vitest excludes `evals/**`, Playwright ignores it), and it refuses to start unless `TORNO_EVAL=1` is set, when `CI`
+is set, and until the person, told the model and the budget, types `spend my subscription` (`evals/guard.mjs`, held by
+`src/evals.test.ts`). No agent and no test runs it with the real CLI; an agent may smoke-test it only with the
+stand-in (`TORNO_EVAL_AGENT="node app/test/fake-agent.mjs"`), which the guard still asks for.

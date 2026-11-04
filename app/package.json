@@ -15,6 +15,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:kernel": "vitest run --mode kernel --passWithNoTests",
+    "eval": "node evals/run.mjs",
     "test:e2e": "electron-vite build && node scripts/build-viewer.mjs && playwright test"
   },
   "dependencies": {
