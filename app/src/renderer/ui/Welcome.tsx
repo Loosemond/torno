@@ -129,7 +129,7 @@ export function Welcome({ onPick, onOpened }: { onPick: () => void; onOpened: (i
         </p>
       )}
       <p className="welcome-foot">
-        torno writes only into a <span className="num">.torno</span> folder inside each project.
+        torno writes only into a <span className="num">.torno</span> folder inside each project, and the new folder when you make a project.
       </p>
     </div>
   )

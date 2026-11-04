@@ -516,6 +516,36 @@ pane has no "Attach view" or "Draw on view": those are of a session. ``Ctrl+` ``
 the viewport. In a terminal `Shift+Enter` is a new line, `Ctrl+Shift+C` and
 `Ctrl+Shift+V` copy and paste.
 
+### What goes well, and what does not
+
+What torno and the agent do well, and where you have to help. This comes from how the loop has gone on real
+projects, not from a promise.
+
+Goes well:
+
+- Prismatic parts: brackets, enclosures, holders, a lid and a box, hole patterns, a part with a slot or a rib.
+- A part whose sizes you measured. Give them in the first prompt, or in the brief, as numbers.
+- Changes you can point at: a pin on a face, a dimension with the value it should have.
+
+Needs more from you:
+
+- A shape that has to fit a place you can only scan, such as an engine bay. Import the scan, align it and mark
+  regions of it. What is taken from a scan is approximate, and torno says so (see Scans).
+- An assembly of more than three or four parts that touch each other. Split it into projects of a few parts, and
+  check each pair with `check`.
+- A fit that depends on how your printer behaves, such as a clearance or a snap. Print one, measure it, and give the
+  agent the number. A clearance the agent assumed is only an assumption.
+
+Does not go well:
+
+- Ergonomic and organic shapes described in words alone. Show a photo, a doodle or a scan, and expect to try several.
+- Gears, threads and springs written by hand. Ask for a library part, or for a plain stand-in you replace.
+- Sizes read from a photo. The agent will give a number, and it will be a guess. Measure with calipers.
+
+In every case the answer is the same: give a measured number, a scan or a dimension mark, in place of a description.
+How to work with the agent is in the README's
+[guide](../README.md#working-with-claude-code-in-torno).
+
 ### The chat
 
 The chat is your own `claude`, under your own login, started in its headless

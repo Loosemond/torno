@@ -62,7 +62,7 @@ test('the first run shows what to open and how a folder of objects is laid out, 
     await expect(tree).toContainText('the folder you open')
     await expect(says).toContainText('An empty folder is fine: torno helps you make the first project.')
     await expect(says).toContainText('A temporary copy, removed when torno quits.')
-    await expect(says).toContainText('torno writes only into a .torno folder inside each project.')
+    await expect(says).toContainText('torno writes only into a .torno folder inside each project, and the new folder when you make a project.')
     await expect(says).not.toContainText('for the keys')
     // The main way in is the one primary button; the example is a quiet one.
     await expect(first.locator('.welcome-page .button-primary')).toHaveText(['Open folder'])

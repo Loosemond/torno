@@ -84,6 +84,15 @@ the Python file, and torno shows it.
   </tr>
 </table>
 
+## What goes well, and what does not
+
+It goes well with prismatic parts that have sizes you measured: brackets, enclosures, holders, a lid and a box,
+hole patterns. It needs more from you for a part that must fit a place you can only scan, and for an assembly of
+more than three or four parts that touch. It does not go well with organic shapes described in words alone, gears
+and threads written by hand, or sizes read from a photo. Whatever the part, give a measured number, a scan or a
+dimension mark in place of a description. The [manual](docs/manual.md#what-goes-well-and-what-does-not) has the
+lists.
+
 ## How it works
 
 <p align="center">
