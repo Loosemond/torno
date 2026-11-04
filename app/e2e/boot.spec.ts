@@ -34,8 +34,9 @@ test('with no folder open, the window is one prompt with its ways in', async () 
   try {
     const barePage = await bare.firstWindow()
     await expect(barePage.locator('[data-region="viewport"]')).toContainText('torno')
-    // The way in, and, run from the repository, its example.
-    await expect(barePage.getByRole('button')).toHaveText(['Open folder', 'Open the example'])
+    // The way in, and, run from the repository, its example. (When all is ready, "What torno needs" is one more
+    // button above them, the fold of its lines: it is the first screen's, not a way in.)
+    await expect(barePage.locator('.welcome-ways').getByRole('button')).toHaveText(['Open folder', 'Open the example'])
     await expect(barePage.locator('[data-region="left"], [data-region="session"], [data-region="status"]')).toHaveCount(0)
     // Centred in the window: the page's column is, and what is in it starts at its left edge.
     const column = (await barePage.locator('.welcome-page').boundingBox())!

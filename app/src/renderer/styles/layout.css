@@ -295,9 +295,11 @@ button {
 }
 
 /* Shows and hides the dock. It stays in the window's top right corner either
-   way, so it does not move when the dock goes. */
+   way, so it does not move when the dock goes. Over the page of projects, whose head is sticky and
+   stacked above the viewport (z-index 2), or the button could not be pressed with the dock away. */
 .dock-toggle {
   position: absolute;
+  z-index: 3;
   top: 6px;
   right: var(--space-2);
   display: grid;
