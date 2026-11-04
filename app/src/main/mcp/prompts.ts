@@ -22,7 +22,7 @@ export const PROMPTS = {
         `Review the open marks and the dimensions of this project against the current build.`,
         ``,
         `1. Call ${toolName('scene')} for the build status and revision, and ${toolName('marks')} for every open mark and every dimension that fails or is not measured.`,
-        `2. For each open mark, read its note and its anchor, then say whether the current build meets it. Where it is about a size, a fit or a wall, measure it with ${toolName('measure')} (or ${toolName('check')} for a clearance or an overlap) rather than reading it off the model's code; ${toolName('describe')} tells what a ref is.`,
+        `2. For each open mark, read its note and its anchor, then say whether the current build meets it. Where it is about a size, a fit or a wall, measure it with ${toolName('measure')} (or ${toolName('check')} for a clearance or an overlap, and with {"kind": "interference"} for every pair of the layout at once) rather than reading it off the model's code; ${toolName('describe')} tells what a ref is.`,
         `3. Look with ${toolName('look')} once or twice, at views that show all the open marks, with the marks drawn; look at one mark alone only where the numbers cannot settle it.`,
         `4. For each dimension that fails or is not measured, say what it wants, what the build measures, and what would change it.`,
         `5. Resolve with ${toolName('resolve_mark')} only the marks the build now meets, each with a short note of what you measured or saw. Leave the others open.`,

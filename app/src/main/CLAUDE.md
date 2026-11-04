@@ -615,7 +615,8 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   put them. Between two parts of which either was moved, `check overlap`,
   `check clearance` and `measure distance` are refused in main
   (`spreadApart` in `marks/spread.ts`), naming the layouts that place both
-  as assembled; so is a distance from a bare point to a part that was moved.
+  as assembled; so is a distance from a bare point to a part that was moved, and `check interference`, which is of every part
+  of the layout (`spreadLayout`).
   A dimension of such a distance is not kept, and one there already is not
   measurable on that build (`spreadReason`, with where to measure it). An
   angle is answered, since parts are moved and never turned: each end of a
