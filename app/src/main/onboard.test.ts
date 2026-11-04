@@ -126,6 +126,8 @@ describe('onboardPrompt', () => {
         '- ../lid/ (another project of this workspace: 1 part: lid; box 40 x 20 x 5 mm, exact; its picture is attached: picture 3): mounts on this',
         '- ../base/ (another project of this workspace: not built in this run)',
         '',
+        'A doodle is drawn over a light grid: 1 square = 40 px of the board, with no scale. Read proportions from it, not sizes.',
+        '',
         ASK_FIRST('cable_clip')
       ].join('\n')
     )

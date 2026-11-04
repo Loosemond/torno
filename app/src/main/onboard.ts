@@ -124,6 +124,7 @@ export function onboardPrompt(input: PromptInput, toolName: (tool: string) => st
       input.description.trim(),
       '',
       ...(lines.length > 0 ? ['What they gave (all of it is also in brief.md; files are in reference/):', ...lines, ''] : []),
+      ...(input.items.some((item) => item.file.startsWith('reference/doodle')) ? ['A doodle is drawn over a light grid: 1 square = 40 px of the board, with no scale. Read proportions from it, not sizes.', ''] : []),
       `${moduleName(input.name)}.py is torno's placeholder (a 20 mm cube). Read brief.md and look at what was given. Then:`,
       '',
       "1. List the sizes that decide fit or function (overall size, wall, the sizes of the parts it mates with, hole and fastener sizes, clearances), and say where each comes from: brief.md, a reference picture's note, a scan (≈, to a few mm), another project, or nowhere.",

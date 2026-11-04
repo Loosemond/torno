@@ -251,6 +251,28 @@ test.describe('a new object', () => {
     await expect(board()).toHaveCount(0)
   })
 
+  test('the doodle board fills the window, has a grid, and Shift draws a straight line from where the stroke began', async () => {
+    await newPage().getByRole('button', { name: 'Draw…' }).click()
+    const canvas = board().locator('canvas')
+    await expect(canvas).toHaveAttribute('data-grid', '')
+    const box = (await canvas.boundingBox())!
+    expect(box.width).toBeGreaterThanOrEqual(1000)
+    await page.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.2)
+    await page.mouse.down()
+    await page.keyboard.down('Shift')
+    await page.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.7, { steps: 3 })
+    await page.mouse.move(box.x + box.width * 0.8, box.y + box.height * 0.2, { steps: 3 })
+    await page.mouse.up()
+    await page.keyboard.up('Shift')
+    await expect(canvas).toHaveAttribute('data-strokes', '1')
+    const inked = (fx: number, fy: number): Promise<boolean> =>
+      canvas.evaluate((c, [x, y]) => (c as HTMLCanvasElement).getContext('2d')!.getImageData(Math.round((c as HTMLCanvasElement).width * x), Math.round((c as HTMLCanvasElement).height * y), 1, 1).data[3] > 0, [fx, fy])
+    expect(await inked(0.5, 0.2)).toBe(true)
+    expect(await inked(0.3, 0.7)).toBe(false)
+    await page.keyboard.press('Escape')
+    await page.getByRole('alertdialog', { name: 'Discard this doodle?' }).getByRole('button', { name: 'Discard' }).click()
+  })
+
   test('a scan and another object of the workspace are given with their notes', async () => {
     await hook(app, { pickFile: plate() })
     await newPage().getByRole('button', { name: 'Add a scan…' }).click()
