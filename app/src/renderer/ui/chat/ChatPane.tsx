@@ -3,7 +3,7 @@ import { chatActions, useChat } from '../../state/chat'
 import { ChatItems } from './Items'
 import { AskSession } from './AskCard'
 import { Composer } from './Composer'
-import { ChatPlace } from './place'
+import { ChatEarlier, ChatPlace } from './place'
 import { ChatOffer, type ChatOffers } from './offers'
 
 /** Within this many pixels of its end, a transcript is at its end. */
@@ -105,7 +105,9 @@ export function ChatPane({ sessionId, live, working, dir, onWholePrompt, onUseTe
           {earlier && earlier.length > 0 && (
             <section className="chat-earlier" aria-label="Earlier in this conversation">
               <h3 className="chat-earlier-head">Earlier in this conversation</h3>
-              <ChatItems items={earlier} beat={false} />
+              <ChatEarlier.Provider value={true}>
+                <ChatItems items={earlier} beat={false} />
+              </ChatEarlier.Provider>
             </section>
           )}
           {items && (

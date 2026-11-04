@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { BuildState } from '../../shared/build'
 import { diagnosisText } from '../../shared/diagnosis'
 import type { Described } from '../../shared/geometry'
+import type { BuildIdentity } from '../../shared/git'
 import type { Mark, MarkPatch, NewMark } from '../../shared/marks'
 import type { ScanInfo } from '../../shared/scans'
 import type { Scene } from '../../shared/scene'
@@ -45,6 +46,8 @@ export interface ToolDeps {
   scene(objectId: string): { revision: number; scene: Scene } | undefined
   /** The last two successful builds, the older first (`diff`). Without it, only the last is known. */
   scenes?(objectId: string): Array<{ revision: number; scene: Scene }>
+  /** What the build of this run with this revision was made from (`main/buildlog.ts`); undefined when it is not known. `diff` tells it. */
+  identity?(objectId: string, revision: number): BuildIdentity | undefined
   /** The camera, layout and visible parts of an object as the window last showed it. */
   view(objectId: string): ViewState | undefined
   /** The object the window shows now: the only one it can make a picture of. */

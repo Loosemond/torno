@@ -6,6 +6,7 @@ import { isInsideFolder } from './inside'
 import * as pty from 'node-pty'
 import type { AgentView, SessionStatus } from '../../shared/bridge'
 import { type AgentChoice, agentChoiceOf, type ChatAnswer, type ChatCommand, type ChatHistory, type ChatItem, type ChatMeta, type ChatModel, type Effort, isEffort } from '../../shared/chat'
+import type { BuildIdentity } from '../../shared/git'
 import { modelsOf } from './models'
 import { type BuildState, errorLine, failedAfter } from '../../shared/build'
 import { type DrawnOver, type ViewDrawing, drawnOver } from '../../shared/drawing'
@@ -296,6 +297,8 @@ export class Sessions {
       settled?: (objectId: string, revision: number, until: number) => Promise<void>
       /** When the newest `.py` of an object, and of the `common/` beside it, was saved (null: none): a `Bash` after which it is newer has rewritten the model. Absent: a `Bash` is taken for no change. */
       sourcesSaved?: (objectDir: string) => Promise<number | null>
+      /** What the build of this run with this revision was made from: told under the chat's build lines and chips. Absent: nothing is. */
+      identity?: (objectId: string, revision: number) => BuildIdentity | undefined
       /** Tests only: how long an edit's answer waits for its build, and for it to begin, and how long a `Stop` waits for a build. */
       editTiming?: { answerMs: number; graceMs: number; stopMs?: number }
       /** Print the command line of every session started, and every hook it posts. */
@@ -569,7 +572,8 @@ export class Sessions {
     // How long it took and what it said, as data: the window draws a build line from these and the digest, never from the text.
     const took = told.buildState === 'ok' && at?.status === 'ok' && at.revision === told.revision ? at.seconds : undefined
     const error = told.buildState === 'failed' && at?.status === 'failed' && at.error ? errorLine(at.error) : undefined
-    session.chat?.transcript.toolContext({ toolUseId: session.turn?.lastToolUse, text: told.text, ...(told.revision !== undefined ? { revision: told.revision } : {}), ...(told.buildState ? { buildState: told.buildState } : {}), ...(took !== undefined ? { seconds: took } : {}), ...(error ? { error } : {}), ...(told.digest ? { digest: told.digest } : {}) })
+    const identity = told.revision === undefined ? undefined : this.deps.identity?.(objectId, told.revision)
+    session.chat?.transcript.toolContext({ toolUseId: session.turn?.lastToolUse, text: told.text, ...(told.revision !== undefined ? { revision: told.revision } : {}), ...(told.buildState ? { buildState: told.buildState } : {}), ...(took !== undefined ? { seconds: took } : {}), ...(error ? { error } : {}), ...(told.digest ? { digest: told.digest } : {}), ...(identity ? { identity } : {}) })
     return { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: told.text } }
   }
 
@@ -1208,7 +1212,7 @@ export class Sessions {
       context = { text: '', sentMarkIds: [] }
     }
     const { text, sentMarkIds } = context
-    session.chat?.transcript.context({ text, sentMarkIds, ...(context.revision !== undefined ? { revision: context.revision } : {}), ...(context.buildState ? { buildState: context.buildState } : {}), ...(context.selection ? { selection: context.selection } : {}), ...(context.instructions ? { instructions: context.instructions } : {}), ...(typeof fields.prompt === 'string' ? { prompt: fields.prompt } : {}) })
+    session.chat?.transcript.context({ text, sentMarkIds, ...(context.revision !== undefined ? { revision: context.revision } : {}), ...(context.buildState ? { buildState: context.buildState } : {}), ...(context.selection ? { selection: context.selection } : {}), ...(context.instructions ? { instructions: context.instructions } : {}), ...(context.revision !== undefined && this.deps.identity?.(objectId, context.revision) ? { identity: this.deps.identity(objectId, context.revision) } : {}), ...(typeof fields.prompt === 'string' ? { prompt: fields.prompt } : {}) })
     this.emit('context', { sessionId: session.id, objectId, text, sentMarkIds, ...(typeof fields.prompt === 'string' ? { prompt: fields.prompt } : {}) })
     if (this.deps.debug) console.error(`[torno] session ${session.id} hook ${event}${text ? `, answered with: ${text}` : ''}`)
     // Marks are sent once the answer that names them has been handed over whole: not when the agent hung

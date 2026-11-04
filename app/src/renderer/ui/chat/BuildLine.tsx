@@ -1,6 +1,7 @@
 import { memo, useState } from 'react'
 import type { ChatItem } from '../../../shared/chat'
 import { stillLatest } from '../../../shared/build'
+import { identitySaid } from '../../../shared/git'
 import type { Verdict } from '../../../shared/sanity'
 import { actions, useStore } from '../../state/store'
 import { numbered } from '../numbered'
@@ -30,20 +31,21 @@ export const BuildLine = memo(function BuildLine({ item }: { item: Context }) {
   const latest = useStore((s) => stillLatest(s.build, item))
   const errorShown = useStore((s) => s.errorOpen)
   const digest = item.digest
+  const of = item.identity ? identitySaid(item.identity) : undefined
   const parts = digest?.parts ?? []
   return (
     <div className="chat-item chat-build" data-kind="context" data-build={item.buildState}>
       <div className="chat-build-line">
         {item.buildState === 'ok' && item.revision !== undefined && (
           <span className="chat-build-head" data-verdict="ok">
-            Built <RefChip value={`r${item.revision}`} /> · ok{item.seconds !== undefined && <> · <span className="num">{seconds(item.seconds)}</span> s</>}
+            Built <RefChip value={`r${item.revision}`} of={of} /> · ok{item.seconds !== undefined && <> · <span className="num">{seconds(item.seconds)}</span> s</>}
           </span>
         )}
         {item.buildState === 'failed' && (
           <span className="chat-build-head" data-verdict="failed">
             {item.revision ? (
               <>
-                Build after <RefChip value={`r${item.revision}`} /> failed
+                Build after <RefChip value={`r${item.revision}`} of={of} /> failed
               </>
             ) : (
               'First build failed'
@@ -80,6 +82,7 @@ export const BuildLine = memo(function BuildLine({ item }: { item: Context }) {
           {parts.length > MOST_PARTS && <li className="muted">{numbered(`${parts.length - MOST_PARTS} more changed`)}</li>}
         </ul>
       )}
+      {open && of && <p className="chat-build-id muted"><span className="num">{`r${item.revision}: ${of}`}</span></p>}
       {open && <pre className="chat-pre chat-added-text selectable">{item.text}</pre>}
     </div>
   )

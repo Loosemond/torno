@@ -131,6 +131,13 @@ describe('the build after an edit', () => {
     const text = "[torno] part · build ok · r4\nChanged since r3: no part's volume, size or faces (1 as they were).\nCheck: tub is 2 solids (was 1)."
     expect(t.toolContext({ toolUseId: 'toolu_9', text, revision: 4, buildState: 'ok', digest })).toMatchObject({ kind: 'context', text, revision: 4, buildState: 'ok', digest })
   })
+
+  it('carries what the build was made from, as data (#62)', () => {
+    const t = new Transcript({ now: () => 1000 })
+    t.message(toolUse('toolu_9', 'Edit', { file_path: '/ws/part/part.py' }))
+    const identity = { sources: '0123456789ab', head: 'a1b2c3d', dirty: true as const }
+    expect(t.toolContext({ toolUseId: 'toolu_9', text: '[torno] r4 ok', revision: 4, buildState: 'ok', identity })).toMatchObject({ kind: 'context', revision: 4, identity })
+  })
 })
 
 describe('the build after an edit, as data for the window', () => {

@@ -1025,3 +1025,10 @@ select.session-model:disabled {
   padding: 0;
   list-style: none;
 }
+
+/* What a build was made from, in the text opened out under its line. */
+.chat-build-id {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-small);
+  overflow-wrap: anywhere;
+}

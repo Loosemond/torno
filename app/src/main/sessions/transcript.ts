@@ -1,4 +1,5 @@
 import { type ChatImage, type ChatItem, type ChatMeta, type Effort, MAX_ITEMS, TORNO_TOOL_PREFIX, isTornoTool, toolLabel } from '../../shared/chat'
+import type { BuildIdentity } from '../../shared/git'
 import type { DrawnOver } from '../../shared/drawing'
 import type { BuildDigest } from '../../shared/sanity'
 import { sessionRules } from './permissions'
@@ -211,7 +212,7 @@ export class Transcript {
    * What a `UserPromptSubmit` was answered with, under the prompt it went with: the one `prompt` names if it names
    * one that is waiting, else the oldest that has none yet. Null when nothing was added, and when no prompt waits.
    */
-  context(c: { text: string; sentMarkIds: string[]; prompt?: string; revision?: number; buildState?: 'ok' | 'failed' | 'building'; selection?: string[]; instructions?: number }): ChatItem | null {
+  context(c: { text: string; sentMarkIds: string[]; prompt?: string; revision?: number; buildState?: 'ok' | 'failed' | 'building'; selection?: string[]; instructions?: number; identity?: BuildIdentity }): ChatItem | null {
     let made: ChatItem | null = null
     this.run(() => {
       if (this.awaiting.length === 0) return
@@ -228,7 +229,7 @@ export class Transcript {
       // This hook starts a turn, and the `init` that follows it is its own (unless its lifecycle said so already).
       this.explain(forUser)
       if (c.text.trim() === '' && c.sentMarkIds.length === 0) return
-      made = { kind: 'context', id: this.newId('i'), forUser, text: this.redact(c.text), marks: [...c.sentMarkIds], ...(c.revision !== undefined ? { revision: c.revision } : {}), ...(c.buildState ? { buildState: c.buildState } : {}), ...(c.selection && c.selection.length > 0 ? { selection: c.selection.map((ref) => this.redact(ref)) } : {}), ...(c.instructions ? { instructions: c.instructions } : {}) }
+      made = { kind: 'context', id: this.newId('i'), forUser, text: this.redact(c.text), marks: [...c.sentMarkIds], ...(c.revision !== undefined ? { revision: c.revision } : {}), ...(c.buildState ? { buildState: c.buildState } : {}), ...(c.selection && c.selection.length > 0 ? { selection: c.selection.map((ref) => this.redact(ref)) } : {}), ...(c.instructions ? { instructions: c.instructions } : {}), ...(c.identity ? { identity: c.identity } : {}) }
       this.put(made)
     })
     return made
@@ -238,10 +239,10 @@ export class Transcript {
    * What the `PostToolUse` of an edit of the model was answered with (the build the edit started), under the card of
    * that tool, as a prompt's context is under the prompt. Null when the tool is not one of this transcript's.
    */
-  toolContext(c: { toolUseId?: string; text: string; revision?: number; buildState?: 'ok' | 'failed' | 'building'; seconds?: number; error?: string; digest?: BuildDigest }): ChatItem | null {
+  toolContext(c: { toolUseId?: string; text: string; revision?: number; buildState?: 'ok' | 'failed' | 'building'; seconds?: number; error?: string; digest?: BuildDigest; identity?: BuildIdentity }): ChatItem | null {
     const forItem = c.toolUseId === undefined ? undefined : this.tools.get(c.toolUseId)
     if (forItem === undefined || c.text.trim() === '') return null
-    const made: ChatItem = { kind: 'context', id: this.newId('i'), forUser: forItem, forTool: true, text: this.redact(c.text), marks: [], ...(c.revision !== undefined ? { revision: c.revision } : {}), ...(c.buildState ? { buildState: c.buildState } : {}), ...(c.seconds !== undefined ? { seconds: c.seconds } : {}), ...(c.error ? { error: this.redact(c.error) } : {}), ...(c.digest ? { digest: c.digest } : {}) }
+    const made: ChatItem = { kind: 'context', id: this.newId('i'), forUser: forItem, forTool: true, text: this.redact(c.text), marks: [], ...(c.revision !== undefined ? { revision: c.revision } : {}), ...(c.buildState ? { buildState: c.buildState } : {}), ...(c.seconds !== undefined ? { seconds: c.seconds } : {}), ...(c.error ? { error: this.redact(c.error) } : {}), ...(c.digest ? { digest: c.digest } : {}), ...(c.identity ? { identity: c.identity } : {}) }
     this.run(() => this.put(made))
     return made
   }

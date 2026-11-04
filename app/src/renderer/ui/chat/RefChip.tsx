@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useContext, useEffect, useMemo, useRef } from 'react'
 import { peek } from '../../state/agent'
 import { actions, useStore } from '../../state/store'
 import { giveKeysBack } from '../typing'
+import { ChatEarlier } from './place'
 import { type RefInfo, refInfo } from './refs'
 
 /**
@@ -11,7 +12,8 @@ import { type RefInfo, refInfo } from './refs'
  * nothing else. `value` is the ref (`ref` is React's own word). `prose`: the ref was found in running text, where one
  * the object has no such thing as (`M3` the screw, a build not made yet) is only text.
  */
-export function RefChip({ value, prose = false }: { value: string; prose?: boolean }) {
+export function RefChip({ value, prose = false, of }: { value: string; prose?: boolean; of?: string }) {
+  const earlier = useContext(ChatEarlier)
   // Only what a ref depends on is followed (not the selection or the camera), and what it says is worked out again
   // only when one of those changes.
   const marks = useStore((s) => s.marks)
@@ -35,7 +37,9 @@ export function RefChip({ value, prose = false }: { value: string; prose?: boole
   }, [info.lights.join(' ')])
 
   if (prose && info.plain) return <span className="num">{value}</span>
-  const props = { className: 'ref-chip num', 'data-ref': value, 'data-kind': info.kind, 'data-author': info.author, 'data-live': info.live ? '' : undefined, title: info.title }
+  // A build is told with what it was made from (`of`), and in an earlier part of the conversation with how little its number says now.
+  const title = info.kind !== 'build' ? info.title : [info.title, of ? `made from ${of}` : '', earlier ? 'Revisions count from 1 in every run: from an earlier part of this conversation, it may name another build now' : ''].filter(Boolean).join('. ')
+  const props = { className: 'ref-chip num', 'data-ref': value, 'data-kind': info.kind, 'data-author': info.author, 'data-live': info.live ? '' : undefined, title }
   if (!info.live || info.act === undefined) return <span {...props}>{value}</span>
   return (
     <button

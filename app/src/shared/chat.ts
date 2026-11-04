@@ -4,6 +4,7 @@
 // a change sends the whole item again.
 
 import type { DrawnOver } from './drawing'
+import type { BuildIdentity } from './git'
 import type { BuildDigest } from './sanity'
 
 /** How many items a transcript holds, in main and in the window: the oldest go. */
@@ -23,8 +24,8 @@ export interface ChatImage {
 export type ChatItem =
   /** What the person sent. `queued` until the CLI takes the prompt up (a prompt sent while it works waits). `drawing`: what the ink of the drawing on the view that went with it lies over (refs and counts; the picture is among `images`, and its caption is not in `text`). */
   | { kind: 'user'; id: string; text: string; images: ChatImage[]; state: 'queued' | 'sent' | 'not-sent'; at: number; drawing?: DrawnOver }
-  /** What torno added to that prompt (the context a `UserPromptSubmit` was answered with), shown under it: the marks sent, the build it named and the refs it said were selected, and how many instruction files of Claude Code's it named (`instructions`). Or, under a tool's card (`forUser` is then that card's id), the build an edit of the model started, as its `PostToolUse` was answered, with what that build did to the parts as data (`digest`, `main/sanity.ts`) when it worked. `forTool`: it is under a tool's card, and the window draws it as a build; `seconds`: how long the build took; `error`: the last line of what a failed build said. */
-  | { kind: 'context'; id: string; forUser: string; forTool?: true; text: string; marks: string[]; revision?: number; buildState?: 'ok' | 'failed' | 'building'; seconds?: number; error?: string; selection?: string[]; digest?: BuildDigest; instructions?: number }
+  /** What torno added to that prompt (the context a `UserPromptSubmit` was answered with), shown under it: the marks sent, the build it named and the refs it said were selected, and how many instruction files of Claude Code's it named (`instructions`). Or, under a tool's card (`forUser` is then that card's id), the build an edit of the model started, as its `PostToolUse` was answered, with what that build did to the parts as data (`digest`, `main/sanity.ts`) when it worked. `forTool`: it is under a tool's card, and the window draws it as a build; `identity`: what the build `revision` names was made from (its sources' hash and the commit), as `builds.jsonl` has it, for the run it was made in; `seconds`: how long the build took; `error`: the last line of what a failed build said. */
+  | { kind: 'context'; id: string; forUser: string; forTool?: true; text: string; marks: string[]; revision?: number; buildState?: 'ok' | 'failed' | 'building'; seconds?: number; error?: string; selection?: string[]; digest?: BuildDigest; instructions?: number; identity?: BuildIdentity }
   /** The agent's words, as markdown. */
   | { kind: 'text'; id: string; text: string; streaming: boolean }
   /** The agent thought. This CLI leaves the text of a thought empty. */

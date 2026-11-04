@@ -580,7 +580,7 @@ two: the session is ended (torno asks first if it is busy) and started again,
 resuming it. With no session it sets what the next one will be; the choice is
 kept in `.torno/agent.json`. What the chat showed is kept as text in
 `.torno/chat/`, and a resumed conversation shows it under "Earlier in this
-conversation"; pictures are never written. The photos and doodles you gave when
+conversation"; pictures are never written. A revision counts from 1 in every run of torno, so `r12` of an earlier part of the conversation may name another build now: the chip's tooltip says so there, and in the current run it says what the build was made from ("sources `9f3e1a2b4c5d`, on `a1b2c3d` with changes": a hash of the `.py` files it read, the commit then checked out, and whether files differed from it), also under "Show text" of the build line. `.torno/builds.jsonl` keeps the same for each build. The photos and doodles you gave when
 you made the project are shown again from `reference/`, by the name the log
 keeps (one you have since deleted says `reference/doodle-1.png is no longer
 there`); a picture a tool gave says "Picture of an earlier build, not kept",
@@ -851,7 +851,7 @@ them: `scene`, `look`, `marks`, `describe` and `measure`. The others are found b
 | `mcp__torno__measure` | An exact number from the geometry. See [Measuring and dimensions](#measuring-and-dimensions). |
 | `mcp__torno__section` | The outlines a plane cuts of the parts, with their areas, and a 2D drawing of the cut. See [Section](#section). |
 | `mcp__torno__check` | Whether two parts overlap, how far apart they are, whether a part's mesh is closed, and whether it prints: overhangs, thin walls, the fit on a bed. |
-| `mcp__torno__diff` | What changed between the last two successful builds (or the two revisions given as `from` and `to`): for each layout the parts added and removed, and for each part its volume (and its change in percent), box size and min corner before and after, with whether each is exact, and its face, edge and solid counts, a hint that refs may name other faces now. The answer to an edit gives the same of each part that changed. Only the last two builds are kept. |
+| `mcp__torno__diff` | What changed between the last two successful builds (or the two revisions given as `from` and `to`): for each layout the parts added and removed, and for each part its volume (and its change in percent), box size and min corner before and after, with whether each is exact, and its face, edge and solid counts, a hint that refs may name other faces now. The answer to an edit gives the same of each part that changed. Only the last two builds are kept. `builds` says what each was made from (a hash of the sources, the commit, whether files differed from it), and a note says when the two were made from the same sources. |
 | `mcp__torno__try_fillet` | Tries a fillet (or a chamfer, `kind: 'chamfer'`) of `radius` mm of some edges of a part (`part`, `edges` as refs such as `lid/E3`) on the last good build and throws it away: whether it works, and when it does not, the edges that fail alone or in pairs and the largest radius that works, as a failed build's error says it. It changes nothing. |
 | `mcp__torno__scans` | The scans of the project and how each is aligned. |
 | `mcp__torno__scan_clash` | What of a scan is inside a part. |

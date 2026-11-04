@@ -66,6 +66,21 @@ describe('the log of a conversation', () => {
     for (const item of read.slice(1)) expect(item).toEqual({ kind: 'note', id: item.id, text: 'edited', tone: 'warn' })
   })
 
+  it('keeps the identity of a build only when it is a hash, a commit and a flag (#62)', async () => {
+    const context = { kind: 'context', forUser: 'u1', text: 't', marks: [], revision: 3, buildState: 'ok' }
+    const lines = [
+      { id: 'c1', identity: { sources: '0123456789ab', head: 'a1b2c3d', dirty: true } },
+      { id: 'c2', identity: { sources: 'not a hash at all and longer than twelve' } },
+      { id: 'c3', identity: { sources: '0123456789ab', head: 5 } },
+      { id: 'c4', identity: 'x' }
+    ]
+    await appendItems(dir, CONVERSATION, [{ kind: 'note', id: 'n0', text: 'first', tone: 'quiet' }])
+    writeFileSync(file(), `${lines.map((l) => JSON.stringify({ ...context, ...l })).join('\n')}\n`)
+    const read = await readLog(dir, CONVERSATION)
+    expect((read[0] as { identity?: unknown }).identity).toEqual({ sources: '0123456789ab', head: 'a1b2c3d', dirty: true })
+    for (const item of read.slice(1)) expect('identity' in item).toBe(false)
+  })
+
   it('reads nothing of a conversation that has no file', async () => {
     expect(await readLog(dir, CONVERSATION)).toEqual([])
   })

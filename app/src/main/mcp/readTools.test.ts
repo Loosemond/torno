@@ -7,6 +7,7 @@ import type { Camera, LookRequest, SectionDrawingRequest, ShowRequest, ViewState
 import { KernelError } from '../kernel/client'
 import { addMarkTool } from './markTools'
 import { MAX_SECTION_POINTS, checkTool, diffTool, measureTool, sectionTool, thinned, tryFilletTool } from './readTools'
+import type { BuildIdentity } from '../../shared/git'
 import { TOOLS } from './schemas'
 import { type ToolDeps, type ToolResult, describeTool } from './tools'
 import { lookTool, sceneTool, showTool } from './viewTools'
@@ -963,6 +964,18 @@ describe('diff', () => {
     const before: Scene = { ...BEFORE, parts: BEFORE.parts.map((p) => ({ ...p, solids: 1 })) }
     const lid = partsOf(data(await diffTool(kept([3, before], [4, apart]), 'box', {}))).find((p) => p.name === 'lid')!
     expect(lid).toMatchObject({ changed: true, solids: { before: 1, after: 2 }, line: 'lid: solids 1 → 2' })
+  })
+
+  it('says what each build was made from, and when the sources are the same', async () => {
+    const ids: Record<number, BuildIdentity> = { 3: { sources: 'aaaaaaaaaaaa', head: 'a1b2c3d' }, 4: { sources: 'bbbbbbbbbbbb', head: 'a1b2c3d', dirty: true } }
+    const base = kept([3, BEFORE], [4, AFTER])
+    const differing: Row = data(await diffTool({ ...base, identity: (_id, revision) => ids[revision] }, 'box', {}))
+    expect(differing.builds).toEqual({ from: { revision: 3, sources: 'aaaaaaaaaaaa', head: 'a1b2c3d' }, to: { revision: 4, sources: 'bbbbbbbbbbbb', head: 'a1b2c3d', dirty: true } })
+    expect(differing.notes ?? []).not.toEqual(expect.arrayContaining([expect.stringMatching(/same sources/)]))
+    const alike: Row = data(await diffTool({ ...base, identity: () => ({ sources: 'aaaaaaaaaaaa' }) }, 'box', {}))
+    expect(alike.notes).toEqual(expect.arrayContaining([expect.stringMatching(/same sources/)]))
+    // Where nothing is known of the builds (a revision of an earlier run), nothing is said of them.
+    expect(data(await diffTool(base, 'box', {})).builds).toBeUndefined()
   })
 
   it('refuses with one build so far', async () => {
