@@ -60,6 +60,8 @@ export interface TranscriptOptions {
   tested?: { min: string; max: string }
   /** The effort the session was started with (`--effort`); absent: the person's own default. */
   effort?: Effort
+  /** The CLI compacted the conversation (a `compact_boundary`). */
+  onCompact?: () => void
 }
 
 /** A block of the message being streamed, by its index. */
@@ -132,6 +134,7 @@ export class Transcript {
   private explained = 0
   /** A compaction note was made in this turn, so the command's own "Compacted" is not a second. */
   private compactNoted = false
+  private readonly onCompact: () => void
   private pulled: Record<string, number> = {}
 
   private readonly lastTold = new Map<string, number>()
@@ -147,6 +150,7 @@ export class Transcript {
     this.emitItem = opts.emit ?? (() => {})
     this.emitMeta = opts.emitMeta ?? (() => {})
     this.plugin = opts.plugin
+    this.onCompact = opts.onCompact ?? (() => {})
     this.tested = opts.tested
     if (opts.effort) this.info = { effort: opts.effort }
   }
@@ -509,6 +513,7 @@ export class Transcript {
       const text = before !== undefined && after !== undefined ? `Conversation compacted: ${tokens.format(before)} → ${tokens.format(after)} tokens` : 'Conversation compacted'
       this.put({ kind: 'note', id: this.newId('i'), text, tone: 'quiet' })
       this.compactNoted = true
+      this.onCompact()
     }
   }
 

@@ -1014,6 +1014,13 @@ describe('what the CLI printed for a permission and for /compact', () => {
     expect(items[2]).toMatchObject({ ok: true, stopped: false })
   })
 
+  it('tells that the conversation was compacted', () => {
+    let compacted = 0
+    const t = new Transcript({ now: () => 1000, onCompact: () => (compacted += 1) })
+    t.message({ type: 'system', subtype: 'compact_boundary', compact_metadata: { trigger: 'auto', pre_tokens: 9, post_tokens: 3 } })
+    expect(compacted).toBe(1)
+  })
+
   it('draws no note for the compaction summary, and shows what a local command printed as a quiet note', () => {
     const t = new Transcript({ now: () => 1000 })
     const local = (content: string): AgentMessage => ({ type: 'user', message: { role: 'user', content } })

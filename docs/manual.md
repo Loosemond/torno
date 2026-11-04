@@ -720,10 +720,10 @@ Open marks: M2 (moved), M6 (unchecked)
   not read as a verdict on the edit. A line stays until its dimension passes
   or is resolved.
 - `Open marks` are the numbers of the marks still open, each with what the
-  last build did to it. After `/clear`, the first prompt of the new
-  conversation lists your open marks once more.
+  last build did to it. After `/clear`, or after the conversation was
+  compacted, the first prompt that follows lists your open marks once more.
 - The first prompt of a new conversation (a session that was not resumed, or
-  after `/clear`) ends with a line naming the files in `reference/` (twelve at
+  after `/clear`, or after a compaction) ends with a line naming the files in `reference/` (twelve at
   most, then how many more), to read when they matter.
 - The first prompt of every session, resumed or not, and the first after
   `/clear`, ends with a line naming the instruction files Claude Code reads

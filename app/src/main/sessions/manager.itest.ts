@@ -735,6 +735,23 @@ describe('the hook endpoint', () => {
     expect(asked.map((a) => a.fresh)).toEqual([false, false, true, false, true])
   })
 
+  it('tells the marks and the references again after a compaction (PostCompact), once, and the hook moves no status', async () => {
+    const { sessionId } = await sessions.start(object('bracket'), {})
+    await expect.poll(() => said(sessionId)).toContain('READY')
+    asked = []
+    const prompt = async (event = 'UserPromptSubmit'): Promise<void> => {
+      const before = asked.length
+      sessions.write(sessionId, `hook ${event}\r`)
+      if (event === 'UserPromptSubmit') await expect.poll(() => asked.length).toBe(before + 1)
+    }
+    await prompt()
+    await prompt('PostCompact')
+    await expect.poll(() => sessions.current('bracket')?.status).toBe('working')
+    await prompt()
+    await prompt()
+    expect(asked.map((a) => a.fresh)).toEqual([false, true, false])
+  })
+
   it('refuses a body over 1 MB', async () => {
     const { sessionId } = await sessions.start(object('bracket'), {})
     const url = http.url(`/hooks/${sessionId}/UserPromptSubmit`)
@@ -903,6 +920,7 @@ describe('a chat session', () => {
     if (!r) records.set(sessionId, (r = { messages: [], data: [], asks: [], asked: [], contexts: [], statuses: [] }))
     return r
   }
+  const chatFresh: boolean[] = []
   const chatDelivered: Array<{ objectId: string; sentMarkIds: string[] }> = []
 
   beforeAll(async () => {
@@ -912,7 +930,10 @@ describe('a chat session', () => {
       http: chatHttp,
       adapter: claudeAdapter(`node ${FAKE}`),
       viewFor: () => 'chat',
-      contextFor: async (id) => contextOf(id, (calls += 1)),
+      contextFor: async (id, opts) => {
+        chatFresh.push(opts.fresh)
+        return contextOf(id, (calls += 1))
+      },
       onDelivered: (objectId, sentMarkIds) => chatDelivered.push({ objectId, sentMarkIds }),
       systemPromptFor: () => '',
       mcpUrlFor: (id) => chatHttp.url(`/mcp/${id}`)
@@ -930,6 +951,7 @@ describe('a chat session', () => {
     contextOf = (id, call) => ({ text: `context ${call} for ${id}`, sentMarkIds: [] })
     calls = 0
     chatDelivered.length = 0
+    chatFresh.length = 0
   })
 
   afterAll(async () => {
@@ -985,6 +1007,19 @@ describe('a chat session', () => {
     const assistant = c.messages.find((m) => m.type === 'assistant')!
     expect((assistant.message as { content: unknown[] }).content).toEqual([{ type: 'text', text: 'one two three' }])
     expect(c.results()[0]).toMatchObject({ subtype: 'success', is_error: false })
+  })
+
+  it('tells the marks again in the prompt after a compaction of the stream, once', async () => {
+    const c = await chat()
+    c.send('say before')
+    await expect.poll(() => c.results().length).toBe(1)
+    c.send('/compact')
+    await expect.poll(() => c.results().length).toBe(2)
+    c.send('say after')
+    await expect.poll(() => c.results().length).toBe(3)
+    c.send('say later')
+    await expect.poll(() => c.results().length).toBe(4)
+    expect(chatFresh).toEqual([false, true, false])
   })
 
   it('keeps going past what it does not know: a line that is no JSON, an object of a type from the future', async () => {

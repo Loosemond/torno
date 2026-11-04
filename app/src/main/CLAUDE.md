@@ -979,7 +979,8 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   and atomically, when a session starts on it (`trimLog`). Switching `view` ends the session and resumes the
   conversation in the other kind (`session.json` is the same).
 - The first prompt of a new conversation (`newConversation`: a session not resumed, its first `UserPromptSubmit`;
-  or `fresh`, after /clear) is told in a last line the files of `reference/` (`referencesLine` in `context.ts`,
+  or `fresh`, after /clear or after a compaction: the `PostCompact` hook, which moves no status, or the stream's
+  `compact_boundary`, either sets `Session.compacted`, which the next prompt takes once as `fresh`) is told in a last line the files of `reference/` (`referencesLine` in `context.ts`,
   `listReferences`: plain files of create's names, photos then doodles, twelve named at most). It is no mark, and is
   left out when it does not fit in the context's limit. The onboarding prompt names them too; the repetition is
   accepted.
