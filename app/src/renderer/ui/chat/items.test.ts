@@ -29,4 +29,15 @@ describe('what is drawn under an item', () => {
     expect(out).toContain('chat-build')
     expect(out).not.toContain('torno added')
   })
+
+  it('ends a turn with what it did to the project, and what it pulled from torno on a line of its own', () => {
+    const turn: ChatItem = { kind: 'turn', id: 'i9', ok: true, stopped: false, seconds: 4.2, pulled: { look: 1 } }
+    const out = drawn([user, forPrompt, tool, forEdit, turn])
+    const line = out.slice(out.indexOf('data-kind="turn"')).replace(/<[^>]*>/g, '')
+    expect(line).toContain('Done in 4.2 s')
+    expect(line).toContain('part.py edited')
+    expect(line).toContain('r1')
+    expect(line).toContain('r2')
+    expect(line).toContain('Pulled from torno: look')
+  })
 })

@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from 'react'
+import { memo, useMemo, useRef, useState } from 'react'
 import { type ChatItem, pulledFromTorno } from '../../../shared/chat'
 import { drawn } from '../../state/chat'
 import { numbered } from '../numbered'
@@ -11,6 +11,7 @@ import { Pictures } from './Pictures'
 import { RefChip } from './RefChip'
 import { useChatOffers } from './offers'
 import { ToolCard } from './ToolCard'
+import { isEmpty, summaryParts, turnSummary, type TurnSummary } from './turnSummary'
 
 type Of<K extends ChatItem['kind']> = Extract<ChatItem, { kind: K }>
 
@@ -91,22 +92,28 @@ const User = memo(function User({ item }: { item: Of<'user'> }) {
   )
 })
 
-function Turn({ item }: { item: Of<'turn'> }) {
+/**
+ * The end of a turn: how long it took, what it did to the project (`summary`, from the turn's own items), and what it
+ * pulled from torno, each on a quiet line of its own. Whatever else is offered for the turn (to see its changes, to
+ * take them back) goes in the row after them.
+ */
+const Turn = memo(function Turn({ item, summary }: { item: Of<'turn'>; summary?: TurnSummary }) {
   const pulled = pulledFromTorno(item.pulled)
   const head = item.stopped ? 'Stopped' : item.ok ? `Done in ${item.seconds < 10 ? item.seconds.toFixed(1) : Math.round(item.seconds)} s` : `Failed${item.error ? `: ${item.error}` : ''}`
+  const parts = summary && !isEmpty(summary) ? summaryParts(summary) : []
   return (
-    <p className="chat-item chat-turn" data-kind="turn" data-ok={item.ok && !item.stopped ? '' : undefined}>
-      {numbered(head)}
-      {pulled && <> · {numbered(pulled)}</>}
-    </p>
+    <div className="chat-item chat-turn" data-kind="turn" data-ok={item.ok && !item.stopped ? '' : undefined}>
+      <p className="chat-turn-line">{numbered([head, ...parts].join(' · '))}</p>
+      {pulled && <p className="chat-turn-line chat-turn-pulled">{numbered(pulled)}</p>}
+    </div>
   )
-}
+})
 
 /**
  * One item of the transcript. Memoized: an item that did not change (the pane keeps its object) is not drawn again
  * for what else changes; `beat` is passed only to the items that show a dot, a constant to the rest.
  */
-export const ItemView = memo(function ItemView({ item, beat }: { item: ChatItem; beat: boolean }) {
+export const ItemView = memo(function ItemView({ item, beat, summary }: { item: ChatItem; beat: boolean; summary?: TurnSummary }) {
   counting(item.id)
   switch (item.kind) {
     case 'user':
@@ -139,7 +146,7 @@ export const ItemView = memo(function ItemView({ item, beat }: { item: ChatItem;
     case 'ask':
       return <AskCard item={item} />
     case 'turn':
-      return <Turn item={item} />
+      return <Turn item={item} summary={summary} />
     case 'note':
       return item.action === 'terminal' ? (
         <TerminalOffer item={item} />
@@ -178,6 +185,26 @@ export function ChatItems({ items, beat }: { items: ChatItem[]; beat: boolean })
     return byUser
   }, [order])
   const ids = useMemo(() => new Set(order.map((item) => item.id)), [order])
+  // What each turn did, kept as the same object while it says the same, so that a turn already drawn is not drawn again.
+  const kept = useRef(new Map<string, { said: string; summary: TurnSummary }>())
+  const summaries = useMemo(() => {
+    const out = new Map<string, TurnSummary>()
+    let turn: ChatItem[] = []
+    for (const item of order) {
+      if (item.kind !== 'turn') {
+        turn.push(item)
+        continue
+      }
+      const summary = turnSummary(turn)
+      const said = JSON.stringify(summary)
+      const was = kept.current.get(item.id)
+      const same = was?.said === said ? was.summary : summary
+      kept.current.set(item.id, { said, summary: same })
+      out.set(item.id, same)
+      turn = []
+    }
+    return out
+  }, [order])
   return (
     <>
       {order.map((item) => {
@@ -185,7 +212,7 @@ export function ChatItems({ items, beat }: { items: ChatItem[]; beat: boolean })
         if (item.kind === 'context' && ids.has(item.forUser)) return null
         return (
           <div key={item.id} className="chat-group" data-id={item.id}>
-            <ItemView item={item} beat={underWay(item) ? beat : true} />
+            <ItemView item={item} beat={underWay(item) ? beat : true} summary={summaries.get(item.id)} />
             {under.get(item.id)?.map((context) => (context.forTool ? <BuildLine key={context.id} item={context} /> : <Added key={context.id} item={context} />))}
           </div>
         )

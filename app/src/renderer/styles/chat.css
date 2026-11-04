@@ -535,6 +535,14 @@ button.ref-chip {
   color: var(--ink);
 }
 
+.chat-turn-line {
+  margin: 0;
+}
+
+.chat-turn-line + .chat-turn-line {
+  margin-top: var(--space-1);
+}
+
 .chat-note[data-tone='warn'] {
   color: var(--warn);
 }

@@ -492,6 +492,12 @@ is a new line, and a prompt sent while the agent is at work waits its turn
   open large; the turn ends with a line such as "Pulled from torno: scene, 2
   pictures, measure ×3". Other tools are one line each, opened for their input
   and result.
+- **What the turn did.** The last line of a turn says, from the turn's own
+  items, what it did to the project: the files the agent edited ("hollow.py
+  edited ×2"), the builds those edits started ("r1 → r3 ok", or "build
+  failed"), the marks it resolved and added, and the dimensions whose verdict
+  is another than it was ("M3 now passes"). A turn that did none of these says
+  only how long it took.
 - **Refs are live.** `M4`, `lid/F12` and `lid/E3` in the agent's text and in
   the cards are chips: hovering one lights it in the view, clicking a mark
   focuses it, clicking a face or an edge selects it. A ref that names nothing
