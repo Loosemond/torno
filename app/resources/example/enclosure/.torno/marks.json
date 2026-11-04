@@ -1,0 +1,186 @@
+{
+  "next": 4,
+  "marks": [
+    {
+      "author": "user",
+      "status": "draft",
+      "anchorState": "ok",
+      "layout": "assembly",
+      "revision": 1,
+      "id": "M1",
+      "kind": "pin",
+      "note": "Room for a label here: about 30 by 12 mm, a recess 0.4 mm deep so a sticker sits flush.",
+      "camera": {
+        "position": [
+          95,
+          -105,
+          78
+        ],
+        "target": [
+          0,
+          0,
+          12
+        ],
+        "up": [
+          0,
+          0,
+          1
+        ],
+        "ortho": false,
+        "fov": 35,
+        "zoom": 1
+      },
+      "createdAt": "2026-11-02T09:41:12.000Z",
+      "anchor": {
+        "point": [
+          14.0,
+          -6.0,
+          28.4
+        ],
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "part": "case-lid",
+        "ref": "case-lid/F1",
+        "descriptor": "plane, normal +Z, z = 28.4, 3448 mm\u00b2",
+        "arranged": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "author": "user",
+      "status": "draft",
+      "anchorState": "ok",
+      "layout": "assembly",
+      "revision": 1,
+      "id": "M2",
+      "kind": "arrow",
+      "note": "The cable goes out here, and this notch is too narrow for the plug: the USB-C plug is 14 mm wide with its strain relief. Make the notch fit it.",
+      "camera": {
+        "position": [
+          40,
+          90,
+          55
+        ],
+        "target": [
+          0,
+          20,
+          20
+        ],
+        "up": [
+          0,
+          0,
+          1
+        ],
+        "ortho": false,
+        "fov": 35,
+        "zoom": 1
+      },
+      "createdAt": "2026-11-02T09:43:50.000Z",
+      "from": {
+        "point": [
+          0.0,
+          23.0,
+          20.0
+        ],
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "part": "case-body",
+        "ref": "case-body/F16",
+        "descriptor": "plane, normal +Z, z = 20, 24 mm\u00b2",
+        "arranged": [
+          0,
+          0,
+          0
+        ]
+      },
+      "to": [
+        0,
+        36,
+        21
+      ]
+    },
+    {
+      "author": "user",
+      "status": "draft",
+      "anchorState": "ok",
+      "layout": "assembly",
+      "revision": 1,
+      "id": "M3",
+      "kind": "dimension",
+      "measure": "distance",
+      "note": "The lid rattles. The gap between its lip and the wall should be 0.2 mm, which is usual for PLA.",
+      "camera": {
+        "position": [
+          95,
+          -105,
+          78
+        ],
+        "target": [
+          0,
+          0,
+          12
+        ],
+        "up": [
+          0,
+          0,
+          1
+        ],
+        "ortho": false,
+        "fov": 35,
+        "zoom": 1
+      },
+      "createdAt": "2026-11-02T09:47:05.000Z",
+      "a": {
+        "point": [
+          33.25,
+          0.0,
+          24.0
+        ],
+        "normal": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "part": "case-lid",
+        "ref": "case-lid/F12",
+        "descriptor": "plane, normal +X, x = 33.25, 170 mm\u00b2",
+        "arranged": [
+          0,
+          0,
+          0
+        ]
+      },
+      "b": {
+        "point": [
+          33.6,
+          0.0,
+          15.0
+        ],
+        "normal": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "part": "case-body",
+        "ref": "case-body/F10",
+        "descriptor": "plane, normal -X, x = 33.6, 1037 mm\u00b2",
+        "arranged": [
+          0,
+          0,
+          0
+        ]
+      },
+      "expected": 0.2,
+      "tolerance": 0.05
+    }
+  ]
+}

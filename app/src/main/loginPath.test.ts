@@ -51,12 +51,17 @@ describe('shellPath', () => {
 })
 
 describe('applyLoginPath', () => {
-  it('does nothing off macOS or under test', async () => {
+  it('does nothing off macOS and Linux or under test', async () => {
     const env = { PATH: '/usr/bin', SHELL: shellScript('printf "__TORNO_PATH__/z__TORNO_PATH__"') }
-    await applyLoginPath('linux', env)
+    await applyLoginPath('win32', env)
     expect(env.PATH).toBe('/usr/bin')
     await applyLoginPath('darwin', { ...env, TORNO_TEST: '1' })
     expect(env.PATH).toBe('/usr/bin')
+  })
+  it('sets the PATH on Linux', async () => {
+    const env: NodeJS.ProcessEnv = { PATH: '/usr/bin', SHELL: shellScript('printf "__TORNO_PATH__/z__TORNO_PATH__"') }
+    await applyLoginPath('linux', env)
+    expect(env.PATH!.startsWith('/z:/usr/bin')).toBe(true)
   })
   it('sets the PATH on macOS', async () => {
     const env: NodeJS.ProcessEnv = { PATH: '/usr/bin', SHELL: shellScript('printf "__TORNO_PATH__/z__TORNO_PATH__"') }

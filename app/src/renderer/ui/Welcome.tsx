@@ -116,7 +116,7 @@ export function Welcome({ onPick, onOpened }: { onPick: () => void; onOpened: (i
         {!returning && <p className="welcome-note">An empty folder is fine: torno helps you make the first project.</p>}
         {example && (
           <div className="welcome-example">
-            <button type="button" className="button button-quiet" disabled={busy} title="Four small projects of torno's own, copied to a temporary folder: nothing of the repository is opened or written" onClick={() => open(() => window.torno.workspace.openExample(), 'The example')}>
+            <button type="button" className="button button-quiet" disabled={busy} title="A small project of torno's own, copied to a temporary folder: nothing of the repository is opened or written" onClick={() => open(() => window.torno.workspace.openExample(), 'The example')}>
               Open the example
             </button>
             <span className="welcome-note">A temporary copy, removed when torno quits.</span>
@@ -129,7 +129,7 @@ export function Welcome({ onPick, onOpened }: { onPick: () => void; onOpened: (i
         </p>
       )}
       <p className="welcome-foot">
-        torno writes only into a <span className="num">.torno</span> folder inside each project.
+        torno writes only into a <span className="num">.torno</span> folder inside each project, and the new folder when you make a project.
       </p>
     </div>
   )

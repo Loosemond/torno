@@ -74,6 +74,24 @@ export function atOffset(plane: SectionPlane, box: Box, mm: number): SectionPlan
   return movedAlongNormal(plane, to - sectionOffset(plane, box))
 }
 
+/**
+ * Where a plane is as the person reads and types it, the way the agent is told: across an axis its coordinate in
+ * the object frame (`y = 20`), else its offset along the normal from the middle of the parts.
+ */
+export function placeOf(plane: SectionPlane, box: Box): { axis: Axis | null; value: number } {
+  const along = axisForm(plane)
+  return along ? { axis: along.axis, value: along.at } : { axis: null, value: sectionOffset(plane, box) }
+}
+
+/** The plane at a place (see `placeOf`): a coordinate when it is across an axis, else an offset. Kept within the box. */
+export function atPlace(plane: SectionPlane, box: Box, value: number): SectionPlane {
+  const along = axisForm(plane)
+  if (!along || !Number.isFinite(value)) return atOffset(plane, box, value)
+  const i = AXES.indexOf(along.axis)
+  // The offset along the normal that puts the plane at that coordinate: the normal is ±the axis.
+  return atOffset(plane, box, along.sign * (value - centreOf(box)[i]))
+}
+
 /** The axis a normal runs along and which way, or null for a plane across none. */
 export function axisOf(normal: Vec3): { axis: Axis; sign: 1 | -1 } | null {
   const along = axisForm({ origin: [0, 0, 0], normal })
@@ -210,6 +228,8 @@ interface Cap {
   front: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>
   /** The plane itself, drawn where that count is not zero. */
   face: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>
+  /** The colour of the hatch over the cut face: the part's edge colour. */
+  hatch: THREE.Color
   /** Where the plane meets the part's surface: the outline of the cut face, drawn like the part's edges. */
   rim: THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicMaterial>
   /** The plane, in the part's own frame, the outline was last worked out for; empty for none. */
@@ -601,6 +621,10 @@ export class SectionCut {
       })
     )
     face.matrixAutoUpdate = false
+    const hatch = hatchCap(face.material)
+    face.onBeforeRender = (renderer) => {
+      hatch.gap.value = HATCH_PX * (renderer.getRenderTarget() ? 1 : renderer.getPixelRatio())
+    }
     // A part that is not closed after all leaves counts where the quad does not reach: none is left for the next part.
     face.onAfterRender = (renderer) => renderer.clearStencil()
     const rim = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial())
@@ -611,11 +635,38 @@ export class SectionCut {
       mesh.raycast = () => {} // never picked: a cut face is no face of the model
       built.group.add(mesh)
     }
-    return { back, front, face, rim, rimOf: '' }
+    return { back, front, face, rim, rimOf: '', hatch: hatch.colour }
   }
 }
 
 const Z = new THREE.Vector3(0, 0, 1)
+
+/** The gap between the lines of the hatch on a cut face, in pixels of the screen (about 6, as a drawing has it). */
+export const HATCH_PX = 6
+
+/**
+ * Hatches a cut face: a fine 45 degree line in the colour it returns, in screen space so that it reads at any
+ * zoom. `gap` is the spacing in the pixels it is drawn in: a screen's device pixels are finer than a picture's, so
+ * the face sets it to `HATCH_PX` times the pixel ratio while it draws to the screen.
+ */
+export function hatchCap(material: THREE.MeshBasicMaterial): { colour: THREE.Color; gap: { value: number } } {
+  const colour = new THREE.Color()
+  const gap = { value: HATCH_PX }
+  material.userData.hatch = { colour, gap }
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.hatchColour = { value: colour }
+    shader.uniforms.hatchGap = gap
+    shader.fragmentShader = shader.fragmentShader
+      .replace('void main() {', 'uniform vec3 hatchColour;\nuniform float hatchGap;\nvoid main() {')
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+  if (mod(gl_FragCoord.x + gl_FragCoord.y, hatchGap) < hatchGap / ${HATCH_PX}.0) diffuseColor.rgb = hatchColour;`
+      )
+  }
+  material.customProgramCacheKey = () => 'cut-hatch'
+  return { colour, gap }
+}
 
 interface Look {
   color: string
@@ -628,6 +679,7 @@ function lookCap(cap: Cap, look: Look): void {
   const transparent = look.opacity < 1
   cap.face.material.color.set(capColour(look.color))
   cap.rim.material.color.set(look.edges)
+  cap.hatch.set(look.edges)
   for (const material of [cap.back.material, cap.front.material, cap.face.material, cap.rim.material]) {
     if (material.transparent !== transparent) material.needsUpdate = true
     material.transparent = transparent

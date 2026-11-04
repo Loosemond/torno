@@ -122,7 +122,7 @@ afterEach(async () => {
 
 afterAll(() => http.close())
 
-const ALL = ['add_mark', 'ask', 'check', 'describe', 'diff', 'highlight', 'look', 'marks', 'measure', 'resolve_mark', 'save_view', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show', 'try_fillet']
+const ALL = ['add_mark', 'ask', 'check', 'describe', 'diff', 'expect', 'highlight', 'look', 'marks', 'measure', 'resolve_mark', 'save_view', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show', 'try_fillet']
 /** The least each tool can be called with. */
 const MINIMAL: Record<string, Record<string, unknown>> = {
   scene: {},
@@ -380,7 +380,7 @@ describe('the MCP server', () => {
       return (result.content as Content)[0].text!
     }
     for (const [name, args] of Object.entries(MINIMAL)) expect(await said(name, { ...args, colour: 'red' }), name).toMatch(new RegExp(`^${name} takes no "colour"\\. An unknown key is not ignored: nothing was done\\. It takes`))
-    expect(await said('scene', { layout: 'main' })).toBe('scene takes no "layout". An unknown key is not ignored: nothing was done. It takes no arguments.')
+    expect(await said('scene', { layouts: 'main' })).toBe('scene takes no "layouts": did you mean layout? An unknown key is not ignored: nothing was done. It takes: layout.')
     // What a slip would have changed without a word: the region counted after all, the whole part measured, no scan cut, the scans drawn.
     expect(await said('scan_clash', { part: 'base', ignored: ['M7'] })).toBe('scan_clash takes no "ignored": did you mean ignore? An unknown key is not ignored: nothing was done. It takes: part, scan, ignore, margin, layout.')
     expect(await said('scan_deviation', { part: 'base', face: ['base/F5'] })).toContain('takes no "face": did you mean faces?')

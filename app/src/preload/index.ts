@@ -36,6 +36,7 @@ const bridge: TornoBridge = {
     forget: (root) => invoke('workspace:forget', root),
     hasExample: () => invoke('workspace:hasExample'),
     openExample: () => invoke('workspace:openExample'),
+    keepExample: () => invoke('workspace:keepExample'),
     onRequested: (cb) => subscribe('workspace:requested', cb),
     onCloseAsked: (cb) => subscribe('window:closeAsked', cb),
     answerClose: (close) => ipcRenderer.send('window:closeAnswer', close)
@@ -79,6 +80,7 @@ const bridge: TornoBridge = {
     update: (objectId, id, patch) => invokePlain('marks:update', objectId, id, patch),
     acknowledge: (objectId, ids) => invokePlain('marks:acknowledge', objectId, ids),
     remove: (objectId, id) => invokePlain('marks:remove', objectId, id),
+    restore: (objectId, id) => invokePlain('marks:restore', objectId, id),
     replace: (objectId, id, placed) => invokePlain('marks:replace', objectId, id, placed),
     onChanged: (cb) => subscribe('marks:changed', cb),
     onProblem: (cb) => subscribe('marks:problem', cb),
@@ -92,6 +94,7 @@ const bridge: TornoBridge = {
     readPhoto: (path) => invokePlain('objects:readPhoto', path),
     create: (req) => invokePlain('objects:create', req),
     onboard: (objectId, draft) => invokePlain('objects:onboard', objectId, draft),
+    previewPrompt: (name, draft) => invokePlain('objects:previewPrompt', name, draft),
     taken: () => invokePlain('objects:taken')
   },
   scans: {
@@ -127,6 +130,8 @@ const bridge: TornoBridge = {
   export: {
     plan: (req) => invokePlain('export:plan', req),
     save: (req) => invokePlain('export:save', req),
+    reveal: () => invokePlain('export:reveal'),
+    openSaved: () => invokePlain('export:openSaved'),
     done: () => ipcRenderer.send('export:done')
   },
   session: {
@@ -145,7 +150,10 @@ const bridge: TornoBridge = {
   },
   chat: {
     history: (sessionId) => invokePlain('chat:history', sessionId),
+    lastConversation: (objectId) => invokePlain('chat:lastConversation', objectId),
     reference: (sessionId, file) => invokePlain('chat:reference', sessionId, file),
+    changes: (sessionId, turnId) => invokePlain('chat:changes', sessionId, turnId),
+    undo: (sessionId, turnId) => invokePlain('chat:undo', sessionId, turnId),
     onItem: (cb) => subscribe('chat:item', cb),
     onMeta: (cb) => subscribe('chat:meta', cb),
     onCapabilities: (cb) => subscribe('chat:capabilities', cb),
@@ -153,6 +161,7 @@ const bridge: TornoBridge = {
     answer: (sessionId, requestId, answer) => ipcRenderer.send('chat:answer', sessionId, requestId, answer),
     interrupt: (sessionId) => invokePlain('chat:interrupt', sessionId),
     setModel: (sessionId, model) => invokePlain('chat:setModel', sessionId, model),
+    setMode: (sessionId, mode) => invokePlain('chat:setMode', sessionId, mode),
     setEffort: (sessionId, effort) => invokePlain('chat:setEffort', sessionId, effort),
     models: () => invokePlain('chat:models')
   }

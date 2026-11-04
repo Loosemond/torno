@@ -124,7 +124,7 @@ let whole: string
 test('before an object has been built, scene and look say there is no build', async () => {
   await page.emulateMedia({ colorScheme: 'light' })
   bracket = await connect('bracket')
-  expect((await bracket.listTools()).tools.map((t) => t.name).sort()).toEqual(['add_mark', 'ask', 'check', 'describe', 'diff', 'highlight', 'look', 'marks', 'measure', 'resolve_mark', 'save_view', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show', 'try_fillet'])
+  expect((await bracket.listTools()).tools.map((t) => t.name).sort()).toEqual(['add_mark', 'ask', 'check', 'describe', 'diff', 'expect', 'highlight', 'look', 'marks', 'measure', 'resolve_mark', 'save_view', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show', 'try_fillet'])
   const asked: Array<[string, Record<string, unknown>]> = [
     ['scene', {}],
     ['look', {}],
@@ -140,7 +140,7 @@ test('before an object has been built, scene and look say there is no build', as
     expect(result.text, name).toBe('no build yet: bracket has not been opened in the torno window')
   }
   // The marks are the object's, built or not: there are none yet.
-  expect(await call(bracket, 'marks')).toMatchObject({ isError: false, text: '{"revision":null,"marks":[]}' })
+  expect(await call(bracket, 'marks')).toMatchObject({ isError: false, text: '{"revision":null,"marks":[],"listed":"open marks; resolved ones with status resolved, or by ids"}' })
   const nothing = await call(await connect('no such object'), 'scene')
   expect(nothing).toMatchObject({ isError: true, text: 'unknown project: no such object' })
 })
@@ -161,7 +161,7 @@ test('scene reports the build, the parts and what the window shows', async () =>
     camera: { ortho: false }
   })
   expect(scene).not.toHaveProperty('note')
-  expect(scene.parts.map((p: { layout: string; name: string }) => `${p.layout}:${p.name}`)).toEqual(['assembly:base', 'assembly:post', 'print:base', 'print:post'])
+  expect(scene.parts.map((p: { layout: string; name: string }) => `${p.layout}:${p.name}`)).toEqual(['assembly:base', 'assembly:post'])
   expect(scene.parts[0]).toMatchObject({ name: 'base', visible: true, size: [40, 30, 5], bbox: { min: [-20, -15, -2.5], max: [20, 15, 2.5] }, volume: 6000, faces: 6, edges: 12, valid: true })
   expect(scene.parts[1]).toMatchObject({ name: 'post', visible: true, size: [8, 8, 20], volume: 1005.31 })
 })
@@ -439,6 +439,11 @@ test("add_mark places the agent's own marks, by ref and by point, which the user
 
   const row = page.locator('.mark-row[data-mark="M2"]')
   await expect(row).toHaveAttribute('data-author', 'agent')
+  // Its own group, for the person to read or answer; the person's sent M1 stays with the agent.
+  await expect(page.getByRole('list', { name: 'From the agent' }).locator('.mark-row[data-mark="M2"]')).toHaveCount(1)
+  await expect(page.getByRole('list', { name: 'With the agent' }).locator('.mark-row[data-mark="M1"]')).toHaveCount(1)
+  await expect(page.getByRole('list', { name: 'With the agent' }).locator('.mark-row[data-mark="M2"]')).toHaveCount(0)
+  await expect(row.getByRole('button', { name: 'Resolve M2' })).toHaveAttribute('title', 'Seen: resolve it')
   // --agent-mark, outlined: the user's own are filled with --user-mark.
   await expect(row.locator('.mark-chip')).toHaveCSS('border-top-color', 'rgb(40, 129, 86)')
   await expect(row.locator('.mark-chip')).toHaveCSS('color', 'rgb(40, 129, 86)')
@@ -597,7 +602,7 @@ test('resolve_mark resolves a mark, which the user sees as resolved by the agent
   await expect(awaiting).toHaveAttribute('data-awaiting', '')
   await expect(awaiting.locator('.mark-resolution-note')).toHaveText('Resolved by the agent: made the corner 2 mm thicker')
   await awaiting.getByRole('button', { name: 'OK', exact: true }).click()
-  await expect(marks.locator('.marks-review')).toHaveCount(0)
+  await expect(marks.locator('.marks-review')).toContainText('Reviewed 1: 1 OK')
   await expect(marks.locator('.mark-row[data-mark]')).toHaveCount(3)
   await marks.getByRole('button', { name: /Resolved/ }).click()
   const resolved = marks.getByRole('list', { name: 'Resolved marks' }).locator('[data-mark="M1"]')
@@ -643,7 +648,7 @@ test('for an object that is not the one open, look refuses and scene says what i
   const scene = JSON.parse((await call(bracket, 'scene')).text)
   expect(scene).toMatchObject({ object: 'bracket', build: { status: 'ok', revision: 1 }, layout: null, camera: null })
   expect(scene.note).toContain('not the project open in the torno window (open: plain)')
-  expect(scene.parts).toHaveLength(4)
+  expect(scene.parts).toHaveLength(2)
   expect(scene.parts[0]).not.toHaveProperty('visible')
 
   // The object that is open answers at its own address.
@@ -806,7 +811,7 @@ let plateFaces: Array<{ ref: string; descriptor: string }>
 test('measure answers with the exact value, how it was taken and a reading, through refs, points and marks', async () => {
   await openObject('measures')
   measures = await connect('measures')
-  expect((await measures.listTools()).tools.map((t) => t.name).sort()).toEqual(['add_mark', 'ask', 'check', 'describe', 'diff', 'highlight', 'look', 'marks', 'measure', 'resolve_mark', 'save_view', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show', 'try_fillet'])
+  expect((await measures.listTools()).tools.map((t) => t.name).sort()).toEqual(['add_mark', 'ask', 'check', 'describe', 'diff', 'expect', 'highlight', 'look', 'marks', 'measure', 'resolve_mark', 'save_view', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show', 'try_fillet'])
   const whole = JSON.parse((await call(measures, 'describe', { ref: 'plate' })).text) as { faceCount: number }
   plateFaces = []
   for (let i = 0; i < whole.faceCount; i += 1) plateFaces.push({ ref: `plate/F${i}`, descriptor: JSON.parse((await call(measures, 'describe', { ref: `plate/F${i}` })).text).descriptor })

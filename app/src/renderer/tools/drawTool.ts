@@ -1,7 +1,8 @@
-import { pressed } from '../../shared/keys'
+import { hint, pressed } from '../../shared/keys'
 import { MAX_STROKE_POINTS, type Vec3 } from '../../shared/marks'
 import type { Hit } from '../viewport/picking'
 import type { ViewportPointer } from '../viewport/Viewport'
+import { lockedViewOf } from '../viewport/views'
 import { fromPlane, planeName, rayOnPlane, toPlane, viewPlane, type Plane } from './planes'
 import { simplify } from './simplify'
 import { MIN_LENGTH_MM, anchorFromHit, type Tool, type ToolContext } from './Tool'
@@ -150,6 +151,10 @@ export function drawTool(): Tool {
           // Beside the parts on a locked view a press draws too: which plane on, and how to turn the view instead.
           ctx.viewport.setHover(null)
           ctx.readout.say(e.client, `Draws on ${planeName(viewPlane(ctx.camera, centre(ctx.viewport.bounds())).label)}. Alt-drag or Iso (1) to turn the view`)
+        } else if (e.type === 'move' && e.buttons === 0 && !ctx.camera.ortho && lockedViewOf({ ...ctx.camera, ortho: true }) !== null) {
+          // A standard view in perspective is no locked view: the stroke would lie on the part. Say how to get a profile on the plane.
+          ctx.viewport.setHover(null)
+          ctx.readout.say(e.client, `Ortho to draw a profile on the ${viewPlane(ctx.camera, centre(ctx.viewport.bounds())).label.slice(0, 2)} plane (${hint('ortho')})`)
         } else if (e.type !== 'click') {
           ctx.viewport.setHover(null)
           ctx.readout.hide()

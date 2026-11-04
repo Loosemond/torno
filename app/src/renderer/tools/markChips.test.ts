@@ -90,3 +90,51 @@ describe('a mark’s chip under the pointer', () => {
     expect(told.filter((t) => t === 'point null')).toHaveLength(2)
   })
 })
+
+describe('a drag that starts on a chip, with a tool in hand that takes presses', () => {
+  function withTool(takes = true) {
+    const told: string[] = []
+    const router = markChips({
+      markAt: ([x]) => (x >= 100 && x <= 130 ? 'M1' : null),
+      point: () => {},
+      say: ([x], id) => void told.push(`say ${id} at ${x}`),
+      open: (id) => void told.push(`open ${id}`),
+      tool: {
+        takes: () => takes,
+        holdCamera: () => void told.push('hold'),
+        releaseCamera: () => void told.push('release'),
+        send: (e) => void told.push(`tool ${e.type} at ${e.client[0]}${e.hit === null ? '' : ' hit'}`)
+      }
+    })
+    return { router, told }
+  }
+
+  it('holds the camera at the press, and a click still opens the chip', () => {
+    const { router, told } = withTool()
+    expect([router.route(at('down', 110, 0, 1)), router.route(at('move', 112, 0, 1)), router.route(at('up', 112, 0)), router.route(at('click', 112, 0))]).toEqual([true, true, true, true])
+    expect(told).toEqual(['hold', 'open M1'])
+  })
+
+  it('hands the tool the press where it was made once the pointer passes the click threshold, and every event after it', () => {
+    const { router, told } = withTool()
+    const down = { ...at('down', 110, 0, 1), hit: { ref: 'a/F1' } as ViewportPointer['hit'] }
+    expect(router.route(down)).toBe(true)
+    expect(router.route(at('move', 140, 0, 1))).toBe(false)
+    expect(router.route(at('move', 150, 0, 1))).toBe(false)
+    expect(router.route(at('up', 150, 0))).toBe(false)
+    expect(told).toEqual(['hold', 'tool down at 110 hit', 'release'])
+  })
+
+  it('feeds the tool the moves over a chip, with nothing under them but the chip', () => {
+    const { router, told } = withTool()
+    expect(router.route(at('move', 110, 0))).toBe(true)
+    expect(told).toEqual(['tool move at 110', 'say M1 at 110'])
+  })
+
+  it('leaves the drag to the camera when the tool takes no press here', () => {
+    const { router, told } = withTool(false)
+    expect(router.route(at('down', 110, 0, 1))).toBe(true)
+    expect(router.route(at('move', 200, 0, 1))).toBe(true)
+    expect(told).toEqual([])
+  })
+})

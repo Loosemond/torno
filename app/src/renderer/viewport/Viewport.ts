@@ -7,7 +7,7 @@ import type { ScanInfo, ScanTransform, ScanView } from '../../shared/scans'
 import type { Camera, SectionPlane, ViewName } from '../../shared/view'
 import type { AlignPoint } from './alignPoints'
 import type { BrushRing } from './brushRing'
-import { CameraMove, standingAt } from './cameraMoves'
+import { CameraMove, pivotOn, standingAt } from './cameraMoves'
 import { PartsApart, asBuilt, drawnAt, drawnBox, reachingApart, leavesView } from './explode'
 import { groundOf } from './ground'
 import { Highlights, MARK_LAYERS, type HighlightLayer } from './highlight'
@@ -15,8 +15,11 @@ import { mmPerPx, needsCamera } from './marks/labels'
 import { MarkLayer, type Draft } from './marks/MarkLayer'
 import { overlayFonts, type LabelStyle } from './overlay'
 import { OverlayPass } from './overlayPass'
+import { partChanged } from '../../shared/diff'
+import { Ghosts, type GhostItem } from './ghosts'
 import { STALE_FADE, colorFor, colorsByName, edgeTint, mix } from '../../shared/palette'
 import { aimKeyLight, makeLights } from './lights'
+import { selectionBox } from './selectionBox'
 import { buildPart, type BuiltPart, disposePart } from './partMesh'
 import { type Hit, pickUnder, pointerRay } from './picking'
 import { NAMED_ASPECT, PictureMaker, type ImageRequest, type Picture } from './picture'
@@ -65,6 +68,10 @@ export class Viewport {
   private readonly orthographic = new THREE.OrthographicCamera()
   private camera: AnyCamera = this.perspective
   private readonly controls: OrbitControls
+  /** Where the last press on the canvas was, and with which button. */
+  private lastDown: { x: number; y: number; button: number } | null = null
+  /** The selection `fit` last framed, until the camera is moved or something else is framed. */
+  private fittedSelection: string | null = null
   private readonly lights = makeLights()
   private readonly keyLight = this.lights.key
   private readonly ground = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial())
@@ -75,6 +82,8 @@ export class Viewport {
   private layouts: string[] = []
   private layout = ''
   private stale = false
+  /** The old edges and the new of the parts the last build changed, for a moment (`ghosts.ts`). */
+  private readonly ghosts = new Ghosts(() => this.invalidate())
   /** False until a scene with parts has been framed; after that the camera is the user's. */
   private framed = false
   /** Everything drawn in the current layout, for the clip planes: the parts and the grid (`groundExtent`), and the marks. */
@@ -155,7 +164,7 @@ export class Viewport {
     this.ground.material.depthWrite = false
     this.ground.renderOrder = -1
     this.ground.frustumCulled = false
-    this.scene.add(this.ground, this.scans.group, this.marks.group, this.section.decor)
+    this.scene.add(this.ground, this.scans.group, this.marks.group, this.section.decor, this.ghosts.group)
 
     this.overlay = new OverlayPass({ canvas, marks: this.marks, camera: () => this.camera, layout: () => this.layout, style: () => ({ ...this.labelStyle(), accent: this.theme.accent }), frame: () => ({ muted: this.theme.muted, axes: [this.theme.axisX, this.theme.axisY, this.theme.axisZ] as const, gridStep: this.gridStepMm }), project: (p) => this.project(p), syncMatrices: () => this.syncMatrices(), exploded: () => this.apart.any })
     // A label drawn before its face has loaded is in the fallback face: draw again once it is there.
@@ -166,6 +175,8 @@ export class Viewport {
     this.controls.screenSpacePanning = true
     this.controls.zoomToCursor = true
     this.controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.PAN }
+    // Before the controls' own listener, so that their `start` knows where the press was.
+    canvas.addEventListener('pointerdown', (e) => (this.lastDown = { x: e.clientX, y: e.clientY, button: e.button }), true)
     this.controls.addEventListener('start', this.onControlStart)
     this.controls.addEventListener('end', this.onControlEnd)
     this.controls.addEventListener('change', this.onCameraChange)
@@ -222,7 +233,15 @@ export class Viewport {
       namedView: (name, parts, aspect, also) => this.namedCamera(name, withBox(drawnBox(parts, this.apart.offsets()), also ?? null) ?? EMPTY_BOX, aspect, true),
       cameraFor: (view, aspect, extent) => this.pictureCamera(view, aspect, extent),
       hiddenParts: (layout, drawn) => this.hiddenParts(layout, drawn),
-      hideGizmo: () => this.gizmo.hide(),
+      // A picture is of the model: the ghosts of a build that just landed go with the gizmo.
+      hideGizmo: () => {
+        const gizmoBack = this.gizmo.hide()
+        const ghostsBack = this.ghosts.hide()
+        return () => {
+          gizmoBack()
+          ghostsBack()
+        }
+      },
       section: () => this.section.get(),
       cutBy: (plane, layout, decor) => this.cutBy(plane, layout, decor),
       layGround: (layout) => reachingApart(this.rebuildGround(layout), this.partsOf(layout), this.apart),
@@ -250,9 +269,15 @@ export class Viewport {
   /** Shows a new build. The camera stays where it is, unless this is the first scene with parts. */
   setScene(scene: Scene, blob: ArrayBuffer): void {
     const seen = new Set<string>()
+    // Where the parts that changed stood, for the ghosts: not with a section on, nor with the parts apart (the ghost would have to be cut, or moved, the same way).
+    const stood = new Map<string, GhostItem['before']>()
+    const ghostable = this.section.get() === null && !this.apart.any
     for (const part of scene.parts) {
       seen.add(part.key)
       let entry = this.entries.get(part.key)
+      if (ghostable && entry && partChanged(entry.part, part)) {
+        stood.set(part.key, { edges: entry.built.edges.geometry.clone(), position: entry.built.group.position.clone(), quaternion: entry.built.group.quaternion.clone() })
+      }
       if (entry && entry.part.hash === part.hash) {
         entry.part = part
       } else {
@@ -276,12 +301,45 @@ export class Viewport {
     if (!this.layouts.includes(this.layout)) this.layout = this.layouts[0] ?? ''
     this.colors = colorsByName(scene.parts.map((p) => p.name))
     this.refresh()
+    this.showGhosts(stood)
 
     if (!this.framed && this.shownParts().length > 0) {
       this.framed = true
       this.setView('iso', false)
     }
     this.invalidate()
+  }
+
+  /** Draws the old edges (and the new, in the accent) of the parts that changed, for a moment; the ones of other layouts or switched off are let go. */
+  private showGhosts(stood: Map<string, GhostItem['before']>): void {
+    const items: GhostItem[] = []
+    for (const [key, before] of stood) {
+      const entry = this.entries.get(key)
+      if (!entry || entry.part.layout !== this.layout || this.layers.get(key)?.visible === false) {
+        before.edges.dispose()
+        continue
+      }
+      const { group, edges } = entry.built
+      items.push({ part: key, layout: entry.part.layout, before, after: { edges: edges.geometry.clone(), position: group.position.clone(), quaternion: group.quaternion.clone() } })
+    }
+    const still = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+    this.ghosts.begin(items, { old: toHex(this.theme.muted), fresh: toHex(this.theme.accent) }, performance.now(), still)
+    if (this.ghosts.on) this.invalidate()
+  }
+
+  /** Puts the ghosts of the last build away at once (a key, a click). */
+  endGhosts(): void {
+    this.ghosts.end()
+  }
+
+  /** Test only: the ghosts of the next builds stay until a key or a click, so that the window can be captured with them. */
+  holdGhosts(held: boolean): void {
+    this.ghosts.hold(held)
+  }
+
+  /** The keys of the parts the ghosts are drawn for; empty once they are gone. */
+  ghostKeys(): string[] {
+    return this.ghosts.keys()
   }
 
   /** The scans of the object on show, and the build on show (what their alignments' checks are held against): each is drawn where its alignment for the layout shown puts it, once its mesh has come (`setScanMesh`). */
@@ -451,8 +509,15 @@ export class Viewport {
    */
   setDraft(draft: Draft | null): void {
     this.marks.setDraft(draft)
+    const held = draft?.kind === 'dimension' && draft.to && draft.held !== undefined ? draft : null
+    this.overlay.held = held && held.to ? { at: [(held.from[0] + held.to[0]) / 2, (held.from[1] + held.to[1]) / 2, (held.from[2] + held.to[2]) / 2], text: held.held! } : null
     this.extent = this.measured()
     this.invalidate()
+  }
+
+  /** The draft drawn now (a pending measurement, or the last one held), for the test hook. */
+  draftState(): Draft | null {
+    return this.marks.currentDraft()
   }
 
   /** Calls back after every frame drawn: what is laid over the view (the note of a mark) follows the camera with it. Returns what stops it. */
@@ -465,6 +530,7 @@ export class Viewport {
   setLayout(layout: string): void {
     if (layout === this.layout || !this.layouts.includes(layout)) return
     this.layout = layout
+    this.ghosts.end()
     this.refresh()
     this.invalidate()
   }
@@ -482,6 +548,7 @@ export class Viewport {
     const to = isExploded(explode) ? explode : null
     // Asked again for what it has, or is on its way to: a move under way goes on.
     if (sameExplode(to, this.apart.get())) return
+    this.ghosts.end()
     const still = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
     this.apart.set(to, this.partsOf(this.layout), animate && !still ? performance.now() : undefined)
     this.placeParts()
@@ -608,6 +675,11 @@ export class Viewport {
     this.invalidate()
   }
 
+  /** Whether the parts are drawn faded now (`setStale`). */
+  faded(): boolean {
+    return this.stale
+  }
+
   /** Goes to a standard view, fitted to the visible parts in the current projection, or to a given camera. */
   setView(v: ViewName | Camera, animate = false): void {
     // Sent somewhere: the camera is no longer the one drawing the parts apart framed.
@@ -642,10 +714,28 @@ export class Viewport {
    * Frames the visible parts without turning the camera. Of where the camera is going when it is on its way
    * (a view key pressed just before): the turn is not left halfway.
    */
-  fit(): void {
+  fit(opts?: { selection?: boolean }): void {
     // Framed by the person's own asking: theirs from now, also when the parts come together.
     this.framedApart = null
-    this.fitVisible()
+    // With `selection`: what is selected, and then, pressed again, everything.
+    const refs = opts?.selection ? this.highlights.refsOf('selection') : []
+    const key = refs.join(' ')
+    const box = refs.length > 0 && this.fittedSelection !== key ? selectionBox(this.partNamed, refs) : null
+    if (box) {
+      this.fittedSelection = key
+      this.frameBox(box)
+    } else {
+      this.fittedSelection = null
+      this.fitVisible()
+    }
+  }
+
+  /** Frames a box from the way the camera looks. */
+  private frameBox(box: { min: number[]; max: number[] }): void {
+    const c = this.cameraGoal()
+    const dir = c.target.map((t, i) => t - c.position[i])
+    this.move.drop()
+    this.applyCamera(this.onScreen(box, { dir, up: c.up }, c.ortho))
   }
 
   private fitVisible(): void {
@@ -653,6 +743,22 @@ export class Viewport {
     const dir = c.target.map((t, i) => t - c.position[i])
     this.move.drop()
     this.applyCamera(this.onScreen(this.visibleBox(), { dir, up: c.up }, c.ortho))
+  }
+
+  /**
+   * Frames one part, where it is drawn, without turning the camera: a double click on its row in the layers.
+   * False when it is not drawn (switched off, or not in this layout).
+   */
+  framePart(name: string): boolean {
+    const part = this.shownParts().find((one) => one.name === name)
+    const box = part ? drawnBox([part], this.apart.target()) : null
+    if (!box) return false
+    this.framedApart = null
+    const c = this.cameraGoal()
+    const dir = c.target.map((t, i) => t - c.position[i])
+    this.move.drop()
+    this.applyCamera(this.onScreen(box, { dir, up: c.up }, c.ortho))
+    return true
   }
 
   /**
@@ -766,6 +872,7 @@ export class Viewport {
    * Cheap enough to call with every move of a drag: the frame is drawn once.
    */
   setSection(plane: SectionPlane | null): void {
+    if (plane) this.ghosts.end()
     this.cutBy(plane, this.layout, true)
     this.extent = this.measured()
     this.invalidate()
@@ -905,6 +1012,14 @@ export class Viewport {
   }
 
   /**
+   * Keeps the camera still for the press under way (it is the pointer's again when the button is let go), or, with
+   * false, gives it back to a press no tool has taken since.
+   */
+  holdCamera(on: boolean): void {
+    this.pointer.holdOrbit(on)
+  }
+
+  /**
    * Where the pointer is over the canvas, in client pixels, or null when it
    * is not over it: for a tool that acts on a key and must know what is
    * under the pointer now (`pick`), whatever the last move it was told of.
@@ -989,6 +1104,7 @@ export class Viewport {
     this.controls.dispose()
     this.gizmo.dispose()
     this.section.dispose()
+    this.ghosts.end(false)
     this.scans.dispose()
     for (const entry of this.entries.values()) this.discard(entry)
     this.entries.clear()
@@ -1167,7 +1283,22 @@ export class Viewport {
   /** The person takes over from a camera move: it stops where it is, and the press is answered from the camera as it is. */
   private readonly onControlStart = (): void => {
     this.navigating = true
+    this.fittedSelection = null
     this.move.drop()
+    // A turn is about what is under the pointer when it starts: only the target moves, along the view.
+    const down = this.lastDown
+    if (down && down.button === 0) this.pivotAt(down.x, down.y)
+  }
+
+  private pivotAt(clientX: number, clientY: number): void {
+    const hit = this.pick(clientX, clientY, { edges: false })
+    const at = this.canvasPoint(clientX, clientY)
+    if (!hit || !at) return
+    const ray = pointerRay(this.camera, at.ndc)
+    const point: Vec3 = [0, 1, 2].map((i) => ray.origin[i] + ray.direction[i] * hit.distance) as Vec3
+    const forward = this.camera.getWorldDirection(new THREE.Vector3()).toArray() as Vec3
+    const target = pivotOn(this.camera.position.toArray() as Vec3, forward, point)
+    if (target) this.controls.target.fromArray(target)
   }
 
   private readonly onControlEnd = (): void => {
@@ -1221,8 +1352,9 @@ export class Viewport {
       if (next) this.applyCamera(next)
       // The parts on their way apart or together: a step with every frame, and nothing of it through React.
       if (this.apart.step(now)) this.placeParts()
+      const ghosting = this.ghosts.step(now)
       this.draw()
-      if (this.move.under || this.apart.moving) this.invalidate()
+      if (this.move.under || this.apart.moving || ghosting) this.invalidate()
     })
   }
 

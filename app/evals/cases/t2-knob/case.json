@@ -1,0 +1,47 @@
+{
+  "object": "knob",
+  "tier": "T2",
+  "prompts": [
+    "Make the knob in the brief. Build it in the model file, check it with torno's tools, and say when it is done."
+  ],
+  "answers": {
+    "default": "I don't know: choose, and say what you chose."
+  },
+  "checks": [
+    {
+      "id": "valid",
+      "kind": "valid"
+    },
+    {
+      "id": "parts",
+      "kind": "parts",
+      "names": [
+        "knob"
+      ]
+    },
+    {
+      "id": "knob-x",
+      "kind": "size",
+      "part": "knob",
+      "axis": "x",
+      "expect": 30,
+      "tol": 0.05
+    },
+    {
+      "id": "knob-z",
+      "kind": "size",
+      "part": "knob",
+      "axis": "z",
+      "expect": 15,
+      "tol": 0.05
+    },
+    {
+      "id": "bore",
+      "kind": "hole",
+      "part": "knob",
+      "diameter": 6,
+      "through": false,
+      "tol": 0.1
+    }
+  ]
+}

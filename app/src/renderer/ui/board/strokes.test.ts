@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Stroke } from '../../state/onboard'
-import { CASING_PX, paintStroke, paintStrokes } from './strokes'
+import { CASING_PX, paintStroke, paintStrokes, straighten } from './strokes'
 
 /** A 2D context that writes down what is drawn with it. */
 function recorder(width = 120, height = 80) {
@@ -52,4 +52,20 @@ it('paints every stroke on a canvas cleared to its own size', () => {
   paintStrokes(ctx, [pen([[0, 0], [1, 1]]), pen([[2, 2], [3, 3]])], { ink: '#111111' })
   expect(ops[0]).toBe('clear 0,0,1280,853')
   expect(ops.filter((o) => o.startsWith('stroke'))).toHaveLength(2)
+})
+
+describe('straighten', () => {
+  it('keeps the first point and the pointer, and nothing between', () => {
+    const s: Stroke = { tool: 'pen', width: 3, points: [[10, 10], [20, 40], [35, 12]] }
+    straighten(s, 100.04, 50)
+    expect(s.points).toEqual([[10, 10], [100, 50]])
+    straighten(s, 200, 10)
+    expect(s.points).toEqual([[10, 10], [200, 10]])
+  })
+
+  it('is a dot while the pointer has not left the first point', () => {
+    const s: Stroke = { tool: 'pen', width: 3, points: [[10, 10], [30, 30]] }
+    straighten(s, 10.5, 10)
+    expect(s.points).toEqual([[10, 10]])
+  })
 })

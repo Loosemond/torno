@@ -9,12 +9,12 @@ import type { Camera, LookRequest, LookResult, SaveViewRequest, ShowRequest, Vie
 import type { SavedView } from '../../shared/views'
 import type { ObjectInfo } from '../../shared/workspace'
 import type { NearestAnchor } from '../marks/reanchor'
-import { probe } from '../../test/diagnosisFixtures'
 import { Asks } from '../asks'
 import { askTool } from './askTool'
+import { flushCut, probe } from '../../test/diagnosisFixtures'
 import { addMarkTool, highlightTool, resolveMarkTool } from './markTools'
 import { TOOLS, refusedKeys } from './schemas'
-import { describeTool, marksTool, type ToolDeps } from './tools'
+import { describeTool, marksTool, selectorFrame, type ToolDeps } from './tools'
 import { MESH_NOTE, OPEN_NOTE, REVERSED_NOTE, explodeAsked, lookTool, saveViewTool, sceneTool, showTool } from './viewTools'
 
 const BRACKET: ObjectInfo = { id: 'bracket', name: 'bracket', dir: '/ws/bracket', model: 'bracket.py' }
@@ -186,7 +186,7 @@ const textOf = (result: { content: Array<{ type: string; text?: string }> }): st
 
 describe('the tool descriptions', () => {
   it('say in two or three sentences each what the tool returns and when to use it', () => {
-    expect(Object.keys(TOOLS)).toEqual(['scene', 'look', 'marks', 'describe', 'highlight', 'ask', 'show', 'save_view', 'add_mark', 'resolve_mark', 'measure', 'section', 'check', 'diff', 'try_fillet', 'scans', 'scan_clash', 'scan_deviation'])
+    expect(Object.keys(TOOLS)).toEqual(['scene', 'look', 'marks', 'describe', 'highlight', 'ask', 'show', 'save_view', 'add_mark', 'resolve_mark', 'measure', 'section', 'check', 'diff', 'expect', 'try_fillet', 'scans', 'scan_clash', 'scan_deviation'])
     for (const tool of Object.values(TOOLS)) {
       expect(tool.description).toMatch(/^Returns /)
       const sentences = tool.description.match(/[.?!]"?(\s|$)/g)!.length
@@ -300,13 +300,32 @@ describe('scene', () => {
       parts: [
         { name: 'base', layout: 'assembly', visible: true, size: [40, 30, 5], sizeExact: true, bbox: { min: [-20, -15, -2.5], max: [20, 15, 2.5] }, volume: 6000, volumeExact: true, faces: 6, edges: 12, valid: true },
         { name: 'post', layout: 'assembly', visible: false, size: [8, 8, 20], sizeExact: true, bbox: { min: [-4, -4, 2.5], max: [4, 4, 22.5] }, volume: 1005.31, volumeExact: true, faces: 3, edges: 3, valid: false },
-        { name: 'base', layout: 'print', visible: true, size: [40, 30, 5], sizeExact: true, bbox: { min: [-20, -15, -2.5], max: [20, 15, 2.5] }, volume: 6000, volumeExact: true, faces: 6, edges: 12, valid: true },
-        { name: 'post', layout: 'print', visible: false, size: [8, 20, 8], sizeExact: true, bbox: { min: [56, -10, 0], max: [64, 10, 8] }, volume: 6000, volumeExact: true, faces: 6, edges: 12, valid: true }
       ],
+      partsLayout: 'assembly',
+      partsInOtherLayouts: { print: 2 },
+      partsNote: 'The parts of the other layouts are counted here, not listed: call scene with layout to list them.',
       camera: { position: [100.12, -80, 60], target: [0, 0, 10], up: [0, 0, 1], ortho: false, fov: 35, zoom: 1 },
       section: null,
       explode: null
     })
+  })
+
+  it('bounds a scene of 300 parts, lists one layout, and says what it left out', () => {
+    const many = Array.from({ length: 300 }, (_, i) => part('assembly', `part-${i}`, [i, 0, 0], [i + 1, 5, 5]))
+    const big: Scene = { ...SCENE, parts: [...many, part('print', 'tray', [0, 0, 0], [5, 5, 5])] }
+    const deps = fake({ scene: () => ({ revision: 3, scene: big }) })
+    const text = textOf(sceneTool(deps, 'bracket'))
+    expect(text.length).toBeLessThan(50_000)
+    const told = JSON.parse(text)
+    expect(told.parts).toHaveLength(300)
+    expect(told).toMatchObject({ partsTruncated: true, partsInOtherLayouts: { print: 1 } })
+    expect(told.parts[0]).not.toHaveProperty('volume')
+    expect(told.parts[0]).toMatchObject({ name: 'part-0', size: [1, 5, 5] })
+    const print = JSON.parse(textOf(sceneTool(deps, 'bracket', undefined, undefined, undefined, { layout: 'print' })))
+    expect(print.parts.map((p: { name: string }) => p.name)).toEqual(['tray'])
+    expect(print.parts[0]).toHaveProperty('volume')
+    expect(print).not.toHaveProperty('partsTruncated')
+    expect(textOf(sceneTool(deps, 'bracket', undefined, undefined, undefined, { layout: 'nope' }))).toBe("no layout 'nope'; layouts: assembly, print")
   })
 
   it('counts the unresolved dimensions that pass, fail and have no value of the build, when it is given the marks', () => {
@@ -338,7 +357,16 @@ describe('scene', () => {
       stale: true,
       error: { kind: 'exception', message: 'ValueError: no', traceback: Array.from({ length: 30 }, (_, i) => `line ${i + 16}`).join('\n') }
     })
-    expect(scene.parts).toHaveLength(4)
+    expect(scene.parts).toHaveLength(2)
+  })
+
+  it('gives why a boolean failed under build.error, as data with its reading', () => {
+    const state: BuildState = { objectId: 'bracket', status: 'failed', revision: 3, stale: true, error: { kind: 'exception', message: 'ValueError: Null TopoDS_Shape object', diagnosis: flushCut() } }
+    const error = JSON.parse(textOf(sceneTool(fake({ state }), 'bracket'))).build.error
+    expect(error.diagnosis).toMatchObject({ operation: 'cut', frame: 'local', causes: ['flush'] })
+    expect(error.diagnosis.reading).toMatch(/^Why: cut failed: face F5 of tool lies on face F5 of base/)
+    const first: BuildState = { ...state, revision: 0, stale: false }
+    expect(textOf(sceneTool(fake({ state: first, noScene: true }), 'bracket'))).toMatch(/^no build yet: failed: ValueError: Null TopoDS_Shape object\nWhy: cut failed: /)
   })
 
   it('gives why a fillet failed under build.error, as data with its reading', () => {
@@ -372,7 +400,7 @@ describe('scene', () => {
     it('is told of the build that ended last, the failed one too, with the parts of the last good one still shown', () => {
       const told = JSON.parse(textOf(sceneTool(fake({ state: failed('solids: 2'), ...printing('from r3') }), 'bracket')))
       expect(told.output).toBe('solids: 2')
-      expect(told.parts).toHaveLength(4)
+      expect(told.parts).toHaveLength(2)
       // A failed build that printed nothing does not leave the build before it in its place.
       expect(JSON.parse(textOf(sceneTool(fake({ state: failed(undefined), ...printing('from r3') }), 'bracket')))).not.toHaveProperty('output')
       // The output of a kernel that stopped is its stderr; that of a build process that was killed is the model's.
@@ -409,7 +437,7 @@ describe('scene', () => {
     expect(scene.camera).toBeNull()
     expect(scene.layout).toBeNull()
     expect(scene.note).toBe('bracket is not the project open in the torno window (open: helmet-stand), so what is visible, the camera and the section are not known.')
-    expect(scene.parts.map((p: { name: string }) => p.name)).toEqual(['base', 'post', 'base', 'post'])
+    expect(scene.parts.map((p: { name: string }) => p.name)).toEqual(['base', 'post'])
     for (const p of scene.parts) expect(p).not.toHaveProperty('visible')
     expect(scene.build.revision).toBe(3)
   })
@@ -419,8 +447,8 @@ describe('scene', () => {
       ...SCENE,
       parts: [...SCENE.parts.slice(0, 3), part('print', 'post', [30, -10, 0], [38, 10, 8], { arranged: [34.004, 0, 0] })]
     }
-    const scene = JSON.parse(textOf(sceneTool(fake({ scene: () => ({ revision: 3, scene: spread }) }), 'bracket')))
-    expect(scene.parts.map((p: { arranged?: number[] }) => p.arranged)).toEqual([undefined, undefined, undefined, [34, 0, 0]])
+    const scene = JSON.parse(textOf(sceneTool(fake({ scene: () => ({ revision: 3, scene: spread }) }), 'bracket', undefined, undefined, undefined, { layout: 'print' })))
+    expect(scene.parts.map((p: { arranged?: number[] }) => p.arranged)).toEqual([undefined, [34, 0, 0]])
     expect(scene.note).toBe('The parts of the print layout overlapped as the model placed them, so they were spread along X for display; arranged is how far each was moved.')
 
     // Said together with the other note, when there is one.
@@ -816,9 +844,10 @@ describe('marks', () => {
 
   it('is JSON of every mark with all its fields, a stroke with its points', async () => {
     const deps = fake()
-    const result = await marksTool(deps, 'bracket', {})
+    const result = await marksTool(deps, 'bracket', { status: 'resolved', ids: undefined, limit: 50 })
     expect(result.isError).toBeUndefined()
-    const { marks } = jsonOf(result)
+    const all = jsonOf(await marksTool(deps, 'bracket', { ids: ['M1', 'M2', 'M3', 'M4'] }))
+    const { marks } = all
     expect(marks.map((m: Mark) => m.id)).toEqual(['M1', 'M2', 'M3', 'M4'])
     // What modelling leaves in the last digits is not passed on.
     expect(marks[0]).toEqual({
@@ -875,6 +904,32 @@ describe('marks', () => {
     expect(mark).toMatchObject({ line: 'M1 diameter: not measured yet, base/F9 (expected 8 ± 0.05)' })
   })
 
+  it('lists the open marks by default, summarises strokes unless named, and pages with next', async () => {
+    const deps = fake()
+    const many: Mark[] = Array.from({ length: 120 }, (_, i) => {
+      const id = `M${i + 1}`
+      return i % 12 === 0
+        ? ({ ...MARK_BASE, id, kind: 'stroke', space: 'surface', anchor: { point: [0, 0, 0], part: 'base' }, points: Array.from({ length: 400 }, (_, k) => [k / 7, Math.sin(k), 2]) } as unknown as Mark)
+        : ({ ...MARK_BASE, id, kind: 'pin', anchor: { point: [i, 0, 0], part: 'base' }, status: 'sent', note: `pin ${i}` } as unknown as Mark)
+    })
+    deps.w.list = many
+    const first = textOf(await marksTool(deps, 'bracket', {}))
+    expect(first.length).toBeLessThan(50_000)
+    const page = JSON.parse(first)
+    expect(page.marks).toHaveLength(50)
+    expect(page).toMatchObject({ truncated: true, omitted: 70, next: 'M51' })
+    expect(page.marks[0].pointsSummary).toMatchObject({ count: 400, first: [0, 0, 2], space: 'surface' })
+    expect(page.marks[0]).not.toHaveProperty('points')
+    const second = jsonOf(await marksTool(deps, 'bracket', { next: page.next }))
+    expect(second.marks[0].id).toBe('M51')
+    expect(second).toMatchObject({ omitted: 20, next: 'M101' })
+    expect(jsonOf(await marksTool(deps, 'bracket', { next: 'M101' })).marks).toHaveLength(20)
+    const whole = jsonOf(await marksTool(deps, 'bracket', { ids: ['M1', 'M99'] }))
+    expect(whole.marks[0].points).toHaveLength(400)
+    expect(whole.marks[1].id).toBe('M99')
+    expect(jsonOf(await marksTool(deps, 'bracket', { ids: ['M900'] }))).toMatchObject({ marks: [], missing: ['M900'] })
+  })
+
   it('keeps to one status when asked, and open is all that are not resolved', async () => {
     const ids = async (status: 'draft' | 'sent' | 'resolved' | 'open') => jsonOf(await marksTool(fake(), 'bracket', { status })).marks.map((m: Mark) => m.id)
     expect(await ids('draft')).toEqual(['M1'])
@@ -885,7 +940,7 @@ describe('marks', () => {
 
   it('needs no build, and says when the object is unknown or its marks cannot be read', async () => {
     const unbuilt = jsonOf(await marksTool(fake({ state: null, noScene: true }), 'bracket', {}))
-    expect(unbuilt.marks).toHaveLength(4)
+    expect(unbuilt.marks).toHaveLength(3)
     expect(unbuilt.revision).toBeNull()
     expect(await marksTool(fake(), 'nothing', {})).toEqual({ isError: true, content: [{ type: 'text', text: 'unknown project: nothing' }] })
     const unreadable = fake({ marks: async () => Promise.reject(new Error('EACCES: permission denied')) })
@@ -947,6 +1002,52 @@ describe('describe', () => {
     // An area with no digit count is told like any other: nothing here reads the kernel's words for it.
     expect(TOOLS.measure.description).toContain('with no digit count')
     expect(TOOLS.describe.description).toContain('areaExact false is approximate')
+  })
+
+  it('asks the kernel for a selector of a face or an edge, never of a part, and passes the selector on with the frame it is in', async () => {
+    const asked: Array<{ ref: string; selector: boolean | undefined }> = []
+    const selector = { expression: 'part.faces().filter_by(Axis.Z).sort_by(Axis.Z)[-1]', robust: 'by geometry', checked: 'this build only' } as const
+    const deps = fake({
+      describe: async (_id, layout, ref, options) => {
+        asked.push({ ref, selector: options?.selector })
+        return ref.includes('/F') ? ({ ...FACE, ref: `${layout}:${ref}`, selector } as Described) : ({ ...WHOLE, key: `${layout}:${ref}` } as Described)
+      }
+    })
+    const face = jsonOf(await describeTool(deps, 'bracket', { ref: 'base/F5' }))
+    expect(face.selector).toEqual(selector)
+    expect(face.selectorFrame).toBe('In the frame of layout assembly, where base stands as its own function builds it.')
+    const whole = jsonOf(await describeTool(deps, 'bracket', { ref: 'base' }))
+    expect(whole).not.toHaveProperty('selector')
+    expect(whole).not.toHaveProperty('selectorFrame')
+    expect(asked).toEqual([{ ref: 'base/F5', selector: true }, { ref: 'base', selector: undefined }])
+  })
+
+  it('says a face with no selector has none', async () => {
+    const deps = fake({ describe: async () => ({ ...FACE, selector: null, selectorWhy: 'no selector picks only this face: others are as far along every axis, or have the same size' }) as Described })
+    const told = jsonOf(await describeTool(deps, 'bracket', { ref: 'base/F5' }))
+    expect(told).toMatchObject({ selector: null, selectorWhy: expect.stringContaining('no selector picks only this face') })
+    expect(told).not.toHaveProperty('selectorFrame')
+  })
+
+  it('says which frame a selector is in when the layout moves the part, and which layouts leave it as built', () => {
+    type Loc = { t: [number, number, number]; q: [number, number, number, number] }
+    const at: Loc = { t: [0, 0, 0], q: [0, 0, 0, 1] }
+    const moved: Loc = { t: [10, 0, 0], q: [0, 0, 0, 1] }
+    const turned: Loc = { t: [0, 0, 0], q: [0, 0.7071068, 0, 0.7071068] }
+    const scene: Scene = {
+      ...SCENE,
+      layouts: ['main', 'assembly', 'print'],
+      parts: [part('main', 'lid', [0, 0, 0], [1, 1, 1], { loc: at }), part('assembly', 'lid', [0, 0, 0], [1, 1, 1], { loc: turned }), part('print', 'lid', [0, 0, 0], [1, 1, 1], { loc: moved })]
+    }
+    const described = { ...FACE, selector: { expression: 'part.faces()[0]', robust: 'by order', checked: 'this build only' } } as Described
+    const lid = (layout: string) => scene.parts.find((p) => p.name === 'lid' && p.layout === layout)!
+    expect(selectorFrame(scene, 'main', lid('main'), described).selectorFrame).toBe('In the frame of layout main, where lid stands as its own function builds it.')
+    const text = selectorFrame(scene, 'assembly', lid('assembly'), described).selectorFrame!
+    expect(text).toContain('In the frame of layout assembly, where lid is moved or turned from where its own function builds it')
+    expect(text).toContain('Layouts that leave it as built: main;')
+    expect(selectorFrame({ ...scene, parts: scene.parts.slice(1) }, 'assembly', lid('assembly'), described).selectorFrame).toContain('No layout leaves it as built.')
+    // Nothing is said of a reply with no selector, or of a part.
+    expect(selectorFrame(scene, 'assembly', lid('assembly'), { ...FACE } as Described)).toEqual({})
   })
 
   it('asks in the layout named, and of a whole part or an edge alike', async () => {
@@ -1964,7 +2065,7 @@ describe('groups of parts', () => {
       { name: 'flat', parts: ['flat-a', 'flat-b'], visible: 'some' },
       { name: 'tall', parts: ['tall-a'], visible: 'none' }
     ])
-    expect(told.parts.map((p: { name: string; group?: string }) => p.group ?? null)).toEqual(['flat', 'flat', 'tall', null, 'flat', null])
+    expect(told.parts.map((p: { name: string; group?: string }) => p.group ?? null)).toEqual(['flat', 'flat', 'tall', null])
     // Of a model without groups nothing is said of them.
     const plain = JSON.parse(textOf(sceneTool(fake(), 'bracket')))
     expect(plain.groups).toBeUndefined()

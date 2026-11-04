@@ -1,14 +1,13 @@
 import { hint, pressed } from '../../shared/keys'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { type ScanInfo, type ScanUnit, type ScanUp, MIN_SCAN_OPACITY, UNIT_MM, importText } from '../../shared/scans'
-import { setAlignScan, startedFrom } from '../state/align'
+import { startedFrom } from '../state/align'
 import { actions, store, useStore } from '../state/store'
-import { setTool } from '../state/tools'
 import { Confirm } from './Confirm'
 import { EyeIcon } from './Layers'
 import { capital, numbered } from './numbered'
 import { ScanReadSheet } from './ScanReadSheet'
-import { importScan, reimportScan } from './scanDrop'
+import { alignScan, importScan, reimportScan } from './scanDrop'
 import { guessOf, scanState } from './scanState'
 import { SectionTitle } from './SectionTitle'
 import { scansSaid } from './sectionSaid'
@@ -106,7 +105,7 @@ export function ScansPanel() {
           </button>
         </p>
       )}
-      {askingOf && <ScanReadSheet key={askingOf.id} scan={askingOf} convert={(as) => void convertScan(objectId, askingOf.id, as)} layoutsOf={numberedList} />}
+      {askingOf && <ScanReadSheet key={askingOf.id} scan={askingOf} convert={(as) => convertScan(objectId, askingOf.id, as)} layoutsOf={numberedList} />}
       {!folded && scans.length === 0 && importing === null && <p className="section-note">Drop a scan on the view, or import one.</p>}
       {!folded && scans.length > 0 && (
         <ul className="rows">
@@ -131,8 +130,10 @@ function ScanRow({ objectId, scan, open, onToggle }: { objectId: string; scan: S
   const reading = useStore((s) => s.importing !== null)
   const clipped = useStore((s) => s.scansClipped.includes(id))
   // The regions painted on it, which lose their triangles with it: said before it is removed.
-  const regions = useStore((s) => s.marks.filter((mark) => mark.kind === 'region' && mark.scan === id && mark.anchorState !== 'orphaned').length)
+  const marks = useStore((s) => s.marks)
   const guess = guessOf(scan)
+  // While the sheet at the top asks how it is read, the detail does not ask it again.
+  const sheetUp = useStore((s) => s.scanAsking === id)
   const [unit, setUnit] = useState<ScanUnit>(scan.imported.unit)
   const [up, setUp] = useState<ScanUp>(scan.imported.up)
   const [busy, setBusy] = useState(false)
@@ -174,6 +175,88 @@ function ScanRow({ objectId, scan, open, onToggle }: { objectId: string; scan: S
     void asked(objectId, window.torno.scans.rename(objectId, id, value)).finally(() => setNaming(false))
   }
 
+  // What was read and how: asked while it is a guess (the sheet at the top asks it first), folded once it is answered.
+  const readingBody = (
+    <>
+    <p className="scan-read" data-guessed={guess ? '' : undefined}>
+      {numbered(importText(scan.imported))}
+    </p>
+    {guess && !sheetUp && (
+      <p className="scan-guess">
+        {guess}: right?{' '}
+        <button
+          type="button"
+          className="link-button"
+          aria-label={`Yes, ${id} was read rightly`}
+          title="Keeps the scan as it is, and no longer asks"
+          disabled={busy || meshGone}
+          onClick={() => convert({ unit: scan.imported.unit, up: scan.imported.up })}
+        >
+          Yes
+        </button>
+      </p>
+    )}
+      {!sheetUp && (
+      <div className="scan-field">
+        <span className="scan-label">Read as</span>
+        <select
+          className="scan-select num"
+          aria-label={`Unit of ${id}`}
+          value={unit}
+          disabled={busy}
+          {...pointerChoice}
+          onChange={(e) => {
+            setUnit(e.target.value as ScanUnit)
+            chosen(e.currentTarget)
+          }}
+        >
+          {UNITS.map((u) => (
+            <option key={u} value={u}>
+              {u}
+            </option>
+          ))}
+        </select>
+        <select
+          className="scan-select"
+          aria-label={`Up axis of ${id}`}
+          value={up}
+          disabled={busy}
+          {...pointerChoice}
+          onChange={(e) => {
+            setUp(e.target.value as ScanUp)
+            chosen(e.currentTarget)
+          }}
+        >
+          <option value="y">Y up</option>
+          <option value="z">Z up</option>
+        </select>
+        <button
+          type="button"
+          className="button"
+          aria-label={`Apply to ${id}`}
+          title={changed ? undefined : 'Choose another unit or up axis first'}
+          disabled={busy || meshGone || !changed}
+          onClick={() => (layouts.length > 0 ? setAsking('convert') : convert({ unit, up }))}
+        >
+          Apply
+        </button>
+      </div>
+      )}
+    </>
+  )
+  const readingSection = sheetUp ? null : guess ? (
+    <div className="scan-reading" data-part="reading">
+      {readingBody}
+    </div>
+  ) : (
+    <details className="scan-reading" data-part="reading">
+      <summary>How it is read</summary>
+      {readingBody}
+    </details>
+  )
+  const regionMarks = marks.filter((mark) => mark.kind === 'region' && mark.scan === id && mark.anchorState !== 'orphaned')
+  const regions = regionMarks.length
+
   return (
     <li className="row scan-row" data-scan={id} data-hidden={visible ? undefined : ''} data-open={open ? '' : undefined}>
       <div className="scan-head">
@@ -198,7 +281,7 @@ function ScanRow({ objectId, scan, open, onToggle }: { objectId: string; scan: S
           </span>
         )}
         {guess && <span className="scan-dot" role="img" aria-label="Read as assumed" title={`${guess}: assumed`} />}
-        <span className="chip" data-state={state.state} title={state.tip}>
+        <span className="chip" data-state={state.state} data-never={Object.keys(scan.alignments).length === 0 ? '' : undefined} title={state.tip}>
           {state.word}
         </span>
         <input
@@ -224,24 +307,6 @@ function ScanRow({ objectId, scan, open, onToggle }: { objectId: string; scan: S
       </div>
       {open && (
         <div className="scan-detail" id={detail}>
-          <p className="scan-read" data-guessed={guess ? '' : undefined}>
-            {numbered(importText(scan.imported))}
-          </p>
-          {guess && (
-            <p className="scan-guess">
-              {guess}: right?{' '}
-              <button
-                type="button"
-                className="link-button"
-                aria-label={`Yes, ${id} was read rightly`}
-                title="Keeps the scan as it is, and no longer asks"
-                disabled={busy || meshGone}
-                onClick={() => convert({ unit: scan.imported.unit, up: scan.imported.up })}
-              >
-                Yes
-              </button>
-            </p>
-          )}
           {/* The state in its sentence, with what the alignment rests on; "Still right" where the person can say it holds. */}
           {/* Its mesh gone, the line below says so with what to do. */}
           {!meshGone && (
@@ -312,15 +377,11 @@ function ScanRow({ objectId, scan, open, onToggle }: { objectId: string; scan: S
             </button>
             <button
               type="button"
-              className="button button-quiet"
+              className={state.state === 'unaligned' ? 'button' : 'button button-quiet'}
               aria-label={`Align ${id}`}
               title={`Stand this scan where the model is, in the layout shown (${hint('tool.align')})`}
               disabled={meshGone}
-              onClick={() => {
-                // The tool first: taking it up puts down whatever was in hand.
-                setTool('align')
-                setAlignScan(id)
-              }}
+              onClick={() => alignScan(scan)}
             >
               Align
             </button>
@@ -328,51 +389,21 @@ function ScanRow({ objectId, scan, open, onToggle }: { objectId: string; scan: S
               Rename
             </button>
           </div>
+          {regionMarks.length > 0 && (
+            <p className="scan-regions" data-part="regions">
+              <span className="scan-label">Regions</span>
+              {regionMarks.map((mark) => (
+                <button key={mark.id} type="button" className="scan-region" title={`${mark.note || 'No note'}: shows this region in the view`} onClick={() => actions.selectMark(mark.id)}>
+                  <span className="mark-chip num" data-author={mark.author}>
+                    {mark.id}
+                  </span>
+                  <span className="scan-region-note">{mark.note}</span>
+                </button>
+              ))}
+            </p>
+          )}
+          {readingSection}
           <div className="scan-fields">
-            <div className="scan-field">
-              <span className="scan-label">Read as</span>
-              <select
-                className="scan-select num"
-                aria-label={`Unit of ${id}`}
-                value={unit}
-                disabled={busy}
-                {...pointerChoice}
-                onChange={(e) => {
-                  setUnit(e.target.value as ScanUnit)
-                  chosen(e.currentTarget)
-                }}
-              >
-                {UNITS.map((u) => (
-                  <option key={u} value={u}>
-                    {u}
-                  </option>
-                ))}
-              </select>
-              <select
-                className="scan-select"
-                aria-label={`Up axis of ${id}`}
-                value={up}
-                disabled={busy}
-                {...pointerChoice}
-                onChange={(e) => {
-                  setUp(e.target.value as ScanUp)
-                  chosen(e.currentTarget)
-                }}
-              >
-                <option value="y">Y up</option>
-                <option value="z">Z up</option>
-              </select>
-              <button
-                type="button"
-                className="button"
-                aria-label={`Apply to ${id}`}
-                title={changed ? undefined : 'Choose another unit or up axis first'}
-                disabled={busy || meshGone || !changed}
-                onClick={() => (layouts.length > 0 ? setAsking('convert') : convert({ unit, up }))}
-              >
-                Apply
-              </button>
-            </div>
             <div className="scan-field">
               <span className="scan-label">Colour</span>
               <div className="scan-choice" role="group" aria-label={`Colour of ${id}`}>
@@ -384,6 +415,8 @@ function ScanRow({ objectId, scan, open, onToggle }: { objectId: string; scan: S
                 </button>
               </div>
             </div>
+          </div>
+          <div className="scan-fields" data-part="remove">
             <div className="scan-field">
               <button type="button" className="button" aria-label={`Remove ${id}`} onClick={() => setAsking('remove')}>
                 Remove

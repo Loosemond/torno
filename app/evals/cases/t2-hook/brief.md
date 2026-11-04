@@ -1,0 +1,1 @@
+A wall hook to print flat: a back plate 40 x 60 mm, 4 mm thick, with two countersunk-free through holes of 4 mm, and an arm 12 mm wide and 5 mm thick reaching 30 mm out from the plate with a 10 mm lip at its end. Round every outside edge of the arm 1 mm. One part named "hook".
