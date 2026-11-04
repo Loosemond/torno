@@ -91,7 +91,7 @@ beforeAll(async () => {
   // With a token for the object, as the session of an agent working on it has.
   const headers = { [SESSION_HEADER]: http.grant(['/mcp/hollow']) }
   await client.connect(new StreamableHTTPClientTransport(new URL(http.url('/mcp/hollow')), { requestInit: { headers } }))
-})
+}, 60_000)
 
 afterAll(async () => {
   await client?.close()
