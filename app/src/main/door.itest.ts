@@ -16,7 +16,13 @@ import type { ToolDeps } from './mcp/tools'
 const BRIDGE = resolve(__dirname, '../../../scripts/torno-mcp.mjs')
 const BASE = { key: 'main:base', name: 'base', layout: 'main', bbox: { min: [0, 0, 0], max: [40, 30, 5] }, volume: 6000, faceCount: 6, edgeCount: 12, valid: true } as Part
 
-const work = mkdtempSync(join(tmpdir(), 'torno-door-'))
+// The whole temporary workspace sits under a link, as a Mac's temporary folder does (`/var` is `/private/var`), so a
+// folder that does not exist yet is named through the link and only its nearest parent resolves.
+const outer = mkdtempSync(join(tmpdir(), 'torno-door-'))
+mkdirSync(join(outer, 'real'))
+symlinkSync(join(outer, 'real'), join(outer, 'alias'))
+const work = join(outer, 'alias', 'w')
+mkdirSync(work)
 const runtime = join(work, 'run')
 const project = join(work, 'ws', 'bracket')
 mkdirSync(project, { recursive: true })
@@ -77,7 +83,7 @@ afterEach(async () => {
 afterAll(async () => {
   await door.close()
   await http.close()
-  rmSync(work, { recursive: true, force: true })
+  rmSync(outer, { recursive: true, force: true })
 })
 
 describe('the door for an agent torno did not start', () => {
