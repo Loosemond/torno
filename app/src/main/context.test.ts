@@ -1050,6 +1050,17 @@ describe('the digest of the build of an edit', () => {
     expect(told.digest?.dimensions).toEqual([{ id: 'M4', was: 'pass', now: 'fail' }])
   })
 
+  it('tells the assumed sizes when that set changes, and not otherwise', () => {
+    const param = (name: string, value: number, doc: string | null) => ({ name, type: 'float', default: value, literal: true, doc })
+    const a: Scene = { ...R3, params: [param('wall', 2, 'assumed: perimeters'), param('w', 60, 'brief: asked'), param('c', 1, null)] }
+    const same: Scene = { ...R4, params: a.params as NonNullable<Scene['params']> }
+    const less: Scene = { ...R4, params: [param('wall', 2, 'brief: asked'), param('w', 60, 'brief: asked'), param('c', 1, null)] }
+    const LINE = 'Assumed: wall 2 (1 of 3 sizes); no source: 1'
+    expect(buildContextFor(withBuilds({ kept: [{ revision: 3, scene: R3 }, { revision: 4, scene: same }] }), 'bracket').text).toContain(LINE)
+    expect(buildContextFor(withBuilds({ kept: [{ revision: 3, scene: a }, { revision: 4, scene: same }] }), 'bracket').text).not.toContain('Assumed')
+    expect(buildContextFor(withBuilds({ kept: [{ revision: 3, scene: a }, { revision: 4, scene: less }] }), 'bracket').text).toContain('No source: 1 of 3 sizes')
+  })
+
   it('of a first build, is the check alone', () => {
     const told = buildContextFor(withBuilds({ kept: [{ revision: 4, scene: { ...R3, output: '' } }] }), 'bracket')
     expect(told.text).toBe([STATUS, 'Check: nothing found (every part valid, closed, not inside out, its mesh agreeing with its volume).'].join('\n'))

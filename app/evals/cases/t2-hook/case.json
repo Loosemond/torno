@@ -1,0 +1,38 @@
+{
+  "object": "hook",
+  "tier": "T2",
+  "prompts": [
+    "Make the hook in the brief. Build it in the model file, check it with torno's tools, and say when it is done."
+  ],
+  "answers": {
+    "default": "I don't know: choose, and say what you chose."
+  },
+  "checks": [
+    {
+      "id": "valid",
+      "kind": "valid"
+    },
+    {
+      "id": "parts",
+      "kind": "parts",
+      "names": [
+        "hook"
+      ]
+    },
+    {
+      "id": "solids",
+      "kind": "solids",
+      "part": "hook",
+      "count": 1
+    },
+    {
+      "id": "holes",
+      "kind": "hole",
+      "part": "hook",
+      "diameter": 4,
+      "through": true,
+      "count": 2,
+      "tol": 0.05
+    }
+  ]
+}

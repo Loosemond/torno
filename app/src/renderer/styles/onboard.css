@@ -86,7 +86,7 @@
   width: 100%;
   min-height: 32px;
   padding: 0 var(--space-3);
-  border: var(--divider);
+  border: var(--field-border);
   border-radius: var(--radius-control);
   background: var(--panel);
   color: var(--ink);
@@ -227,7 +227,7 @@
   width: 100%;
   height: 28px;
   padding: 0 var(--space-2);
-  border: var(--divider);
+  border: var(--field-border);
   border-radius: var(--radius-control);
   background: var(--surface);
   color: var(--ink);
@@ -417,7 +417,7 @@
   z-index: 30;
   display: grid;
   place-items: start center;
-  padding: var(--space-3) calc(var(--dock-space) + var(--space-4)) calc(var(--status-h) + var(--space-4)) calc(var(--left-w) + var(--space-4));
+  padding: var(--space-4);
   background: color-mix(in srgb, var(--surface) 72%, transparent);
 }
 
@@ -425,7 +425,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  width: min(960px, 100%);
+  width: 100%;
   max-height: 100%;
   padding: var(--space-3) var(--space-4) var(--space-3);
   border: var(--divider);
@@ -482,6 +482,12 @@
   touch-action: none;
 }
 
+/* The doodle's grid: a square every 40 board pixels, in the hairline (--grid-x and --grid-y are the squares across and down). */
+.board-canvas[data-grid] {
+  background-image: linear-gradient(to right, var(--hairline) 1px, transparent 1px), linear-gradient(to bottom, var(--hairline) 1px, transparent 1px);
+  background-size: calc(100% / var(--grid-x)) calc(100% / var(--grid-y));
+}
+
 /* A picture under the ink (a drawing on the view): stretched to the board, which is its very size. */
 .board-canvas[data-ground] {
   background-size: 100% 100%;
@@ -524,7 +530,7 @@
   font-weight: 600;
 }
 
-.draft-pane ul {
+.draft-pane ul:not(.draft-pane-pictures) {
   display: grid;
   gap: var(--space-1);
   margin: 0;
@@ -543,4 +549,45 @@
   color: var(--muted);
   font-size: var(--text-small);
   text-wrap: pretty;
+}
+
+/* The first prompt, read back (#84): the session pane while a new project is made. */
+.draft-pane {
+  align-content: start;
+  overflow-y: auto;
+}
+.draft-pane .draft-pane-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: var(--text-small);
+  line-height: 1.5;
+}
+.draft-pane .draft-pane-mine {
+  color: var(--ink);
+}
+.draft-pane-pictures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.draft-pane-pictures li {
+  display: grid;
+  gap: var(--space-1);
+  width: 96px;
+  font-size: var(--text-small);
+}
+.draft-pane-pictures img {
+  width: 96px;
+  height: 64px;
+  object-fit: cover;
+  border: 1px solid var(--hairline);
+  border-radius: 4px;
+}
+.draft-pane-state,
+.draft-pane-foot {
+  color: var(--muted);
 }

@@ -82,7 +82,7 @@ describe('the Claude Code adapter', () => {
 
   it('registers an http hook for each event it follows, and no other', () => {
     const settings = JSON.parse(after(claudeAdapter().launch(ctx).args, '--settings'))
-    expect(HOOK_EVENTS).toEqual(['UserPromptSubmit', 'Stop', 'StopFailure', 'Notification', 'PermissionRequest', 'PreToolUse', 'PostToolUse', 'SessionEnd'])
+    expect(HOOK_EVENTS).toEqual(['UserPromptSubmit', 'Stop', 'StopFailure', 'Notification', 'PermissionRequest', 'PreToolUse', 'PostToolUse', 'PostCompact', 'SessionEnd'])
     expect(Object.keys(settings)).toEqual(['hooks'])
     expect(Object.keys(settings.hooks)).toEqual(HOOK_EVENTS)
     for (const event of HOOK_EVENTS) {
@@ -183,18 +183,30 @@ describe('the Claude Code adapter', () => {
       const agents = JSON.parse(after(claudeAdapter().launch({ ...ctx, view }).args, '--agents'))
       expect(Object.keys(agents)).toEqual(['torno-reviewer'])
       const reviewer = agents['torno-reviewer']
-      expect(Object.keys(reviewer).sort()).toEqual(['description', 'prompt', 'tools'])
-      expect(reviewer.tools).toEqual(['mcp__torno__scene', 'mcp__torno__look', 'mcp__torno__marks', 'mcp__torno__measure', 'mcp__torno__check', 'mcp__torno__section', 'mcp__torno__describe', 'Read'])
+      expect(Object.keys(reviewer).sort()).toEqual(['description', 'maxTurns', 'model', 'prompt', 'tools'])
+      expect(reviewer.model).toBe('sonnet')
+      expect(reviewer.maxTurns).toBe(20)
+      expect(reviewer.tools).toEqual(['mcp__torno__scene', 'mcp__torno__look', 'mcp__torno__marks', 'mcp__torno__measure', 'mcp__torno__check', 'mcp__torno__section', 'mcp__torno__describe', 'mcp__torno__diff', 'mcp__torno__scans', 'mcp__torno__scan_clash', 'mcp__torno__scan_deviation', 'Read'])
       for (const never of ['Edit', 'Write', 'Bash', 'mcp__torno__resolve_mark', 'mcp__torno__show', 'mcp__torno__add_mark']) expect(reviewer.tools).not.toContain(never)
       expect(reviewer.description).toMatch(/after a change of several steps/i)
-      for (const said of ['what the user asked', 'every open mark', 'every dimension', 'mcp__torno__measure', 'never from the mesh', 'Change nothing']) expect(reviewer.prompt).toContain(said)
+      for (const said of ['what the user asked', 'every open mark', 'every dimension', 'mcp__torno__measure', 'never from the mesh', 'Change nothing', 'Read brief.md', 'at most twice', 'HOLDS, FAILS or UNCHECKED', 'UNCHECKED is never left out']) expect(reviewer.prompt).toContain(said)
     }
   })
 
-  it('is given the plugin that is in the app: a manifest and the four skills, each named in its frontmatter', () => {
+  // #125: Sonnet unless the person says otherwise; `inherit` passes no model at all.
+  it('runs the reviewer on Sonnet, on the model TORNO_REVIEWER_MODEL names, or on the session’s when it says inherit', () => {
+    const tool = (t: string) => `mcp__torno__${t}`
+    expect(reviewerAgents(tool, {})['torno-reviewer'].model).toBe('sonnet')
+    expect(reviewerAgents(tool, { TORNO_REVIEWER_MODEL: 'haiku' })['torno-reviewer'].model).toBe('haiku')
+    expect(reviewerAgents(tool, { TORNO_REVIEWER_MODEL: ' ' })['torno-reviewer'].model).toBe('sonnet')
+    expect(reviewerAgents(tool, { TORNO_REVIEWER_MODEL: 'inherit' })['torno-reviewer']).not.toHaveProperty('model')
+    expect(reviewerAgents(tool, { TORNO_REVIEWER_MODEL: 'inherit' })['torno-reviewer'].maxTurns).toBe(20)
+  })
+
+  it('is given the plugin that is in the app: a manifest and the five skills, each named in its frontmatter', () => {
     const dir = join(__dirname, '../../../resources/agent-plugin')
     expect(JSON.parse(readFileSync(join(dir, '.claude-plugin/plugin.json'), 'utf8')).name).toBe('torno')
-    for (const name of ['torno-model', 'build123d', 'scans', 'dimensions']) {
+    for (const name of ['torno-model', 'build123d', 'scans', 'dimensions', 'printing']) {
       const text = readFileSync(join(dir, 'skills', name, 'SKILL.md'), 'utf8')
       const front = text.match(/^---\n([\s\S]*?)\n---\n/)![1]
       expect(front).toMatch(new RegExp(`^name: ${name}$`, 'm'))

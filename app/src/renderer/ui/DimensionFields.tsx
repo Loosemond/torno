@@ -1,7 +1,7 @@
 import { pressed } from '../../shared/keys'
 import { useState, useRef } from 'react'
-import { NOT_MEASURABLE, type ShownDimension, defaultTolerance, exactText, isOffEdge, offBy, shownDimension, standingOf, unitOf } from '../../shared/dimension'
-import { namedPieces } from '../../shared/format'
+import { NOT_MEASURABLE, type ShownDimension, defaultTolerance, exactText, isOffEdge, offBy, samplesOf, shownDimension, since, sinceText, standingOf, unitOf } from '../../shared/dimension'
+import { namedPieces, number } from '../../shared/format'
 import { giveKeysBack } from './typing'
 import type { DimensionMark, MarkPatch } from '../../shared/marks'
 
@@ -95,6 +95,8 @@ export function DimensionFields({ mark, revision, change }: { mark: DimensionMar
         )}
       </p>
 
+      <History mark={mark} revision={revision} />
+
       <fieldset className="shape-group dimension-expect">
         <legend>
           Should be <span className="num">{unit}</span>
@@ -121,6 +123,43 @@ export function DimensionFields({ mark, revision, change }: { mark: DimensionMar
         </p>
       )}
     </div>
+  )
+}
+
+/** How many builds the row lists; the title of the line has them all. */
+const SHOWN_BUILDS = 8
+
+/**
+ * What a dimension measured on the builds of this run, newest last: `r9 38.6 ✗ · r10 39.2 ✗ · r11 40 ✓`, each
+ * value with the build it is of and, when something is expected, its verdict against it. Above it, when it is
+ * worth saying, how the check stands against its past: `fails since r12; passed on r11`. The history is main's;
+ * a dimension with one build or none has no line.
+ */
+function History({ mark, revision }: { mark: DimensionMark; revision: number }) {
+  const samples = samplesOf(mark)
+  if (samples.length < 2) return null
+  const standing = since(mark, revision)
+  const shown = samples.slice(-SHOWN_BUILDS)
+  const unit = unitOf(mark.measure)
+  return (
+    <>
+      {standing && (
+        <p className="dimension-since" data-state={standing.state} role="status">
+          <Words text={sinceText(standing)} />
+        </p>
+      )}
+      <p className="dimension-history num" aria-label="Across builds" title={samples.map((s) => `r${s.revision} ${s.value === undefined ? 'no value' : exactText(mark.measure, s.value)}${s.verdict ? (s.verdict === 'pass' ? ', as expected' : ', not what was expected') : ''}`).join('\n')}>
+        {samples.length > shown.length && <span className="dimension-history-more">… </span>}
+        {shown.map((s, i) => (
+          <span key={s.revision} className="dimension-sample" data-verdict={s.verdict}>
+            {i > 0 && ' · '}
+            r{s.revision} {s.value === undefined ? '—' : number(s.value)}
+            {s.value !== undefined && unit === '°' ? '°' : ''}
+            {s.verdict && <VerdictIcon pass={s.verdict === 'pass'} />}
+          </span>
+        ))}
+      </p>
+    </>
   )
 }
 

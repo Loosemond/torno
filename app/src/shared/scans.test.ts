@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { box, meshBin } from '../test/scanFixtures'
-import { type ScanAlignment, type ScanImport, alignmentOf, alignmentText, basisOf, basisText, importText, standingOf, maskBits, maskFile, parseScanMesh, sizeAs, staleText } from './scans'
+import { type ScanAlignment, type ScanImport, alignmentOf, alignmentText, basisOf, basisText, importText, standingOf, maskBits, maskFile, parseScanMesh, sizeAgainst, sizeAs, staleText } from './scans'
 
 describe('parseScanMesh', () => {
   it('gives views of the vertices, the colours and the triangles of a mesh.bin', () => {
@@ -207,4 +207,19 @@ describe('sizeAs', () => {
   it('is the size as read when nothing changes', () => close(sizeAs(imported, { unit: 'mm', up: 'z' }), [650, 1226, 357.7]))
   it('scales by the ratio of the units', () => close(sizeAs(imported, { unit: 'cm', up: 'z' }), [6500, 12260, 3577]))
   it('swaps Y and Z when the up axis changes', () => close(sizeAs(imported, { unit: 'mm', up: 'y' }), [650, 357.7, 1226]))
+})
+
+describe('sizeAgainst', () => {
+  const parts: [number, number, number] = [40, 40, 41]
+  it('has no doubt of a scan within a hundred times either way', () => {
+    expect(sizeAgainst([1480, 920, 610], parts, 'mm')).toMatchObject({ suggest: null })
+    expect(sizeAgainst([0.5, 0.5, 0.5], [40, 40, 40], 'mm')).toMatchObject({ suggest: null })
+  })
+  it('suggests the unit that brings a scan a thousand times too large near', () => {
+    const got = sizeAgainst([40000, 40000, 41000], parts, 'm')!
+    expect(got.ratio).toBeCloseTo(1000, 6)
+    expect(got.suggest).toBe('mm')
+  })
+  it('suggests metres for a scan a thousand times too small', () => expect(sizeAgainst([0.04, 0.04, 0.041], parts, 'mm')!.suggest).toBe('m'))
+  it('says nothing without parts', () => expect(sizeAgainst([1, 1, 1], [0, 0, 0], 'mm')).toBeNull())
 })

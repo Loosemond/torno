@@ -8,6 +8,7 @@ import type { ObjectInfo } from '../shared/workspace'
 import { Builds, NotBuilding, buildTimeout, watchFolder } from './builds'
 import { type KernelClient, KernelError, startKernel } from './kernel/client'
 import { probe } from '../test/diagnosisFixtures'
+import type { FilletDiagnosis } from '../shared/diagnosis'
 
 type BuildResult = { ok: true; scene: Scene; blob: Buffer } | { ok: false; error: BuildError }
 
@@ -44,10 +45,10 @@ class FakeKernel implements KernelClient {
       opts?.onStarted?.({ retired: this.retiring })
     })
   }
-  succeed(index: number, seconds = 0.5, checks?: Scene['checks']): void {
+  succeed(index: number, seconds = 0.5, uses?: string[], checks?: Scene['checks']): void {
     const call = this.calls[index]
     this.retired.delete(call.dir)
-    call.settle({ ok: true, scene: sceneOf(call.model, seconds, checks), blob: Buffer.from([index]) })
+    call.settle({ ok: true, scene: { ...sceneOf(call.model, seconds, checks), ...(uses ? { uses } : {}) }, blob: Buffer.from([index]) })
   }
   fail(index: number, error: BuildError): void {
     this.calls[index].settle({ ok: false, error })
@@ -518,19 +519,19 @@ describe('Builds', () => {
     const { kernel, builds } = setup()
     const walls = (min: number) => ({ name: 'walls', kind: 'thin', status: 'pass' as const, min, max: null, unit: 'mm', declared: { name: 'walls', kind: 'thin', a: 'tub', min } })
     builds.open(bracket)
-    kernel.succeed(0, 0.5, [walls(1.2)])
+    kernel.succeed(0, 0.5, undefined, [walls(1.2)])
     await flush()
     expect(builds.scene('bracket')?.scene.checkNotes).toBeUndefined()
     builds.changed('bracket', ['/ws/bracket/bracket.py'])
-    kernel.succeed(1, 0.5, [walls(0.6)])
+    kernel.succeed(1, 0.5, undefined, [walls(0.6)])
     await flush()
     expect(builds.scene('bracket')?.scene.checkNotes?.map((n) => [n.name, n.what, n.since, n.text])).toEqual([['walls', 'loosened', 2, 'walls: min 1.2 → 0.6 mm']])
     builds.changed('bracket', ['/ws/bracket/bracket.py'])
-    kernel.succeed(2, 0.5, [])
+    kernel.succeed(2, 0.5, undefined, [])
     await flush()
     expect(builds.scene('bracket')?.scene.checkNotes?.map((n) => [n.what, n.since])).toEqual([['removed', 2]])
     builds.changed('bracket', ['/ws/bracket/bracket.py'])
-    kernel.succeed(3, 0.5, [walls(1.2)])
+    kernel.succeed(3, 0.5, undefined, [walls(1.2)])
     await flush()
     expect(builds.scene('bracket')?.scene.checkNotes).toEqual([])
   })
@@ -566,7 +567,7 @@ describe('Builds', () => {
       builds.changed('bracket', ['/ws/bracket/bracket.py'])
       kernel.fail(1, failing())
       await flush()
-      const edges = builds.state('bracket')?.error?.diagnosis?.edges ?? []
+      const edges = (builds.state('bracket')?.error?.diagnosis as FilletDiagnosis | undefined)?.edges ?? []
       expect(edges.map((e) => e.sameAs)).toEqual([{ ref: 'plate/E12', layout: 'assembly', revision: 1 }, undefined, undefined, { ref: 'plate/E3', layout: 'assembly', revision: 1 }])
       const asked = kernel.queries.find((q) => q.name === 'match_edges')
       expect(asked).toMatchObject({ dir: '/ws/bracket', args: { edges: [{ type: 'line', start: [-6, -6, -2.5], end: [-6, -6, 2.5], length: 5 }, {}, {}, {}] } })
@@ -581,7 +582,7 @@ describe('Builds', () => {
       builds.changed('bracket', ['/ws/bracket/bracket.py'])
       kernel.fail(1, failing())
       await flush()
-      const edges = builds.state('bracket')?.error?.diagnosis?.edges ?? []
+      const edges = (builds.state('bracket')?.error?.diagnosis as FilletDiagnosis | undefined)?.edges ?? []
       expect(edges.map((e) => e.sameAs)).toEqual([undefined, { ref: 'lid/E2', layout: 'assembly', revision: 1 }, undefined, undefined])
     })
 
@@ -661,6 +662,35 @@ describe('Builds', () => {
     watched.get('/ws/bracket')!()
     watched.get('/ws/common')!()
     expect(kernel.calls).toHaveLength(3)
+  })
+
+  it('watches what the model imported from another project, and builds again when that file is saved', async () => {
+    const { kernel, builds, watched } = setup()
+    builds.open(bracket)
+    kernel.succeed(0, 0.5, ['gear/gear.py', 'common/screws.py'])
+    await flush()
+    // The folder of the used file is watched; the project's own and common/ already were.
+    expect([...watched.keys()]).toEqual(['/ws/bracket', '/ws/common', '/ws/gear'])
+    watched.get('/ws/gear')!(['/ws/gear/notes.txt']) // not a file it imported
+    expect(kernel.calls).toHaveLength(1)
+    watched.get('/ws/gear')!(['/ws/gear/gear.py'])
+    expect(kernel.calls).toHaveLength(2)
+    kernel.succeed(1, 0.5, ['gear/gear.py'])
+    await flush()
+    // Used no longer: not watched for it any more once a build says so; closing stops the watch.
+    builds.rebuild('bracket')
+    kernel.succeed(2, 0.5, [])
+    await flush()
+    expect([...watched.keys()]).toEqual(['/ws/bracket', '/ws/common'])
+  })
+
+  it('does not watch what a closed project used', async () => {
+    const { kernel, builds, watched } = setup()
+    builds.open(bracket)
+    kernel.succeed(0, 0.5, ['gear/gear.py'])
+    await flush()
+    builds.close('bracket')
+    expect([...watched.keys()]).toEqual([])
   })
 
   it('shows only the second build when a change arrives mid-build', async () => {

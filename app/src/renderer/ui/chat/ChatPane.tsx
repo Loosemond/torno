@@ -5,6 +5,7 @@ import { AskSession } from './AskCard'
 import { Composer } from './Composer'
 import { ChatPlace } from './place'
 import { ChatOffer, type ChatOffers } from './offers'
+import { UndoableTurn } from './TurnEnd'
 
 /** Within this many pixels of its end, a transcript is at its end. */
 const AT_END_PX = 24
@@ -51,6 +52,12 @@ export function ChatPane({ sessionId, live, working, dir, onWholePrompt, onUseTe
   const earlier = chat?.earlier
   const underWay = (items ?? []).some((item) => (item.kind === 'text' || item.kind === 'thinking' ? item.streaming : item.kind === 'tool' && item.state === 'running'))
   const beat = useBeat(underWay)
+  // "Undo" is offered on the last turn only: a live session at rest, with no prompt of the person's after that turn.
+  const undoable = useMemo(() => {
+    if (!live || working || !items) return undefined
+    const at = items.findLastIndex((item) => item.kind === 'turn')
+    return at >= 0 && !items.slice(at + 1).some((item) => item.kind === 'user') ? items[at]!.id : undefined
+  }, [live, working, items])
 
   useLayoutEffect(() => {
     const el = box.current
@@ -110,7 +117,9 @@ export function ChatPane({ sessionId, live, working, dir, onWholePrompt, onUseTe
           )}
           {items && (
             <ChatOffer.Provider value={offers}>
-              <ChatItems items={items} beat={beat} />
+              <UndoableTurn.Provider value={undoable}>
+                <ChatItems items={items} beat={beat} />
+              </UndoableTurn.Provider>
             </ChatOffer.Provider>
           )}
           {chat && !chat.loading && items!.length === 0 && (!earlier || earlier.length === 0) && (

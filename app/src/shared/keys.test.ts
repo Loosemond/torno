@@ -106,9 +106,9 @@ it('gives the key of a row for a tooltip', () => {
 
 it('has nothing heard while typing that typing or the terminal would take', () => {
   for (const key of ['V', '?', 'Esc', 'Enter', 'Shift+Enter', 'Left', 'Ctrl+C', 'Ctrl+R', 'Ctrl+E']) expect([key, typed(key)]).toEqual([key, true])
-  for (const key of ['Ctrl+Shift+E', 'Ctrl+Shift+B', 'Ctrl+`', 'F12', 'Ctrl+Shift+I']) expect([key, typed(key)]).toEqual([key, false])
+  for (const key of ['Ctrl+Shift+E', 'Ctrl+Shift+B', 'Ctrl+Shift+D', 'F6', 'Shift+F6', 'Ctrl+`', 'F12', 'Ctrl+Shift+I']) expect([key, typed(key)]).toEqual([key, false])
   const global = KEYS.filter((row) => row.scope === 'global')
-  expect(global.map((row) => row.id)).toEqual(['session.focus', 'export', 'rebuild', 'devtools'])
+  expect(global.map((row) => row.id)).toEqual(['session.focus', 'region.next', 'region.previous', 'dock.toggle', 'export', 'rebuild', 'devtools'])
   for (const row of global) for (const key of row.keys) expect([key, typed(key)]).toEqual([key, false])
   // And nothing that is listened to only outside a field needs a chord to be told from typing.
   for (const row of KEYS.filter((r) => r.scope === 'viewport' || r.scope === 'window')) for (const key of row.keys) expect([key, typed(key)]).toEqual([key, true])

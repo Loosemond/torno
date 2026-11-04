@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: If you use torno in your work, please cite it as below.
+title: torno
+type: software
+abstract: A desktop workbench for making CAD parts with an AI coding agent.
+authors:
+  - name: the torno authors
+repository-code: https://github.com/luisg0nc/torno
+license: Apache-2.0
+version: 0.1.0
+date-released: 2026-11-03

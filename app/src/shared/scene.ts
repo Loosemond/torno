@@ -68,6 +68,12 @@ export interface Scene {
   checks?: ModelCheck[]
   /** What main notes of those checks across builds: one removed or loosened since a build (`keepNotes`). Set by main, never by the kernel. */
   checkNotes?: CheckNote[]
+  /**
+   * The Python files the model imported from the workspace outside its own folder (another project's, `common/`),
+   * as the worker found them after the load: paths from the workspace, with `/`, in order. Never declared by torno.
+   * Absent from a kernel that does not say.
+   */
+  uses?: string[]
 }
 
 /**

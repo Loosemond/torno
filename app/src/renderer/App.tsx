@@ -30,15 +30,15 @@ import { KeySheet, useKeysKey } from './ui/KeySheet'
 import { ReadinessSheet, useReadyFeed } from './ui/Readiness'
 import { Welcome } from './ui/Welcome'
 import { giveKeysBack } from './ui/typing'
+import { LeftEdge } from './ui/LeftEdge'
+import { LEFT_DEFAULT, VIEWPORT_MIN } from './state/column'
 
-const LEFT_WIDTH = 248
 const DOCK_DEFAULT = 520
 const DOCK_MIN = 320
-const VIEWPORT_MIN = 240 // free viewport width the dock always leaves beside the left column
 const KEY_STEP = 16
 
-function clampDock(width: number): number {
-  const max = Math.max(DOCK_MIN, window.innerWidth - LEFT_WIDTH - VIEWPORT_MIN)
+function clampDock(width: number, left: number = LEFT_DEFAULT): number {
+  const max = Math.max(DOCK_MIN, window.innerWidth - left - VIEWPORT_MIN)
   return Math.round(Math.min(Math.max(width, DOCK_MIN), max))
 }
 
@@ -64,6 +64,8 @@ async function pickWorkspace(): Promise<void> {
 /** Stand for the folder the person has yet to choose in the dialog, and for the copy of the example main makes. */
 const PICK = 'pick'
 const EXAMPLE = 'example'
+/** Stands for the new folder the open example is kept in, at a path the person chooses in the dialog. */
+const KEEP = 'keep'
 
 /**
  * Leave the workspace for a folder, or for the one chosen in the dialog. A folder that cannot be opened leaves the
@@ -71,9 +73,18 @@ const EXAMPLE = 'example'
  * when nothing went wrong (also when the dialog was cancelled).
  */
 async function goTo(to: string): Promise<string | null> {
-  const what = to === PICK ? 'The folder' : to === EXAMPLE ? 'The example' : basename(to)
+  const what = to === PICK ? 'The folder' : to === EXAMPLE ? 'The example' : to === KEEP ? 'The example' : basename(to)
   try {
-    const info = to === PICK ? await window.torno.workspace.pick() : to === EXAMPLE ? await window.torno.workspace.openExample() : store.getState().workspace?.root === to ? null : await window.torno.workspace.open(to)
+    const info =
+      to === PICK
+        ? await window.torno.workspace.pick()
+        : to === EXAMPLE
+          ? await window.torno.workspace.openExample()
+          : to === KEEP
+            ? await window.torno.workspace.keepExample()
+            : store.getState().workspace?.root === to
+              ? null
+              : await window.torno.workspace.open(to)
     if (info) showWorkspace(info) // null: the dialog was cancelled
     return null
   } catch (e) {
@@ -90,6 +101,33 @@ function leavingReasons(): Reason[] {
 let opening = 0
 
 /** Show an object as its scene file left it, and have main watch and build it. */
+/**
+ * From the export sheet: a project left out because it has no build of this run is opened as any opening does, and
+ * when its build lands the sheet comes back with it ticked beside the rest. A build that fails, or the person going
+ * elsewhere, brings nothing back.
+ */
+async function openThenExport(id: string, ticked: string[]): Promise<void> {
+  actions.exportSheet(null)
+  await openObject(id)
+  const landed = (s: ReturnType<typeof store.getState>): boolean => s.objectId === id && s.scene !== null && s.revision > 0
+  if (!landed(store.getState())) {
+    const done = await new Promise<boolean>((resolve) => {
+      const stop = (ok: boolean): void => {
+        off()
+        clearTimeout(timer)
+        resolve(ok)
+      }
+      const off = store.subscribe((s) => {
+        if (landed(s)) stop(true)
+        else if (s.objectId !== id || s.build?.status === 'failed') stop(false)
+      })
+      const timer = setTimeout(() => stop(false), 120_000)
+    })
+    if (!done) return
+  }
+  actions.exportSheet(ticked.includes(id) ? ticked : [...ticked, id])
+}
+
 async function openObject(id: string): Promise<void> {
   const turn = ++opening
   // The one already open stays as it is: its selection, its camera, the note being written. From the page of objects it is gone back to.
@@ -224,10 +262,57 @@ function useRebuildKey(): void {
   }, [])
 }
 
+/** The parts of the window F6 goes round, in reading order (the order of the DOM). */
+const REGIONS = ['left', 'viewport', 'session', 'status'] as const
+const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [href], [tabindex="0"], [data-chat-composer]:not([disabled])'
+
+/** F6 and Shift+F6 go round the parts of the window, as a person with no pointer needs; the dock when it is hidden is passed over. */
+function useRegionKeys(): void {
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent): void => {
+      const step = pressed(e, 'region.next') ? 1 : pressed(e, 'region.previous') ? -1 : 0
+      if (step === 0) return
+      e.preventDefault()
+      e.stopPropagation()
+      if (e.repeat) return
+      const regions = REGIONS.map((name) => document.querySelector<HTMLElement>(`[data-region="${name}"]`)).filter((el): el is HTMLElement => el !== null && !el.hidden)
+      if (regions.length === 0) return
+      const at = regions.findIndex((el) => el.contains(document.activeElement))
+      for (let i = 1; i <= regions.length; i++) {
+        const target = regions[(((at < 0 ? (step > 0 ? -1 : 0) : at) + step * i) % regions.length + regions.length) % regions.length]
+        const first = target.querySelector<HTMLElement>(FOCUSABLE)
+        if (first) {
+          first.focus()
+          return
+        }
+      }
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [])
+}
+
+/** The key that shows or hides the session pane, as the button at the edge does: heard everywhere. */
+function useDockKey(): void {
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent): void => {
+      if (!pressed(e, 'dock.toggle')) return
+      e.preventDefault()
+      e.stopPropagation()
+      if (e.repeat) return
+      actions.setDockOpen(!store.getState().dockOpen)
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [])
+}
+
 export function App() {
   useMain()
   useReadyFeed()
   useRebuildKey()
+  useRegionKeys()
+  useDockKey()
   usePageKey()
   useKeysKey()
   useExportKey()
@@ -243,6 +328,8 @@ export function App() {
   // React renders once at the end rather than on every pointer move.
   const drag = useRef<{ startX: number; startWidth: number; width: number } | null>(null)
 
+  const leftNow = (): number => document.querySelector('.left')?.getBoundingClientRect().width ?? LEFT_DEFAULT
+
   function onEdgeDown(e: PointerEvent<HTMLDivElement>) {
     if (e.button !== 0) return
     e.currentTarget.setPointerCapture(e.pointerId)
@@ -253,7 +340,7 @@ export function App() {
   function onEdgeMove(e: PointerEvent<HTMLDivElement>) {
     const d = drag.current
     if (!d) return
-    d.width = clampDock(d.startWidth + d.startX - e.clientX)
+    d.width = clampDock(d.startWidth + d.startX - e.clientX, leftNow())
     shell.current!.style.setProperty('--dock-w', `${d.width}px`)
   }
 
@@ -271,7 +358,7 @@ export function App() {
     const way = which(e, 'dock.resize')
     if (way < 0) return
     e.preventDefault()
-    setDockWidth((w) => clampDock(w + (way === 0 ? KEY_STEP : -KEY_STEP)))
+    setDockWidth((w) => clampDock(w + (way === 0 ? KEY_STEP : -KEY_STEP), leftNow()))
   }
 
   // Leaving a workspace ends its sessions. `leaving` is where to, while that is
@@ -355,16 +442,6 @@ export function App() {
       data-dock={dockOpen ? 'open' : 'collapsed'}
       style={{ '--dock-w': `${dockWidth}px` } as CSSProperties}
     >
-      <main className="viewport" data-region="viewport">
-        <ViewportPane />
-        {page === 'objects' && <ShowPage onOpen={(id) => void openObject(id)} onExample={() => leave(EXAMPLE)} />}
-        {page === 'new' && <NewObject onOpen={openObject} />}
-        {/* Over either: what goes into an export, asked before anything is written. */}
-        <ExportSheet />
-        {/* Over the view: a drawing on it for the chat, while its board is open. */}
-        <ViewBoard />
-      </main>
-
       <aside className="left" data-region="left" aria-label="Projects, layers, parameters, scans and marks">
         <header className="panel-head">
           <h1 className="workspace-name" title={workspace.root}>
@@ -376,7 +453,10 @@ export function App() {
         {/* For as long as the example is open: what is made here does not outlive torno, and it says so where the folder is named. */}
         {workspace.example && (
           <p className="workspace-example" role="note">
-            {EXAMPLE_NOTE}
+            {EXAMPLE_NOTE}{' '}
+            <button type="button" className="link-button" disabled={leaving !== null} title="Copies this folder, with whatever was made in it, to a new folder you choose, and opens that one" onClick={() => leave(KEEP)}>
+              Keep this as a folder…
+            </button>
           </p>
         )}
         {openFailed !== null && (
@@ -393,7 +473,18 @@ export function App() {
         {/* The line that gives the marks more room than their share, from the sections above. */}
         {page === 'object' && <ColumnSplit />}
         {page !== 'new' && <MarksPanel />}
+        <LeftEdge shell={shell} />
       </aside>
+
+      <main className="viewport" data-region="viewport">
+        <ViewportPane />
+        {page === 'objects' && <ShowPage onOpen={(id) => void openObject(id)} onExample={() => leave(EXAMPLE)} />}
+        {page === 'new' && <NewObject onOpen={openObject} />}
+        {/* Over either: what goes into an export, asked before anything is written. */}
+        <ExportSheet onOpen={openThenExport} />
+        {/* Over the view: a drawing on it for the chat, while its board is open. */}
+        <ViewBoard />
+      </main>
 
       <aside className="dock" data-region="session" aria-label="Session" hidden={!dockOpen}>
         <div

@@ -190,3 +190,44 @@ describe('the parts the build says are broken', () => {
     expect(line()).not.toContain('defect')
   })
 })
+
+describe('what the build that landed changed', () => {
+  afterEach(() => store.setState({ page: 'object', objectId: null, build: null, scene: null, before: null, revision: 0 }))
+  const line = (): string => {
+    const now = vi.spyOn(store, 'getInitialState').mockReturnValue(store.getState())
+    try {
+      return renderToStaticMarkup(createElement(BuildStatus))
+    } finally {
+      now.mockRestore()
+    }
+  }
+  const part = (name: string, more: object = {}) => ({ key: `assembly:${name}`, name, layout: 'assembly', loc: { t: [0, 0, 0], q: [0, 0, 0, 1] }, hash: `h-${name}`, bbox: { min: [0, 0, 0], max: [10, 10, 10] }, bboxExact: true, volume: 1000, volumeExact: true, faceCount: 6, edgeCount: 12, valid: true, ...more })
+  const scene = (parts: object[]) => ({ ...SCENE, parts }) as unknown as Scene
+  const ok = { objectId: 'bracket', status: 'ok', revision: 8, seconds: 0.4, stale: false }
+
+  it('names the parts that changed, and says the others are the same, with the lines in the title', () => {
+    store.setState({ page: 'object', objectId: 'bracket', build: ok as never, before: scene([part('tub'), part('lid')]), scene: scene([part('tub', { hash: 'h2', volume: 1130 }), part('lid')]), revision: 8, layout: 'assembly', marks: [] })
+    const out = line()
+    expect(out).toContain('data-part="landing"')
+    expect(out).toContain('>tub changed, lid same<')
+    expect(out).toContain('tub: volume 1000 → 1130 mm³ (+130, +13 %)')
+  })
+
+  it('names no part that did not change', () => {
+    store.setState({ page: 'object', objectId: 'bracket', build: ok as never, before: scene([part('tub'), part('lid')]), scene: scene([part('tub'), part('lid', { hash: 'h2' })]), revision: 8, layout: 'assembly', marks: [] })
+    expect(line()).toContain('>lid changed, tub same<')
+    store.setState({ scene: scene([part('tub'), part('lid')]) })
+    expect(line()).toContain('>no part changed<')
+  })
+
+  it('says nothing of a first build, nor while a build runs or after it failed', () => {
+    store.setState({ page: 'object', objectId: 'bracket', build: ok as never, before: null, scene: scene([part('tub')]), revision: 8, layout: 'assembly', marks: [] })
+    expect(line()).not.toContain('landing')
+    store.setState({ before: scene([part('tub')]), scene: scene([part('tub', { hash: 'h2' })]) })
+    expect(line()).toContain('landing')
+    store.setState({ build: { ...ok, status: 'building', stale: true } as never })
+    expect(line()).not.toContain('landing')
+    store.setState({ build: { ...ok, status: 'failed', stale: true, error: { kind: 'exception', message: 'x' } } as never })
+    expect(line()).not.toContain('landing')
+  })
+})

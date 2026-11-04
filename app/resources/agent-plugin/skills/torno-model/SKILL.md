@@ -19,7 +19,7 @@ Before the first build of a new project, and before a new feature whose key size
    2 to 4 options, one of them a typical value labelled as typical ("0.2 mm per side, usual for PLA at a 0.4 mm
    nozzle"); the person may answer "build with assumptions". Do not ask about what you can choose freely (a fillet
    radius, a chamfer). If every size has a source, ask nothing. Never ask more than one round for a change.
-3. Build with the answers. A size still unknown is built as assumed: a field of `Params` commented "assumed", and your
+3. Build with the answers. A size still unknown is built as assumed: a field of `Params` whose comment begins `assumed:`, and your
    reply lists the assumptions.
 
 ## Seeing a value while building
@@ -35,6 +35,15 @@ Claude Code also reads the `CLAUDE.md` files of the workspace and of the person;
 lists them. What torno's tools say of the build is current: a file that names another viewer, report or export step
 is about another way of working. Follow its advice on how to model, not on how to see the build, which is
 `mcp__torno__scene`, `mcp__torno__look` and `mcp__torno__measure`.
+
+## Saying what an edit should change
+
+Before an edit that should change something you can state, call `mcp__torno__expect` with what it should do: a part's
+`volume`, `faces`, `edges` or `size` as a `value` or a `change` with a `tolerance`, a `measure` check with the `expected`
+number, and `unchanged` for the parts it must leave alone. The answer to the edit then says in one line how many checks
+the next successful build met and which it did not, with the numbers. It is told once, holds nothing back, and is no
+mark; a miss is a reason to look, not a failure. A ref to a face of a part whose face count changed is said as moved and
+is not measured: describe it again.
 
 ## Which file
 
@@ -121,10 +130,34 @@ def checks(p: Params):
   user when you removed one or made it easier to pass (`min` lowered, `max` raised, a larger bed). If a requirement
   really changed, say so in your answer when you change the check.
 
+## Fitting a part to another project
+
+A lid made for a box, a mount made for a part another project holds: import the other project's maker rather than
+copying its numbers, and put its part in `assembly(p)` only, never in `printables(p)` (it is not printed here), so
+that `check clearance` and `check overlap` work across the two. Put the other project's folder on `sys.path` first
+(`sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "box"))`) and `import box`.
+
+torno reads which files the model imported from beside its folder (`uses` in `mcp__torno__scene` and `state.md`):
+a save in one of them builds this project again, and the project's card says `A source has changed since`. It
+declares nothing of its own. If two projects import each other, both show each other in `uses`; Python will
+usually refuse the cycle, so break it by moving what they share into `common/`.
+
 ## Params is the one source of sizes
 
 Every size, clearance and count is a field of `Params`, with a default; functions read `p.wall`, never a number
 written inline. A change of size is then one edit, and the parts that must fit each other read the same field.
+
+Every size says where it comes from: its comment begins with the source and a colon, and the rest says why. The
+sources are `brief`, `M<n>` (a mark), `S<n> ≈` (a scan), `ref <file>` (a reference picture's note), `object` (another
+project), `datasheet <name>`, `person` (an answer in the chat), `derived` (worked out from other fields) and
+`assumed`. A size with no source is shown to the person as having none; torno tells you the assumed ones after a build
+and does not check any of them.
+
+```py
+wall: float = 2.0       # assumed: 5 perimeters at 0.4 mm
+board_w: float = 55.2   # datasheet: ESP32-S3 DevKitC-1 v1.1
+clearance: float = 0.2  # person: "0.2 per side"
+```
 
 ## Template
 
@@ -138,13 +171,13 @@ from build123d import Axis, Box, Location, Pos, Rot, fillet
 
 @dataclass(frozen=True)
 class Params:
-    width: float = 60.0
-    depth: float = 40.0
-    height: float = 30.0
-    wall: float = 2.0
-    lid_height: float = 4.0
-    clearance: float = 0.2
-    rounding: float = 1.0
+    width: float = 60.0  # brief: "about 60 by 40"
+    depth: float = 40.0  # brief: "about 60 by 40"
+    height: float = 30.0  # assumed: not in the brief
+    wall: float = 2.0  # assumed: 5 perimeters at 0.4 mm
+    lid_height: float = 4.0  # assumed: plate 2 mm plus a 2 mm lip
+    clearance: float = 0.2  # person: "0.2 per side"
+    rounding: float = 1.0  # assumed: a soft edge
 
 
 def make_tub(p: Params):

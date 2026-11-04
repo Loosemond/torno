@@ -3,6 +3,7 @@ import { dirname, join, relative, sep } from 'node:path'
 import { watch as chokidarWatch } from 'chokidar'
 import { type BuildError, type BuildState, REBUILD_KEY } from '../shared/build'
 import { keepNotes } from '../shared/modelChecks'
+import { isBoolean } from '../shared/diagnosis'
 import type { Scene } from '../shared/scene'
 import type { ObjectInfo } from '../shared/workspace'
 import { type BuildResult, type KernelClient, KernelError } from './kernel/client'
@@ -102,6 +103,8 @@ interface Entry {
    */
   restoring: boolean
   unwatch: Array<() => void>
+  /** The folders watched for the files the last good build imported from beside the project (`Scene.uses`), and the files. */
+  usesWatch?: { files: Set<string>; folders: string; unwatch: Array<() => void> }
   /**
    * What the last build of these sources failed with: until a source changes, or the person asks for a
    * build, building them again would fail alike, and no query starts one (see `query`).
@@ -251,6 +254,7 @@ export class Builds {
     this.entries.delete(objectId)
     this.displaced.delete(objectId)
     for (const unwatch of entry.unwatch) unwatch()
+    for (const unwatch of entry.usesWatch?.unwatch ?? []) unwatch()
     this.settleRebuilt(entry, new KernelError('no_build', `${objectId} was closed, so there is nothing to ask about`))
     this.abandon(objectId)
   }
@@ -449,7 +453,9 @@ export class Builds {
    * edge two parts share is either's, and the agent is never handed the wrong part's. Waited for `MATCH_MS` at most; whatever goes wrong leaves it as it was.
    */
   private async withRefs(entry: Entry, result: BuildResult): Promise<BuildResult> {
-    const diagnosis = !result.ok ? result.error.diagnosis : undefined
+    const told = !result.ok ? result.error.diagnosis : undefined
+    // A boolean's operands are not edges of any build: only a fillet's or a chamfer's are looked for.
+    const diagnosis = told && !isBoolean(told) ? told : undefined
     const good = entry.lastGood
     if (result.ok || !diagnosis || diagnosis.edges.length === 0 || !good || entry.letGo) return result
     const edges = diagnosis.edges.map(({ type, start, end, length, samples }) => ({ type, start, end, length, samples }))
@@ -485,8 +491,31 @@ export class Builds {
     entry.lastGood = { revision, scene, blob }
     entry.failure = undefined
     entry.letGo = false
+    this.watchUses(entry, scene.uses ?? [])
     this.set(entry, { objectId: id, status: 'ok', revision, seconds: scene.seconds, stale: false })
     for (const cb of this.sceneListeners) cb({ objectId: id, revision, scene, blob })
+  }
+
+  /**
+   * Watch the files the model imported from outside its own folder (another project's, as the worker found
+   * them in the last good build): a save of one builds this project again, as a save in `common/` does. Their
+   * folders are watched, and only a change to those files counts. The folders of the project and of `common/`
+   * are watched already.
+   */
+  private watchUses(entry: Entry, uses: string[]): void {
+    const root = dirname(entry.obj.dir)
+    const files = new Set(uses.map((file) => join(root, file)))
+    const folders = [...new Set([...files].map((file) => dirname(file)))].filter((dir) => dir !== entry.obj.dir && dir !== join(root, 'common')).sort()
+    const key = folders.join('\n')
+    if (entry.usesWatch?.folders === key) {
+      entry.usesWatch.files = files
+      return
+    }
+    for (const unwatch of entry.usesWatch?.unwatch ?? []) unwatch()
+    const watch = { files, folders: key, unwatch: [] as Array<() => void> }
+    entry.usesWatch = watch
+    const id = entry.obj.id
+    for (const dir of folders) watch.unwatch.push(this.watch(dir, (paths) => (paths.length === 0 || paths.some((path) => watch.files.has(path))) && this.changed(id, paths)))
   }
 
   private failed(entry: Entry, error: BuildError): void {

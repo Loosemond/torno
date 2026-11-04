@@ -197,3 +197,21 @@ def test_past_the_budget_the_rest_are_not_run(tmp_path):
 
 def test_a_model_without_checks_has_none_in_the_scene():
     assert worker._model_checks([], {}, [], {}) == []
+
+
+def test_interference_counts_the_pairs_of_a_layout_that_share_volume(tmp_path):
+    got = one(tmp_path, '{"name": "no clashes", "kind": "interference"}')
+    # The pad pokes into the tub and the lid: two pairs share volume (check interference's own `interfering`).
+    assert got["status"] == "fail" and got["value"] == 2 and got["unit"] == "pairs" and got["layout"] == "assembly"
+    assert got["min"] is None and got["max"] == 0.0 and got["exact"] is True
+    (tmp_path / "m.py").write_text(MODEL.replace("CHECKS", '[{"name": "no clashes", "kind": "interference"}]').replace('        "pad": Pos(10, 0, 0) * Box(4, 4, 4),\n', ""))
+    layouts, _, groups, declared = load_model(tmp_path, "m.py")
+    _, _, shapes = build_scene(layouts, "m.py", {})
+    clear = modelchecks.run(declared, shapes, groups, {})[0]
+    assert clear["status"] == "pass" and clear["value"] == 0
+
+
+def test_interference_takes_no_part_and_a_layout_is_optional(tmp_path):
+    with pytest.raises(LoadError, match=re.escape("interference does not take 'a'")):
+        load(tmp_path, '[{"name": "x", "kind": "interference", "a": "tub"}]')
+    assert load(tmp_path, '[{"name": "x", "kind": "interference", "layout": "assembly"}]')[3][0]["layout"] == "assembly"

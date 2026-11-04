@@ -291,7 +291,7 @@ export function NewObject({ onOpen }: { onOpen: (id: string) => Promise<void> })
             placeholder="A clip that holds a 6 mm cable to the edge of a desk, printed in PETG…"
             onChange={(e) => onboarding.setDescription(e.target.value)}
           />
-          <p className="new-help">What it is for, what it must fit or hold, sizes you know, how it will be made.</p>
+          <p className="new-help">What it is for, what it must fit or hold, sizes you know, how it will be made. Give the sizes you have measured: sizes the agent guesses are the most common reason a part does not fit.</p>
         </div>
 
         <div className="new-field">

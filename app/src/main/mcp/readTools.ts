@@ -7,9 +7,9 @@ import { KernelError, isBusy } from '../kernel/client'
 import { scanNumber } from '../../shared/format'
 import { type FilletDiagnosis, WHY, diagnosisText, sizeText } from '../../shared/diagnosis'
 import { number, sizes, vector } from '../marks/describe'
-import { DIFF_APPROXIMATE, DIFF_REFS, clean, partDiff } from '../sanity'
+import { clean, sceneDiff } from '../../shared/diff'
 import { plain, wire } from '../marks/measure'
-import { isMoved, movedForDisplay, spreadApart } from '../marks/spread'
+import { isMoved, movedForDisplay, spreadApart, spreadLayout } from '../marks/spread'
 import { type End, type EndArg, checkRef, endsOf } from './markTools'
 import { type ScanAsked, SCAN_APPROXIMATE, noteOf, saidNow, scanFor, scanFrame, scanSpread } from './scanTools'
 import type { PlaneArg } from './schemas'
@@ -47,7 +47,7 @@ export interface TryFilletToolArgs {
 }
 
 export interface CheckToolArgs {
-  kind: 'overlap' | 'clearance' | 'mesh' | 'overhang' | 'thin' | 'bed'
+  kind: 'overlap' | 'clearance' | 'interference' | 'mesh' | 'overhang' | 'thin' | 'bed'
   a?: string
   b?: string
   layout?: string
@@ -242,20 +242,24 @@ function moved(measured: MeasuredValue): string {
 
 export async function checkTool(deps: ToolDeps, objectId: string, args: CheckToolArgs): Promise<ToolResult> {
   const two = args.kind === 'overlap' || args.kind === 'clearance'
-  const whole = args.kind === 'bed'
+  const whole = args.kind === 'bed' || args.kind === 'interference'
   if (two && args.b === undefined) return failure(`${args.kind} is of two parts: give b`)
   if (!two && args.b !== undefined) return failure(`${args.kind} is of ${whole ? 'the whole layout' : 'the part a alone'}: leave b out`)
-  if (whole && args.a !== undefined) return failure('bed is of the whole layout: leave a out')
+  if (whole && args.a !== undefined) return failure(`${args.kind} is of the whole layout: leave a out`)
   if (!whole && args.a === undefined) return failure(`${args.kind} is of the part a: give a`)
   if (args.kind === 'thin' && args.min === undefined) return failure(`thin needs min, the least wall in mm: {"kind": "thin", "a": "${args.a}", "min": 0.8}`)
-  if (whole && args.size === undefined) return failure('bed needs size, the bed in mm: {"kind": "bed", "size": [256, 256, 256]}')
-  const extra = args.kind === 'overhang' ? { angle: args.angle ?? OVERHANG_ANGLE } : args.kind === 'thin' ? { min: args.min } : whole ? { size: args.size } : {}
+  if (args.kind === 'bed' && args.size === undefined) return failure('bed needs size, the bed in mm: {"kind": "bed", "size": [256, 256, 256]}')
+  const extra = args.kind === 'overhang' ? { angle: args.angle ?? OVERHANG_ANGLE } : args.kind === 'thin' ? { min: args.min } : args.kind === 'bed' ? { size: args.size } : {}
 
   const asked = await ofOneBuild(deps, objectId, async (found) => {
     // Whether it prints is of the print layout, where the model has one and no other is asked for.
     const printLayout = PRINTABILITY.includes(args.kind) && args.layout === undefined && found.scene.layouts.includes('print') ? 'print' : args.layout
     const layout = layoutFor(deps, objectId, found.scene, printLayout)
     if (typeof layout !== 'string') return layout
+    if (args.kind === 'interference') {
+      const apart = spreadLayout(found.scene, layout, 'what the parts share in')
+      if (apart !== null) return failure(apart)
+    }
     if (whole) {
       try {
         return { got: { layout, part: null as Part | null, checked: await deps.query<object>(objectId, 'check', { kind: args.kind, layout, ...extra }) } }
@@ -363,6 +367,7 @@ export function checkReading(args: Pick<CheckToolArgs, 'kind' | 'a' | 'b'>, chec
     if (overlapping !== false) return `${base}${typeof how === 'string' && how ? ` (${how})` : ''}${broken}`
     return `${distance === 0 ? `${base}: the parts touch` : base}${broken}`
   }
+  if (args.kind === 'interference') return interferenceReading(checked)
   if (args.kind === 'overhang' || args.kind === 'thin' || args.kind === 'bed') return printReading(args, checked)
   const { watertight, openEdges, where, triangles } = checked as Partial<CheckedMesh>
   if (typeof watertight !== 'boolean' || !finite(openEdges) || !finite(triangles)) return null
@@ -371,6 +376,28 @@ export function checkReading(args: Pick<CheckToolArgs, 'kind' | 'a' | 'b'>, chec
   if (triangles === 0) return `mesh of ${args.a}: no triangles`
   const first = Array.isArray(where) && isVec(where[0]) ? `, first at ${vector(where[0])}` : ''
   return `mesh of ${args.a}: OPEN, ${count(openEdges, 'open edge')}${first}`
+}
+
+/** The pairs of a layout that share volume, in a line. Null for a reply that is none. */
+function interferenceReading(checked: object): string | null {
+  type Pair = { a?: unknown; b?: unknown; volume?: unknown; volumeExact?: unknown }
+  const { layout, parts, interfering, touching, clear, sampling, notSolid, listCut } = checked as {
+    layout?: unknown; parts?: unknown; interfering?: Pair[]; touching?: Pair[]; clear?: unknown
+    sampling?: { measured?: unknown; of?: unknown; complete?: unknown }; notSolid?: unknown; listCut?: unknown
+  }
+  if (!finite(parts) || !finite(clear) || !Array.isArray(interfering) || !Array.isArray(touching)) return null
+  const reversed = (checked as { reversed?: unknown }).reversed
+  const names = (list: unknown): string[] => (Array.isArray(list) ? list.filter((n): n is string => typeof n === 'string') : [])
+  const count = (n: number, one: string): string => `${n.toLocaleString('en-US')} ${one}${n === 1 ? '' : 's'}`
+  const tell = (p: Pair): string => `${p.a} and ${p.b}${finite(p.volume) ? ` ${p.volumeExact === false ? '≈ ' : ''}${number(p.volume)} mm³` : ''}`
+  const more = listCut === true ? ' (the list is cut)' : ''
+  const head = `${layout === undefined ? 'layout' : String(layout)}: ${count(parts, 'solid part')}`
+  const sharing = interfering.length === 0 ? 'no pair shares volume' : `${count(interfering.length, 'pair')} share${interfering.length === 1 ? 's' : ''} volume (${interfering.slice(0, REFS_READ).map(tell).join('; ')}${interfering.length > REFS_READ ? `; and ${interfering.length - REFS_READ} more` : ''})${more}`
+  const touches = touching.length === 0 ? '' : `, ${count(touching.length, 'pair')} only touch${touching.length === 1 ? 'es' : ''} (${touching.slice(0, REFS_READ).map((p) => `${p.a} and ${p.b}`).join('; ')}${touching.length > REFS_READ ? `; and ${touching.length - REFS_READ} more` : ''})`
+  const cut = sampling?.complete === false && finite(sampling.measured) && finite(sampling.of) ? `; the time ran out after ${sampling.measured} of ${sampling.of} pairs whose boxes meet, the rest are NOT measured` : ''
+  const left = names(notSolid).length > 0 ? `; left out, not solids: ${names(notSolid).join(', ')}` : ''
+  const broken = names(reversed).length > 0 ? `; ${names(reversed).join(' and ')} ${names(reversed).length === 1 ? 'has' : 'have'} a solid turned inside out (reversed), so this is not to be relied on` : ''
+  return `${head}: ${sharing}${touches}; ${count(clear, 'pair')} clear${cut}${left}${broken}`
 }
 
 /** At most so many refs are named in a reading: the data holds them all. */
@@ -739,29 +766,6 @@ export function diffTool(deps: ToolDeps, objectId: string, args: DiffToolArgs): 
   const to = pick(args.to, kept.at(-1)!)
   if ('content' in to) return to
 
-  let approximate = false
-  let refsMoved = false
-  const named = (parts: Part[], name: string): Part | undefined => parts.find((p) => p.name === name)
-  const layouts = [...new Set([...to.scene.layouts, ...from.scene.layouts])].map((layout) => {
-    const before = from.scene.parts.filter((p) => p.layout === layout)
-    const after = to.scene.parts.filter((p) => p.layout === layout)
-    const parts = after.flatMap((p) => {
-      const was = named(before, p.name)
-      if (!was) return []
-      const told = partDiff(was, p)
-      approximate ||= told.approximate
-      refsMoved ||= told.refsMoved
-      return [told.data]
-    })
-    const only = !from.scene.layouts.includes(layout) ? { only: 'to' } : !to.scene.layouts.includes(layout) ? { only: 'from' } : {}
-    return {
-      layout,
-      ...only,
-      added: after.filter((p) => !named(before, p.name)).map((p) => p.name),
-      removed: before.filter((p) => !named(after, p.name)).map((p) => p.name),
-      parts
-    }
-  })
-  const notes = [...(approximate ? [DIFF_APPROXIMATE] : []), ...(refsMoved ? [DIFF_REFS] : [])]
+  const { layouts, notes } = sceneDiff(from.scene, to.scene)
   return reply(clean({ object: found.obj.id, from: from.revision, to: to.revision, layouts, ...(notes.length > 0 ? { notes } : {}) }))
 }

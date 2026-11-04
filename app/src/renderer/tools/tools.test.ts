@@ -8,6 +8,8 @@ import type { ViewportPointer } from '../viewport/Viewport'
 import { arrowHead, arrowTool } from './arrowTool'
 import { pickMarks } from './pickMarks'
 import { pinTool } from './pinTool'
+import { selectTool } from './selectTool'
+import { actions, store } from '../state/store'
 import { EXPLODED_TOOLS } from '../../shared/explode'
 import { DESCRIBE_WITHIN_MS, anchorFromHit, routePointer, type Tool, type ToolContext } from './Tool'
 
@@ -536,5 +538,45 @@ describe('while the parts are drawn apart', () => {
     routePointer(tool('pin', got), pointer('down', 14, 2.5, { hit: face }), fake({ exploded: null }).ctx)
     routePointer(tool('pin', got), pointer('down', 14, 2.5, { hit: face }), fake().ctx)
     expect(got).toEqual(['pin down', 'pin down'])
+  })
+})
+
+describe('what a click of the Select tool takes', () => {
+  const lid: Hit = { ...hitAt([1, 2, 3]), part: 'lid', ref: 'lid/F3' }
+  afterEach(() => {
+    toolStore.setState({ selectScope: 'any' })
+    actions.setSelection([])
+  })
+  const click = (tool: Tool, hit: Hit = lid, at = 1): void => {
+    const { ctx } = fake()
+    tool.onPointer(pointer('click', at, 2, { hit }), ctx)
+  }
+
+  it('is the face under the pointer in Any, and the part in Part', () => {
+    const tool = selectTool()
+    click(tool)
+    expect(store.getState().selection).toEqual(['lid/F3'])
+    toolStore.setState({ selectScope: 'part' })
+    click(tool)
+    expect(store.getState().selection).toEqual(['lid'])
+  })
+
+  it('passes over an edge in Face, and a face in Edge', () => {
+    const tool = selectTool()
+    toolStore.setState({ selectScope: 'face' })
+    click(tool, { ...lid, kind: 'edge', ref: 'lid/E1' })
+    expect(store.getState().selection).toEqual([])
+    toolStore.setState({ selectScope: 'edge' })
+    click(tool)
+    expect(store.getState().selection).toEqual([])
+    click(tool, { ...lid, kind: 'edge', ref: 'lid/E1' })
+    expect(store.getState().selection).toEqual(['lid/E1'])
+  })
+
+  it('is the part on a double click in Any', () => {
+    const tool = selectTool()
+    click(tool)
+    click(tool)
+    expect(store.getState().selection).toEqual(['lid'])
   })
 })

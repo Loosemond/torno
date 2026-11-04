@@ -6,6 +6,7 @@ import type { BuildDigest } from '../shared/sanity'
 import { type ScanInfo, importText } from '../shared/scans'
 import { groupsIn } from '../shared/groups'
 import { checkText, noteText } from '../shared/modelChecks'
+import { sourceOf, isSize } from '../shared/params'
 import type { Scene } from '../shared/scene'
 import { type SavedView, viewGone } from '../shared/views'
 import type { ObjectInfo } from '../shared/workspace'
@@ -52,6 +53,8 @@ export function stateText(obj: ObjectInfo, build: BuildState | undefined, last: 
   if (!last) lines.push('Nothing has been built yet.')
   else {
     if (last.scene.model) lines.push(`Model: ${last.scene.model}, r${last.revision}.`, '')
+    // What the model imports from beside its project: a save there builds this project again.
+    if (last.scene.uses && last.scene.uses.length > 0) lines.push(`Uses: ${last.scene.uses.join(', ')} (a save in one builds this project again).`, '')
     for (const layout of last.scene.layouts) {
       const parts = last.scene.parts.filter((p) => p.layout === layout)
       const groups = groupsIn(last.scene, layout)
@@ -67,6 +70,11 @@ export function stateText(obj: ObjectInfo, build: BuildState | undefined, last: 
     for (const c of checks) lines.push(`- ${c.status === 'pass' ? 'pass' : c.status === 'fail' ? 'FAIL' : c.status}: ${checkText(c)}${c.status === 'pass' || c.status === 'fail' ? `; ${c.exact === false ? 'approximate' : 'exact'}${c.how ? `: ${c.how}` : ''}` : ''}`)
     const notes = last.scene.checkNotes ?? []
     if (notes.length > 0) lines.push('', 'Made easier to pass, or gone, since they were first declared:', ...notes.map((n) => `- ${noteText(n)}`))
+  }
+  const sized = (last?.scene.params ?? []).filter(isSize)
+  if (sized.length > 0) {
+    lines.push('', '## Params', '', 'The model says where each size comes from (the first word of its comment); torno has not checked it.', '')
+    for (const param of sized) lines.push(`- ${param.name} = ${String(param.default)}: ${sourceOf(param.doc) === 'unsaid' ? 'no source' : (param.doc ?? '').split(':')[0]?.trim()}`)
   }
   if (views && views.length > 0) lines.push('', `Saved views: ${views.map((view) => viewSaid(view, last?.scene)).join(', ')}.`)
   if (scans && scans.length > 0) {

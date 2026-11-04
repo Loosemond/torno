@@ -1,5 +1,7 @@
-import { SCAN_FORMATS } from '../../shared/scans'
+import { type ScanInfo, SCAN_FORMATS, alignmentOf, muchLarger } from '../../shared/scans'
+import { type AlignMode, beginAlign } from '../state/align'
 import { actions, store } from '../state/store'
+import { setTool } from '../state/tools'
 
 /** What torno reads as a scan, as it is said of a file that is none. */
 export const NOT_A_SCAN = 'torno reads .glb, .gltf, .obj, .ply and .stl scans'
@@ -64,6 +66,8 @@ function reading<T>(objectId: string, name: string, start: () => Promise<T>): Pr
 /** Has main import a file into an object as a scan. */
 export function importScan(objectId: string, path: string): void {
   void reading(objectId, basename(path), () => window.torno.scans.import(objectId, path)).then((scan) => {
+    // Once, with the parts: a scan read a thousand times off is out of sight, and the sheet's question is about what is seen.
+    if (scan && store.getState().objectId === objectId) actions.frameScan(scan.id)
     // A guess at its unit or up axis is asked about once, now, while the object is still the open one: a wrong unit is a thousandfold.
     if (scan && (scan.imported.assumed.unit || scan.imported.assumed.up) && store.getState().objectId === objectId) actions.askScanRead(scan.id)
   })
@@ -79,4 +83,15 @@ export function reimportScan(objectId: string, id: string, name: string): void {
     if (!done || store.getState().objectId !== objectId) return
     if (done.sourceChanged && Object.keys(done.scan.alignments).length > 0) actions.setScansRefused(`${id}: the source changed since it was aligned: check the alignment`)
   })
+}
+
+/**
+ * Takes up the Align tool on a scan, in the layout shown: on the first step not done (Floor for a scan much larger
+ * than the parts, Pairs for one about their size), or on `mode`. The tool first: taking it up puts down whatever was in hand.
+ */
+export function alignScan(scan: ScanInfo, mode?: AlignMode): void {
+  const { layout, scene } = store.getState()
+  const parts = scene?.parts.filter((part) => part.layout === layout) ?? []
+  setTool('align')
+  beginAlign(scan, alignmentOf(scan, layout), muchLarger(scan.imported, parts.map((part) => part.bbox)), mode)
 }

@@ -1,0 +1,55 @@
+{
+  "object": "tub",
+  "track": "collateral",
+  "prompts": [
+    "Add a through hole of 6 mm in the middle of the tub's front wall (the wall at -Y). Change nothing else."
+  ],
+  "answers": {
+    "default": "I don't know: choose, and say what you chose."
+  },
+  "checks": [
+    {
+      "id": "valid",
+      "kind": "valid"
+    },
+    {
+      "id": "hole",
+      "kind": "hole",
+      "part": "tub",
+      "diameter": 6,
+      "through": false,
+      "count": 1,
+      "tol": 0.02
+    },
+    {
+      "id": "tub-volume",
+      "kind": "volume",
+      "part": "tub",
+      "min": 19915.516,
+      "max": 19955.387
+    },
+    {
+      "id": "lid-volume",
+      "kind": "volume",
+      "part": "lid",
+      "min": 6999.3,
+      "max": 7000.7
+    },
+    {
+      "id": "lid-z",
+      "kind": "size",
+      "part": "lid",
+      "axis": "z",
+      "expect": 2,
+      "tol": 0.001
+    },
+    {
+      "id": "tub-z",
+      "kind": "size",
+      "part": "tub",
+      "axis": "z",
+      "expect": 30,
+      "tol": 0.001
+    }
+  ]
+}

@@ -56,8 +56,15 @@
   color: var(--muted);
 }
 
-.regionbar .align-field {
+/* The field is in a span that is the flex item: the width is asked of that, or the number is clipped to a few figures. */
+.regionbar-radius {
+  display: flex;
   flex: 0 0 76px;
+}
+
+.regionbar-radius .align-field {
+  flex: 1 1 auto;
+  max-width: none;
 }
 
 .regionbar-rule {

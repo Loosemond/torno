@@ -561,7 +561,7 @@ describe('a measurement not kept (measureOnce)', () => {
   it('answers the kernel’s value on the last build, and writes no mark', async () => {
     const k = kernel(() => ({ ...SIX, value: 6 }))
     const store = marks()
-    expect(await measureOnce({ ...k, marks: store } as Parameters<typeof measureOnce>[0], 'measures', probe())).toEqual({ value: 6, how: 'between planes', revision: 3 })
+    expect(await measureOnce({ ...k, marks: store } as Parameters<typeof measureOnce>[0], 'measures', probe())).toEqual({ value: 6, how: 'between planes', revision: 3, points: [[5, 3, 3], [5, 3, -3]] })
     expect(store.did).toEqual([])
     expect(k.asked.map((a) => a.name)).toEqual(['measure'])
   })

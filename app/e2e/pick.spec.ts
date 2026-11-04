@@ -223,6 +223,35 @@ test('Shift adds to the selection, and takes out; Escape and a click on nothing 
   await expect.poll(async () => (await state()).selection).toEqual([])
 })
 
+test('Part takes the whole part, a double click in Any does too, and Note makes a mark of the part', async () => {
+  const post = (await pickOver(ON_POST))!
+  await expect(page.locator('.selection')).toHaveCount(0)
+  // A double click in Any: the part, not the face.
+  // Well after the last click of the test before.
+  await page.waitForTimeout(600)
+  const [x, y] = await pageXY(ON_POST)
+  await page.mouse.click(x, y)
+  await expect.poll(async () => (await state()).selection).toEqual([post.ref])
+  await page.mouse.click(x, y)
+  await expect.poll(async () => (await state()).selection).toEqual([post.part])
+  await page.keyboard.press('Escape')
+  // The choice by the corner: Part.
+  await page.getByRole('group', { name: 'What a click selects' }).getByRole('button', { name: 'Part' }).click()
+  await clickOver(ON_BASE)
+  await expect.poll(async () => (await state()).selection).toEqual([(await pickOver(ON_BASE))!.part])
+  await expect(page.locator('.selection-hint')).toHaveText('Shift-click to add')
+  const before = (await state()).marks.length
+  await page.locator('.selection').getByRole('button', { name: 'Note' }).click()
+  await expect.poll(async () => (await state()).marks.length).toBe(before + 1)
+  const made = (await state()).marks.at(-1)!
+  expect(made).toMatchObject({ kind: 'pick', target: 'part' })
+  // As it was for the tests after: the note put away, and Any.
+  await page.keyboard.press('Escape')
+  await expect.poll(async () => (await state()).noting).toBeNull()
+  await page.getByRole('group', { name: 'What a click selects' }).getByRole('button', { name: 'Any' }).click()
+  await page.waitForTimeout(500)
+})
+
 test('a drag turns the camera and selects nothing', async () => {
   const before = await camera()
   const [x, y] = await pageXY(ON_BASE)
@@ -240,6 +269,38 @@ test('a drag turns the camera and selects nothing', async () => {
       return Math.abs(now.position[0] - now.target[0]) + Math.abs(now.position[1] - now.target[1])
     })
     .toBeLessThan(0.05)
+})
+
+test('a drag turns the view about the point of the part under the pointer', async () => {
+  await page.getByRole('button', { name: 'Top', exact: true }).click()
+  await expect.poll(async () => Math.abs((await camera()).zoom)).toBeGreaterThan(0)
+  const [x, y] = await pageXY(ON_BASE)
+  await page.mouse.move(x, y)
+  await page.mouse.down()
+  await page.mouse.move(x + 30, y + 8)
+  await page.mouse.up()
+  // The target moved along the view onto the top of the base (z = 2.5), the camera was not moved by that.
+  await expect.poll(async () => (await camera()).target[2]).toBeCloseTo(2.5, 1)
+  await page.getByRole('button', { name: 'Top', exact: true }).click()
+})
+
+test('F frames the selection, and pressed again all the parts', async () => {
+  await page.keyboard.press('F')
+  await expect.poll(async () => (await camera()).position).not.toBeNull()
+  const dist = async () => {
+    const c = await camera()
+    return Math.hypot(...c.position.map((v, i) => v - c.target[i])) / c.zoom
+  }
+  await expect.poll(async () => (await camera()).target[2]).toBeGreaterThan(0)
+  const all = await dist()
+  await clickOver(ON_POST)
+  await expect.poll(async () => (await state()).selection.length).toBe(1)
+  await page.keyboard.press('F')
+  await expect.poll(async () => Math.abs((await camera()).target[2] - 22.5) < 0.01).toBe(true)
+  expect(await dist()).toBeLessThan(all)
+  await page.keyboard.press('F')
+  await expect.poll(async () => Math.abs((await camera()).target[2] - 22.5) > 1).toBe(true)
+  await page.keyboard.press('Escape')
 })
 
 test('Insert puts the selected refs in the prompt of the running session, and does not send them', async () => {

@@ -1,0 +1,51 @@
+name: Bug report
+description: Something in torno does not work as it should
+labels: [bug]
+body:
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: Linux (desktop, and Wayland or X11) or macOS, with the version.
+      placeholder: Arch Linux, KDE Plasma, Wayland
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: torno version
+      description: The commit (`git rev-parse --short HEAD`) or the release.
+    validations:
+      required: true
+  - type: textarea
+    id: ready
+    attributes:
+      label: What "Ready to work" shows
+      description: The Claude Code, build123d and uv versions from the first screen.
+  - type: textarea
+    id: steps
+    attributes:
+      label: What you did, what you expected, what happened
+      description: One line for each, in that order.
+    validations:
+      required: true
+  - type: textarea
+    id: traceback
+    attributes:
+      label: Traceback
+      description: If a build failed, the traceback from the build panel.
+      render: text
+  - type: textarea
+    id: model
+    attributes:
+      label: The model
+      description: A small one that shows the problem is best. Check it for anything private first.
+      render: python
+  - type: dropdown
+    id: area
+    attributes:
+      label: Does a scan or an export come into it?
+      options:
+        - Neither
+        - A scan
+        - An export

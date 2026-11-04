@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { BuildState } from '../shared/build'
-import { diagnosisText } from '../shared/diagnosis'
+import { type FilletDiagnosis, diagnosisText } from '../shared/diagnosis'
 import { Builds } from './builds'
 import { type RunningKernel, startKernel } from './kernel/client'
 import { tryFilletTool } from './mcp/readTools'
@@ -60,7 +60,7 @@ describe('a fillet that fails in a build', () => {
     builds.rebuild('plate')
     const failed = await next
     expect(failed.status).toBe('failed')
-    const diagnosis = failed.error?.diagnosis
+    const diagnosis = failed.error?.diagnosis as FilletDiagnosis | undefined
     expect(diagnosis).toMatchObject({ operation: 'fillet', size: 3, frame: 'local', edgeCount: 8, complete: true, alone: { failing: [] } })
     expect(diagnosis!.pairs!.failing).toHaveLength(4)
     expect(diagnosis!.together!.worksUpTo).toBeGreaterThanOrEqual(1.99)
@@ -101,7 +101,7 @@ describe('a fillet that fails in a build', () => {
     const next = ended()
     builds.rebuild('plate')
     const failed = await next
-    expect(failed.error?.diagnosis?.edges.length).toBeGreaterThan(0)
-    expect(failed.error!.diagnosis!.edges.every((edge) => edge.sameAs === undefined)).toBe(true)
+    expect((failed.error?.diagnosis as FilletDiagnosis).edges.length).toBeGreaterThan(0)
+    expect((failed.error!.diagnosis as FilletDiagnosis).edges.every((edge) => edge.sameAs === undefined)).toBe(true)
   }, 60_000)
 })

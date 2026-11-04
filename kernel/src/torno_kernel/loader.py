@@ -72,6 +72,37 @@ def load_model(
     return scene, read_params(module, path), groups, checks
 
 
+_NOT_USES = {".venv", "venv", "site-packages", "__pycache__", ".torno", "node_modules", ".git"}
+
+
+def used_files(dir: Path, model: str) -> list[str]:
+    """The Python files of the workspace that the model imported, outside its own folder: another project's
+    module, ``common/``. Paths relative to the workspace (the folder above ``dir``), with ``/``, in order.
+
+    Read from ``sys.modules`` after the load, so it is what the model really imported, never what torno
+    declares. The model itself, build123d and the standard library are not among them. A project that
+    imports another which imports it back is listed by both: Python alone decides if that works.
+    """
+    own = (Path(dir) / model).resolve().parent
+    root = own.parent
+    found: set[str] = set()
+    for name, module in list(sys.modules.items()):
+        if name.startswith("torno_model_"):  # a model loaded as a model (a test process loads many), not imported
+            continue
+        file = getattr(module, "__file__", None)
+        if not isinstance(file, str) or not file.endswith(".py"):
+            continue
+        try:
+            path = Path(file).resolve()
+            relative = path.relative_to(root)
+        except (OSError, ValueError):
+            continue
+        if own in path.parents or _NOT_USES.intersection(relative.parts):
+            continue
+        found.add(relative.as_posix())
+    return sorted(found)
+
+
 _MARK_ID = re.compile(r"M\d+")
 
 

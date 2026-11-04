@@ -1,0 +1,56 @@
+{
+  "object": "spacer",
+  "track": "missing dimensions",
+  "prompts": [
+    "Make the spacer. Ask me about anything the brief leaves open before you build."
+  ],
+  "answers": {
+    "bolt": "An M8 bolt: bore 8.2 mm.",
+    "bore": "Bore 8.2 mm.",
+    "diameter": "Outside 16 mm, bore 8.2 mm.",
+    "outside": "Outside 16 mm.",
+    "long": "10 mm long.",
+    "length": "10 mm long.",
+    "tall": "10 mm tall.",
+    "thick": "10 mm long.",
+    "default": "I don't know: choose, and say what you chose."
+  },
+  "turns": 4,
+  "checks": [
+    {
+      "id": "valid",
+      "kind": "valid"
+    },
+    {
+      "id": "parts",
+      "kind": "parts",
+      "names": [
+        "spacer"
+      ]
+    },
+    {
+      "id": "spacer-x",
+      "kind": "size",
+      "part": "spacer",
+      "axis": "x",
+      "expect": 16,
+      "tol": 0.05
+    },
+    {
+      "id": "spacer-z",
+      "kind": "size",
+      "part": "spacer",
+      "axis": "z",
+      "expect": 10,
+      "tol": 0.05
+    },
+    {
+      "id": "bore",
+      "kind": "hole",
+      "part": "spacer",
+      "diameter": 8.2,
+      "through": true,
+      "tol": 0.05
+    }
+  ]
+}

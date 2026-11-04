@@ -243,3 +243,36 @@ def test_bad_groups_fail_the_build(ws, tmp_path, body, said):
     with pytest.raises(LoadError, match=re.escape(said)) as e:
         load_model(tmp_path, "g.py")
     assert e.value.kind == "exception"
+
+
+def _two_projects(tmp_path):
+    (tmp_path / "box").mkdir()
+    (tmp_path / "lid").mkdir()
+    (tmp_path / "common").mkdir()
+    (tmp_path / "box" / "box.py").write_text(
+        "from build123d import Box\n\ndef make_box():\n    return Box(10, 10, 10)\n\nplate = make_box()\n"
+    )
+    (tmp_path / "common" / "fit.py").write_text("GAP = 0.2\n")
+    (tmp_path / "lid" / "lid.py").write_text(
+        "import sys, pathlib\n"
+        "sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / 'box'))\n"
+        "sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / 'common'))\n"
+        "import box, fit\n"
+        "from build123d import Box\n"
+        "lid = Box(10 + fit.GAP, 10, 2)\n"
+    )
+
+
+def test_used_files_lists_what_the_model_imported_from_the_workspace(tmp_path):
+    from torno_kernel.loader import used_files
+
+    _two_projects(tmp_path)
+    load_scene(tmp_path / "lid", "lid.py")
+    assert used_files(tmp_path / "lid", "lid.py") == ["box/box.py", "common/fit.py"]
+
+
+def test_used_files_is_empty_for_a_model_that_imports_nothing_of_the_workspace(ws):
+    from torno_kernel.loader import used_files
+
+    load_scene(ws / "plain", "plain.py")
+    assert used_files(ws / "plain", "plain.py") == []

@@ -31,24 +31,42 @@ const STOP_HOOK_TIMEOUT_S = 25
 const HEADLESS = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-prompt-tool', 'stdio']
 
 /** The tools of torno's the reviewer may call: those that read the part. Not `show`, `resolve_mark`, `add_mark`. */
-const REVIEWER_TOOLS = ['scene', 'look', 'marks', 'measure', 'check', 'section', 'describe']
+const REVIEWER_TOOLS = ['scene', 'look', 'marks', 'measure', 'check', 'section', 'describe', 'diff', 'scans', 'scan_clash', 'scan_deviation']
+
+/** The turns a review may take (`maxTurns` of the subagent): a project with many marks has no other bound. */
+const REVIEWER_MAX_TURNS = 20
+
+/**
+ * The model of the reviewer: Sonnet, a judge cheaper than the session's, unless `TORNO_REVIEWER_MODEL` names another
+ * (`opus`, `haiku`, a full model name) or says `inherit`, the session's own (nothing is passed then).
+ */
+export function reviewerModel(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const named = env.TORNO_REVIEWER_MODEL?.trim()
+  if (named === 'inherit') return undefined
+  return named || 'sonnet'
+}
 
 /**
  * `torno-reviewer`, a subagent passed with `--agents` (nothing is written to `.claude/agents/`): a second look at a
  * change with a fresh context and only the tools that read, so it can change nothing.
  */
-export function reviewerAgents(toolName: (tool: string) => string) {
+export function reviewerAgents(toolName: (tool: string) => string, env: NodeJS.ProcessEnv = process.env) {
+  const model = reviewerModel(env)
   return {
     'torno-reviewer': {
       description: 'Reviews the current build of the torno project against what the user asked, read-only. Use it after a change of several steps, before saying it is done.',
       prompt: [
-        'You review a CAD part in torno and change nothing. You are given what the user asked for.',
-        `Check the current build against it: ${toolName('scene')} for the build status (a failed build is the first finding), ${toolName('look')} at the views that show the change, every open mark with ${toolName('marks')} (was each acted on as its note asks?), and every dimension (does it pass on the latest build?).`,
-        `Every number you state comes from ${toolName('measure')}, ${toolName('check')} or ${toolName('section')}, never from the mesh, a picture or the model's source; say so when a value is approximate.`,
-        'Report, in short lines, what holds and what does not, each with its numbers and refs, and what you could not check.',
+        'You review a CAD part in torno and change nothing.',
+        'Read brief.md in the project folder first, if there is one: it is the user’s own words. Then take the request you were given, what the user asked for.',
+        `Check the current build against both. Start with numbers: ${toolName('scene')} for the build status (a failed build is the first finding) and the scans, ${toolName('diff')} for what the last edit changed, every open mark with ${toolName('marks')} (was each acted on as its note asks?), and every dimension (does it pass on the latest build?). Where a scan is aligned, ${toolName('scan_clash')} and ${toolName('scan_deviation')} say how the part meets it; a scan is never exact.`,
+        `Every number you state comes from ${toolName('measure')}, ${toolName('check')} or ${toolName('section')}, never from the mesh, a picture or the model’s source; say so when a value is approximate.`,
+        `Then ${toolName('look')} at most twice, at the views that show the change, for what numbers cannot settle.`,
+        'End with a list, one line each, that begins with HOLDS, FAILS or UNCHECKED, then the item (a mark, a dimension, a sentence of the brief), the number and the ref. UNCHECKED is never left out: say what you could not check, and why. No other summary, and never "mostly fine".',
         'Change nothing: do not edit files, do not resolve or add marks, do not change what the user sees.'
       ].join(' '),
-      tools: [...REVIEWER_TOOLS.map(toolName), 'Read']
+      tools: [...REVIEWER_TOOLS.map(toolName), 'Read'],
+      ...(model ? { model } : {}),
+      maxTurns: REVIEWER_MAX_TURNS
     }
   }
 }
@@ -57,7 +75,7 @@ export function reviewerAgents(toolName: (tool: string) => string) {
  * The plugin of skills torno passes (`resources/agent-plugin`): its name and its skills, which the CLI's `init` is read
  * for (`transcript.ts`): the chat says when they are not there. `claude.test.ts` holds them to the folder.
  */
-export const TORNO_PLUGIN = { name: 'torno', skills: ['torno-model', 'build123d', 'scans', 'dimensions'] } as const
+export const TORNO_PLUGIN = { name: 'torno', skills: ['torno-model', 'build123d', 'scans', 'dimensions', 'printing'] } as const
 
 /**
  * The versions of Claude Code torno was checked against, inclusive: those of the recordings in `test/fixtures/`

@@ -87,6 +87,7 @@ def test_build_bracket_replies_started_then_scene_and_blob(kernel, ws):
     # The model's Params, read by the worker that built it.
     assert scene["params"] == [{"name": "width", "type": "float", "default": 40, "literal": True, "doc": None}]
     assert scene["groups"] == []
+    assert scene["uses"] == []
     bufs = [buf for p in scene["parts"] for buf in p["mesh"].values()]
     assert len(bufs) == 4 * 8
     assert all(buf["offset"] % 4 == 0 for buf in bufs)

@@ -8,9 +8,10 @@ import type { SessionStatus } from '../../shared/bridge'
  * nothing else tells that a permission prompt has gone. `StopFailure` is the
  * end of a turn that an error of the API ended (a login that failed, an
  * overload): it is posted in place of the `Stop`, ends the turn as one does,
- * and is never held back (Claude Code reads no answer to it).
+ * and is never held back (Claude Code reads no answer to it). `PostCompact` says the conversation was
+ * compacted, so that the next prompt names the open marks and the references again; it changes no status.
  */
-export const HOOK_EVENTS = ['UserPromptSubmit', 'Stop', 'StopFailure', 'Notification', 'PermissionRequest', 'PreToolUse', 'PostToolUse', 'SessionEnd']
+export const HOOK_EVENTS = ['UserPromptSubmit', 'Stop', 'StopFailure', 'Notification', 'PermissionRequest', 'PreToolUse', 'PostToolUse', 'PostCompact', 'SessionEnd']
 
 /**
  * The status of a session after an event: the name of a hook the agent posted,
