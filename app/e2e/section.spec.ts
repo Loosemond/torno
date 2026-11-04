@@ -180,7 +180,7 @@ test('a picture from the top shows the post cut at half its height, in its own c
 
   const cut = await look({ view: 'top', marks: false }, [CENTRE, ON_BASE])
   expect(cut.caption).toBe('view top · layout assembly · parts base, post · cut at z = 12.5, +Z side removed · orthographic · 1280×960')
-  // The cut face is flat colour, whatever the light: the post's, a step darker.
+  // The cut face is unlit, whatever the light: the post's colour a step darker, with a fine hatch the sample does not meet.
   expect(near(cut.at[0], POST_CUT), `the cut face is ${cut.at[0]}`).toBe(true)
   // The base is below the plane, and is drawn as it is without one.
   const uncut = await look({ view: 'top', marks: false, section: null }, [CENTRE, ON_BASE])

@@ -293,6 +293,24 @@ describe('SectionCut', () => {
   const extras = (built: ReturnType<typeof buildPart>) => built.group.children.filter((child) => child !== built.mesh && child !== built.edges)
   const rim = (built: ReturnType<typeof buildPart>) => extras(built).find((child) => (child as THREE.LineSegments).isLineSegments) as THREE.LineSegments | undefined
 
+  it('hatches the cut face of a solid part in its edge colour, and a part that is no solid has no cut face to hatch', () => {
+    const { cut, post } = bracket()
+    cut.look(post, '#7B93B4', 1, '#102030')
+    cut.set({ origin: [0, 0, 12.5], normal: [0, 0, 1] }, SCENE)
+    const face = extras(post).find((o) => (o as THREE.Mesh).isMesh && (o as THREE.Mesh<THREE.BufferGeometry, THREE.Material>).material.userData.hatch) as THREE.Mesh
+    expect(face).toBeDefined()
+    const { colour, gap } = (face.material as THREE.Material).userData.hatch
+    expect('#' + colour.getHexString()).toBe('#102030')
+    expect(gap.value).toBe(6)
+    // An open shell is cut open: no cut face, so none to hatch.
+    const open = solid('shell', [-5, -5, 0], [5, 5, 10])
+    open.part.valid = false
+    const shell = buildPart(open.part, open.blob)
+    cut.add(shell)
+    cut.set({ origin: [0, 0, 5], normal: [0, 0, 1] }, SCENE)
+    expect(extras(shell).some((o) => (o as THREE.Mesh<THREE.BufferGeometry, THREE.Material>).material?.userData?.hatch)).toBe(false)
+  })
+
   it('draws nothing of a part the plane only touches: no sheet where it rested, and it is not there to be pointed at', () => {
     const { cut, base, post } = bracket()
     cut.set({ origin: [0, 0, 2.5], normal: [0, 0, 1] }, SCENE)

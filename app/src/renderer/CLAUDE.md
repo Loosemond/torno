@@ -177,7 +177,9 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   open. What lies in the plane is kept (`KEPT_WITHIN_MM`); a part the plane
   only touches or leaves nothing of is not drawn (`keepsNothing`). Marks,
   grid and gizmo are not cut; a mark anchored in the half taken away is drawn
-  dimmed (`MarkLayer.setSection`).
+  dimmed (`MarkLayer.setSection`). The cut face is hatched: a 45 degree line about 6 px apart in the part's edge
+  colour (`hatchCap`, a shader patch of the cap's material, in screen space so it reads at any zoom; the gap is
+  6 px times the pixel ratio on the screen, 6 px in a picture's target). Pictures draw the same scene, so they have it.
 - Picking sees what is drawn (`pickUnder`): on a cut face nothing is hit and
   the pointer says so.
 - Taken in hand with nothing cut (`X`), the Section tool cuts at once: `newCut` (`shared/cut.ts`) puts the

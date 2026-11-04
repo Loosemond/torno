@@ -1052,7 +1052,7 @@ the middle of the parts (`12 mm along the normal`). The tick on the slider and
 "Middle" (there while the plane is elsewhere) are the middle of the parts. "Flip" takes away
 the other side and "Off" shows the parts whole again. What is on the side the
 plane's arrow points to is not drawn. Each solid part is closed where it is cut, in its
-own colour a step darker; a part that is not a closed solid (a scan, an open
+own colour a step darker, hatched with fine lines in its edge colour (in a picture for the agent too); a part that is not a closed solid (a scan, an open
 shell) is cut open. Drag the arrow on the plane to move it; a drag anywhere
 else turns the camera. The arrow keys move it by 1 mm, with Shift by 0.1 mm.
 On a cut face there is nothing of the model to pick, and the pointer says so;
