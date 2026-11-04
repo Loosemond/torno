@@ -6,6 +6,8 @@ import { BEHIND, buildLine, cardChips, matching, ordered, pictureLine, stepCard,
 import { EmptyWorkspace } from './EmptyWorkspace'
 import { Logo } from './Logo'
 import { numbered } from './numbered'
+import { GitText } from './GitText'
+import { gitFilesSaid } from '../../shared/git'
 import { openNewObject } from './onboard/NewObject'
 import { TYPING } from './typing'
 
@@ -334,6 +336,11 @@ function Card({ card, open, onOpen }: { card: ObjectCard; open: boolean; onOpen:
         {picture?.behind && (
           <span className="card-line" data-part="behind" data-tone="warn">
             {BEHIND}
+          </span>
+        )}
+        {card.git && (
+          <span className="card-line" data-part="git" title={card.git.changed > 0 ? gitFilesSaid(card.git) : undefined}>
+            <GitText git={card.git} />
           </span>
         )}
         {chips.length > 0 && (

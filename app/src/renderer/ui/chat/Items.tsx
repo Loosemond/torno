@@ -1,5 +1,6 @@
 import { memo, useMemo, useRef, useState } from 'react'
 import type { ChatItem } from '../../../shared/chat'
+import { identitySaid } from '../../../shared/git'
 import { drawn } from '../../state/chat'
 import { numbered } from '../numbered'
 import { AskCard } from './AskCard'
@@ -49,11 +50,11 @@ const Added = memo(function Added({ item }: { item: Of<'context'> }) {
           <span className="chat-added-build">
             {item.buildState === 'failed' ? (
               <>
-                build after <RefChip value={`r${item.revision}`} /> <span data-verdict="failed">failed</span>
+                build after <RefChip value={`r${item.revision}`} of={item.identity ? identitySaid(item.identity) : undefined} /> <span data-verdict="failed">failed</span>
               </>
             ) : (
               <>
-                <RefChip value={`r${item.revision}`} /> <span data-verdict={item.buildState}>{item.buildState}</span>
+                <RefChip value={`r${item.revision}`} of={item.identity ? identitySaid(item.identity) : undefined} /> <span data-verdict={item.buildState}>{item.buildState}</span>
               </>
             )}
           </span>

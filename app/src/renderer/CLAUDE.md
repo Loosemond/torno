@@ -739,6 +739,11 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   is; otherwise, and after that question, `applyView('terminal', true)`, which ends a live session, writes the view and
   starts a terminal session resuming the conversation whether the chat was live or had ended, and also when the
   choice already was the terminal. A note's `action` other than `terminal` is dropped when a log is read (`readLog`).
+- **A build's chip says what it was made from** (#62). A context item carries `identity` (`BuildIdentity`, main's, from `builds.jsonl`'s
+  record of this run); the `r12` chip's title gets `made from sources …, on a1b2c3d with changes` (`RefChip`'s `of`, `identitySaid`),
+  and a build line's "Show text" has it in a line. Under "Earlier in this conversation" (`ChatEarlier`) the title says that a
+  revision counts from 1 in every run and may name another build now. The status line and the card say what has changed since
+  the last commit (`useGit`, `GitText`): read, never written.
 - **The end of a turn** (`ui/chat/TurnEnd.tsx`; the rule is `ui/chat/turnSummary.ts`, pure). Its first quiet line is
   "Done in 42 s" and then what the turn did, said from the turn's own items and nothing else (`turnSummary` over
   `itemsOfTurn`, the items after the turn before it): the files the agent's `Edit`, `Write` and `MultiEdit` changed (only

@@ -739,6 +739,9 @@ export function thinned(loop: Pick<SectionLoop, 'points' | 'closed' | 'deflectio
   return { points: points.filter((_, i) => keep[i] === 1), deflection: loop.deflection + strays }
 }
 
+/** Said when the two builds `diff` compares were made from the same sources. */
+export const DIFF_SAME_SOURCES = 'Both builds were made from the same sources (the .py files of the project and common/ hash alike), so the model did not change between them.'
+
 export interface DiffToolArgs {
   from?: number
   to?: number
@@ -766,6 +769,11 @@ export function diffTool(deps: ToolDeps, objectId: string, args: DiffToolArgs): 
   const to = pick(args.to, kept.at(-1)!)
   if ('content' in to) return to
 
-  const { layouts, notes } = sceneDiff(from.scene, to.scene)
-  return reply(clean({ object: found.obj.id, from: from.revision, to: to.revision, layouts, ...(notes.length > 0 ? { notes } : {}) }))
+  const diffed = sceneDiff(from.scene, to.scene)
+  // What each build was made from, so that a difference that is none of the model's (the same sources) is not taken for one.
+  const was = deps.identity?.(objectId, from.revision)
+  const now = deps.identity?.(objectId, to.revision)
+  const builds = was || now ? { from: { revision: from.revision, ...(was ?? {}) }, to: { revision: to.revision, ...(now ?? {}) } } : undefined
+  const notes = [...diffed.notes, ...(was && now && was.sources === now.sources ? [DIFF_SAME_SOURCES] : [])]
+  return reply(clean({ object: found.obj.id, from: from.revision, to: to.revision, ...(builds ? { builds } : {}), layouts: diffed.layouts, ...(notes.length > 0 ? { notes } : {}) }))
 }

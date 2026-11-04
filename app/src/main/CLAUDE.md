@@ -442,11 +442,28 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   folder go one after the other; the facts say how many bytes the picture has and their SHA-256, and **a
   picture that is not the one its facts are of is no picture**: `cardsOf` drops it by its size (one `stat`),
   `thumbnailOnFile` by its bytes, and the card then says `No picture yet` and nothing of one.
+- **git is read, never written** (`src/main/git.ts`, `shared/git.ts`; #62). `gitState(objectDir)` runs one `git status
+  --porcelain=v2 --branch -z` by `execFile` (no shell) with `--no-optional-locks`, `GIT_OPTIONAL_LOCKS=0`, `core.fsmonitor=false`, no
+  prompt, `GIT_DIR` and its kin taken out of the environment, 5 s (`GIT_TIMEOUT_MS`) and then killed, over the project's folder and
+  the `common/` beside it (the paths of the work tree, found by `rev-parse --show-toplevel`), and drops what is under `.torno/`.
+  It answers the commit, the branch and the files that differ (30 named at most, all counted), or null: no git, not a work tree,
+  no answer in time. `git.test.ts` holds that the index's mtime, inode and size are as they were after a status on a stale entry.
+  No other git command is run, none that writes: **torno never commits**; the person asks the agent to (the Marks panel offers the
+  request). It reaches the window as `git.status(objectId)` (`gitStateRecently`: an answer is kept for a second, so a page of
+  cards and the status line cost one run) and as `ObjectCard.git`.
+- **A build has an identity** (`src/main/buildlog.ts`, #62). When a build lands, `BuildLog.record` finds `sourcesHash` (twelve hex of the
+  SHA-256 of the `.py` files directly in the project's folder and in `common/`, and the files the build says it imported from
+  elsewhere in the workspace, `Scene.uses` when the kernel gives it; each by its path and bytes), the commit (`gitState`) and whether files
+  differ from it, keeps that in memory for the run (40 builds an object; `identity(id, revision)`, `buildIdentity` in `ipc.ts`) and
+  adds a line to `.torno/builds.jsonl` (`revision`, `at`, `run`, `sources`, `head`, `dirty`): one write at a time, through
+  `ownTorno` and `ensureIgnored(dir, ['builds.jsonl'])`, appended, or the last 500 lines written whole when it would pass that.
+  `run` is the run of torno (random): a revision counts from 1 in every run, so a line of the file is a revision of *that* run alone.
+  The hash is of the files as they are when the build lands; a save during a build builds again.
 - **`.torno/.gitignore` has one writer**, `src/main/ignored.ts` `ensureIgnored(dir, lines)`: it adds the
   lines that are missing at the end, makes the file when there is none, never removes or rewrites what is
   there, and adds nothing against a line the person negated (`!thumb.png`). The thumbnails ask it for
   `thumb.png` and `thumb.json`, the state file for `state.md`, a conversation put on file for `session.json`,
-  a chat's log for `chat/`, an export for `exports/`, a picture for `views/`. What is the
+  a chat's log for `chat/`, an export for `exports/`, a picture for `views/`, the builds' record for `builds.jsonl`. What is the
   object's travels: `scene.json`, `marks.json`, `scans.json`, `agent.json`.
 - **`.torno` is named in one module, `src/main/own.ts`** (`FOLDER`), and every write under it goes through
   `ownTorno(dir)` first (`writeOwn` for a file written whole): a link or a file in its place is refused with a

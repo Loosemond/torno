@@ -444,6 +444,8 @@ layers, with every defect it has in its tooltip, and the line at the bottom
 counts such parts ("1 part has a defect"). The agent is told the same after its
 edit (What the agent is told).
 
+When the project is in a git work tree, the status line and the card say what has changed since the last commit: "3 files changed since `a1b2c3d`", with the files in the tooltip (the `.py` files and the others of the project's folder, and `common/`; not `.torno/`), or "No changes since `a1b2c3d`". It is read when the project is opened, when a build ends, and when the window is focused again. torno only reads: it runs `git status` with `--no-optional-locks`, which leaves the index as it is, gives it five seconds, and never commits, adds or changes anything. Without git, or outside a repository, nothing is said. Commits are the agent's: ask for one in the chat (the Marks panel offers a request, see Marks).
+
 The pointer is told what it is on: a face (`lid/F12`), or an edge within reach
 of it (`lid/E3`), with a line from the kernel on what that is, such as
 `plane, normal +Z, z = 20, 1180 mm²`. Hidden parts are never picked. While the
@@ -782,7 +784,7 @@ two: the session is ended (torno asks first if it is busy) and started again,
 resuming it. With no session it sets what the next one will be; the choice is
 kept in `.torno/agent.json`. What the chat showed is kept as text in
 `.torno/chat/`, and a resumed conversation shows it under "Earlier in this
-conversation"; pictures are never written. The photos and doodles you gave when
+conversation"; pictures are never written. A revision counts from 1 in every run of torno, so `r12` of an earlier part of the conversation may name another build now: the chip's tooltip says so there, and in the current run it says what the build was made from ("sources `9f3e1a2b4c5d`, on `a1b2c3d` with changes": a hash of the `.py` files it read, the commit then checked out, and whether files differed from it), also under "Show text" of the build line. `.torno/builds.jsonl` keeps the same for each build. The photos and doodles you gave when
 you made the project are shown again from `reference/`, by the name the log
 keeps (one you have since deleted says `reference/doodle-1.png is no longer
 there`); a picture a tool gave says "Picture of an earlier build, not kept",
@@ -1068,7 +1070,7 @@ them: `scene`, `look`, `marks`, `describe` and `measure`. The others are found b
 | `mcp__torno__measure` | An exact number from the geometry. See [Measuring and dimensions](#measuring-and-dimensions). |
 | `mcp__torno__section` | The outlines a plane cuts of the parts, with their areas, and a 2D drawing of the cut. See [Section](#section). |
 | `mcp__torno__check` | Whether two parts overlap, how far apart they are, whether a part's mesh is closed, and whether it prints: overhangs, thin walls, the fit on a bed. |
-| `mcp__torno__diff` | What changed between the last two successful builds (or the two revisions given as `from` and `to`): for each layout the parts added and removed, and for each part its volume (and its change in percent), box size and min corner before and after, with whether each is exact, and its face, edge and solid counts, a hint that refs may name other faces now. The answer to an edit gives the same of each part that changed. Only the last two builds are kept. |
+| `mcp__torno__diff` | What changed between the last two successful builds (or the two revisions given as `from` and `to`): for each layout the parts added and removed, and for each part its volume (and its change in percent), box size and min corner before and after, with whether each is exact, and its face, edge and solid counts, a hint that refs may name other faces now. The answer to an edit gives the same of each part that changed. Only the last two builds are kept. `builds` says what each was made from (a hash of the sources, the commit, whether files differed from it), and a note says when the two were made from the same sources. |
 | `mcp__torno__expect` | Called before an edit: what it should change, as checks (a part's `volume`, `faces`, `edges` or `size` as a `value` or a `change` with a `tolerance`; a `measure` with the number it `expected`; `unchanged` parts). The next successful build is held against it, and the answer to the edit says in a line how many checks were met and which were not, with the numbers (`≈` where the kernel's is not exact). Kept in memory for that one build, told once, no mark, and it never holds a turn back. A ref to a face of a part whose face count changed is told as moved and not measured. `scene` gives the last verdict. |
 | `mcp__torno__try_fillet` | Tries a fillet (or a chamfer, `kind: 'chamfer'`) of `radius` mm of some edges of a part (`part`, `edges` as refs such as `lid/E3`) on the last good build and throws it away: whether it works, and when it does not, the edges that fail alone or in pairs and the largest radius that works, as a failed build's error says it. It changes nothing. |
 | `mcp__torno__features` | The holes, bosses, fillets, chamfers and patterns of a part, found on its geometry (`part`, and `kinds` to ask for some of `hole`, `boss`, `fillet`, `chamfer`, `pattern`): for a hole its diameter, axis, where it opens and the face it opens in, depth, whether it is through or blind (and its bottom), and a counterbore, countersink or rounded mouth; for a boss its diameter and height; for a fillet its radius, sweep and length and whether it rounds an outside edge or an inside corner; for a chamfer its size; for a pattern how many holes or bosses alike there are and whether they lie in a row, a grid or on a circle, with the step; each with the faces it is made of and the faces and edges it joins, as refs `highlight` takes. Diameters, radii, angles and axes are exact, and so are depths between planes and round faces; a depth taken between freeform faces says it is not (`≈`). Holes and bosses need a cylinder, cone or torus that goes all the way round: a slot end is neither a hole nor a fillet. |
@@ -1158,6 +1160,11 @@ the camera stays still).
   once, and for ten seconds, or until the next delete, the list says "Deleted
   M3 · **Undo**": Undo puts it back whole, with its number, note and, for a
   region, its triangles. Only the last mark deleted can be put back.
+- Once you have seen marks the agent resolved, and files of the project differ from the last commit (see Projects and
+  builds), a line under the marks offers **Ask Claude Code to commit**. It puts a request in the message box of the chat
+  ("Commit the changes for M4 and M6 of this project with a message saying what changed. Add only this project's
+  files."), opens the session pane, and never sends it: you read it first. The agent commits under your
+  permission rules; torno itself never commits. Not offered with a terminal session or none.
 - A mark on a part that is switched off in the layers is not drawn, in the
   window or in the agent's pictures; its row stays and says "its part is
   hidden".
@@ -1535,6 +1542,7 @@ for the folder. A card has:
   picture was made, what it leaves out (`cut by its section`), and `A source
   has changed since` when a `.py` file of the object, of `common/` or one it imported from another
   project (`Uses box/box.py` on the card, for a project opened in this run) is newer.
+- **What git says**, in a work tree: `3 files changed since a1b2c3d` (the files in its tooltip) or `No changes since a1b2c3d`.
 - **How the build stands**, for a project opened in this run: `Built, r6`,
   building, or failed, with the picture of the last build that worked dimmed.
   Otherwise `Model saved 3 h ago`, read from the date of its `.py` files
@@ -1738,6 +1746,7 @@ place.
 | `session.json` | the conversation to resume | ignored |
 | `state.md` | the build, the parts, the checks of the model, the views, the scans and the open marks as text | ignored |
 | `thumb.png`, `thumb.json` | the card's picture, and what it is of | ignored |
+| `builds.jsonl` | a line for each build that worked: its revision, when, the run of torno it was made in (revisions count from 1 in every run), a hash of the sources it was made from, and the commit then checked out and whether files differed from it; the last 500 | ignored |
 | `views/<n>.png` | the pictures and section drawings the agent asked for, the latest 20 | ignored (a picture of a scan may show the real world) |
 | `exports/` | where the save dialog of an export opens; empty unless you save there | ignored |
 
@@ -1746,7 +1755,7 @@ adds lines to and never rewrites; a line you negate there (`!state.md`) is
 yours, and is not added against. What travels with the project in git is what
 is the project's: `scene.json`, `marks.json`, `scans.json` and `agent.json`.
 What changes with every build or session, or is of this machine, is
-ignored: `state.md`, `session.json`, `chat/`, the thumbnail, `views/` and
+ignored: `state.md`, `session.json`, `chat/`, the thumbnail, `builds.jsonl`, `views/` and
 `exports/`. Add `.torno/` to the workspace's `.gitignore` if you
 want none of it in git.
 

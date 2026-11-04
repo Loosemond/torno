@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { type Mark, type MarkPatch, markAnchors, markEndParts } from '../../shared/marks'
 import { actions, layerOf, useStore } from '../state/store'
+import { AskToCommit } from './AskToCommit'
 import { ChecksSummary } from './ChecksSummary'
 import { MarkRow } from './MarkRow'
 import { groupMarks } from './markGroups'
@@ -175,6 +176,7 @@ export function MarksPanel() {
         )}
         <ResolvedSummary key={objectId} marks={toReview} row={row} acknowledgeAll={() => done(window.torno.marks.acknowledge(objectId, toReview.map((m) => m.id)))} />
         {group('With the agent', withAgent)}
+        <AskToCommit />
         {resolved.length > 0 && (
           <>
             <button type="button" className="marks-fold" aria-expanded={showResolved} onClick={() => setShowResolved((shown) => !shown)}>

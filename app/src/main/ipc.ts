@@ -6,6 +6,7 @@ import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import type { BuildState } from '../shared/build'
 import { EXPORT_FORMATS, EXTENSIONS, FORMAT_NAMES, type ExportFormat, type ExportPlan, type ExportRequest, type ExportSaved, type ModelFormat } from '../shared/exportdata'
 import type { Described, MeasureProbe, MeasuredOnce } from '../shared/geometry'
+import type { BuildIdentity } from '../shared/git'
 import type { MarkPatch, NewMark, NewRegion, Replacement } from '../shared/marks'
 import { type AlignMade, type NewAlignment, type ScanInfo, type ScanUnit, type ScanUp, SCAN_FORMATS, alignmentOf, standingOf } from '../shared/scans'
 import type { Scene } from '../shared/scene'
@@ -14,6 +15,8 @@ import type { ObjectCard, ThumbnailOf } from '../shared/show'
 import type { ViewState } from '../shared/view'
 import type { ObjectInfo, RecentFolder, WorkspaceInfo } from '../shared/workspace'
 import { Builds, buildTimeout, watchFolder } from './builds'
+import { BuildLog } from './buildlog'
+import { gitStateRecently } from './git'
 import { keepExample } from './example'
 import { type ExportDeps, exportFile, exportPlan, forgetExportScans } from './export/build'
 import { loadAssets } from './export/html'
@@ -102,6 +105,8 @@ interface OpenWorkspace {
   /** By object: when the build that is running, or was last run, was started (ms epoch), and which build its last good scene came of. */
   started: Map<string, number>
   builtFrom: Map<string, { revision: number; startedMs: number | undefined }>
+  /** What each successful build of this run was made from, and `.torno/builds.jsonl` (`main/buildlog.ts`). */
+  buildLog: BuildLog
 }
 
 let current: OpenWorkspace | null = null
@@ -194,7 +199,8 @@ function cards(): Promise<ObjectCard[]> {
     readFile: (path) => readFile(path, 'utf8'),
     sourcesMtimeMs: newestPython,
     uses: (id) => ws.builds.scene(id)?.scene.uses ?? [],
-    size: (path) => stat(path).then((s) => s.size, () => null)
+    size: (path) => stat(path).then((s) => s.size, () => null),
+    git: (dir) => gitStateRecently(dir)
   })
 }
 
@@ -238,7 +244,7 @@ export async function openWorkspace(root: string, opts: { example?: boolean } = 
         })
       })
   })
-  const ws: OpenWorkspace = { info, scan: scanOrder(), kernel, builds, opened: new Set(), shown: null, started: new Map(), builtFrom: new Map() }
+  const ws: OpenWorkspace = { info, scan: scanOrder(), kernel, builds, opened: new Set(), shown: null, started: new Map(), builtFrom: new Map(), buildLog: new BuildLog() }
   builds.on('build', (state) => {
     if (state.status === 'building' && state.startedAt !== undefined) ws.started.set(state.objectId, state.startedAt)
     broadcast('object:build', state)
@@ -248,6 +254,9 @@ export async function openWorkspace(root: string, opts: { example?: boolean } = 
   builds.on('scene', ({ objectId, revision, scene, blob }) => {
     // Which build this scene came of: the one started last. A picture of it is no newer than the model was then.
     ws.builtFrom.set(objectId, { revision, startedMs: ws.started.get(objectId) })
+    // What it was made from is found and kept (the sources hashed, git read), and a line is added to `builds.jsonl`.
+    const obj = ws.info.objects.find((o) => o.id === objectId)
+    if (obj) void ws.buildLog.record(obj, revision, scene)
     broadcast('object:scene', { objectId, revision, scene, blob: toArrayBuffer(blob) })
   })
   // Every successful build may have renumbered the faces, moved the surfaces or dropped the parts that
@@ -394,6 +403,11 @@ export function buildState(id: string): BuildState | undefined {
 /** The last two successful builds of an object, the older first (`diff`). */
 export function keptScenes(id: string): Array<{ revision: number; scene: Scene }> {
   return current?.builds.scenes(id) ?? []
+}
+
+/** What the build with this revision, made in this run, was made from: its sources' hash, the commit, whether files differed from it. */
+export function buildIdentity(id: string, revision: number): BuildIdentity | undefined {
+  return current?.buildLog.identity(id, revision)
 }
 
 export function lastScene(id: string): { revision: number; scene: Scene } | undefined {
@@ -980,6 +994,11 @@ export function registerIpc(
   // The page of objects. Asking for the cards, or for a picture on file, reads and does nothing else: no
   // object is opened or built for it. The window hands over the pictures it drew of the builds it was sent.
   handle('show:cards', () => cards())
+  // What git says of an object's sources, for the status line and the Marks panel. Read only (`main/git.ts`).
+  handle('git:status', (_event, objectId: string) => {
+    const obj = findObject(String(objectId))
+    return obj && obj.model !== null ? gitStateRecently(obj.dir) : Promise.resolve(null)
+  })
   handle('show:thumbnail', async (_event, objectId: string) => {
     const obj = findObject(String(objectId))
     const png = obj ? await thumbnailOnFile(obj.dir) : null

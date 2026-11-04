@@ -5,7 +5,7 @@ import { QuestionCard } from '../QuestionCard'
 import { AskSession } from './AskCard'
 import { Composer } from './Composer'
 import { TasksBar } from './Tasks'
-import { ChatPlace } from './place'
+import { ChatEarlier, ChatPlace } from './place'
 import { ChatOffer, type ChatOffers } from './offers'
 import { UndoableTurn } from './TurnEnd'
 
@@ -114,7 +114,9 @@ export function ChatPane({ sessionId, live, working, dir, onWholePrompt, onUseTe
           {earlier && earlier.length > 0 && (
             <section className="chat-earlier" aria-label="Earlier in this conversation">
               <h3 className="chat-earlier-head">Earlier in this conversation</h3>
-              <ChatItems items={earlier} beat={false} />
+              <ChatEarlier.Provider value={true}>
+                <ChatItems items={earlier} beat={false} />
+              </ChatEarlier.Provider>
             </section>
           )}
           {items && (

@@ -91,6 +91,12 @@ export async function readLog(dir: string, conversationId: string, limit = 500):
   return items.slice(-limit)
 }
 
+/** What `BuildIdentity` is, as a log may hold it: a hash, a commit, a flag; nothing longer. */
+function isIdentity(id: unknown): boolean {
+  const x = id as { sources?: unknown; head?: unknown; dirty?: unknown } | null
+  return typeof x === 'object' && x !== null && typeof x.sources === 'string' && /^[0-9a-f]{12}$/.test(x.sources) && (x.head === undefined || (typeof x.head === 'string' && /^[0-9a-f]{7}$/.test(x.head))) && (x.dirty === undefined || x.dirty === true)
+}
+
 /** How many items of a conversation's end the empty pane shows. */
 const LAST_ITEMS = 8
 /** What the end of a conversation is shown by: the words of both sides and where a turn ended, not the tools, thoughts and cards between. */
@@ -114,6 +120,10 @@ export async function lastConversation(dir: string, conversationId: string, limi
 
 /** An item as read back, without what the window would act on and torno never wrote: a note's `action` other than `terminal`. */
 function known(item: ChatItem): ChatItem {
+  if (item.kind === 'context' && item.identity !== undefined && !isIdentity(item.identity)) {
+    const { identity: _identity, ...rest } = item
+    return rest
+  }
   if (item.kind !== 'note' || !('action' in item) || item.action === 'terminal') return item
   const { action: _action, ...rest } = item
   return rest

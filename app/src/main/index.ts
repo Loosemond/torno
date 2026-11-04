@@ -16,7 +16,7 @@ import { type Config, configOf, listed, recentWith, recentWithout } from './rece
 import { startHttp } from './http'
 import { buildContextFor, contextFor, tellsInstructions } from './context'
 import { listReferences } from './sessions/reference'
-import { buildState, closeWorkspace, findObject, keptScenes, lastScene, letGoForTest, marksChecks, openObjectId, openWorkspace, openWorkspaceInfo, openedObjects, placedMark, queryObject, recheckAlignments, registerIpc } from './ipc'
+import { buildIdentity, buildState, closeWorkspace, findObject, keptScenes, lastScene, letGoForTest, marksChecks, openObjectId, openWorkspace, openWorkspaceInfo, openedObjects, placedMark, queryObject, recheckAlignments, registerIpc } from './ipc'
 import { cannotStart, environmentCommand } from './kernel/client'
 import { ReadyKeeper } from './readiness'
 import { NoAnswer, latestView, requestHighlight, requestLook, requestSaveView, requestSectionDrawing, requestShow } from './look'
@@ -356,6 +356,7 @@ const toolDeps: ToolDeps = {
   build: buildState,
   scene: lastScene,
   scenes: keptScenes,
+  identity: buildIdentity,
   // A view reported for an object stays on record after the window has moved on to another.
   view: (id) => (openObjectId() === id ? latestView(id) : undefined),
   openObjectId,
@@ -517,6 +518,7 @@ void app.whenReady().then(async () => {
     scene: lastScene,
     settled: (id, revision, until) => verdicts.settled(id, revision, until),
     // A Bash is a change of the model when the newest source is newer after it: only a build that follows a change is the turn's.
+    identity: buildIdentity,
     sourcesSaved: async (dir) => {
       const [own, common] = sourceFolders(dir)
       const [a, b] = await Promise.all([newestPython(own), newestPython(common)])
