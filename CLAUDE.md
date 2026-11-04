@@ -122,8 +122,13 @@ What main, the window, the kernel and an agent must all hold to. The detail of e
   (`src/main/marks/store.ts`): one change at a time per object, written
   atomically before it is told. The renderer and the MCP tools go through it.
 - Coordinates and refs of a mark are in the object frame of the mark's layout.
-  A ref is `<part>`, `<part>/F<i>`, `<part>/E<i>` or `M<n>`; to the kernel it
-  is sent with the layout in front (`assembly:lid/F12`).
+  A ref is `<part>`, `<part>/F<i>`, `<part>/E<i>`, `<part>/@<tag>` or `M<n>`; to the kernel it
+  is sent with the layout in front (`assembly:lid/F12`). A tag is a name the model gives a face or an edge
+  (`tags(p, parts)`, read by the loader beside `groups(p)`; `shared/tags.ts`); `@` keeps it apart from the other
+  forms, a tag name has no `/` and does not start with `@`, and a tag may name several faces and edges. A mark never
+  stores a tag as its `ref`: its anchor keeps the face's or edge's own ref and the tag beside it (`Anchor.tag`),
+  which only main sets (`withTag`, on placing and on every check) and which a check follows before the
+  nearest-point rule.
 - What only main says of a mark (`MAIN_ONLY_KEYS` in `shared/marks.ts`:
   `resolvedBy`, `acknowledged`, `sentBefore`, `reopened`, `checkedRevision`) is never
   taken from the window or from a tool's arguments. A mark the agent resolved

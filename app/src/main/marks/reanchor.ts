@@ -2,6 +2,7 @@ import { isDeepStrictEqual } from 'node:util'
 import type { Described } from '../../shared/geometry'
 import { type Anchor, type AnchorState, type Mark, type NewMark, type Replacement, type Vec3, markAnchors, strokeSamples, translated } from '../../shared/marks'
 import type { Scene } from '../../shared/scene'
+import { tagOfRef, tagRefs } from '../../shared/tags'
 import type { Builds } from '../builds'
 import { KernelError, isBusy } from '../kernel/client'
 import { type RemeasureDeps, remeasureAll } from './measure'
@@ -37,9 +38,13 @@ export type FoundAnchor = {
   edgeUnder?: string
   edgeUnderDescriptor?: string | null
   between?: string[]
-} & EdgeOfAnchor
+} & EdgeOfAnchor &
+  FaceOfAnchor
 
-type EdgeOfAnchor = { edgeFound?: undefined } | { edgeFound: false } | { edgeFound: true; edgeDistance: number; edgeDescriptor: string | null; edgeBetween?: string[] }
+type EdgeOfAnchor = { edgeFound?: undefined } | { edgeFound: false } | { edgeFound: true; edgeDistance: number; edgeDescriptor: string | null; edgeBetween?: string[]; edgePoint?: Vec3 }
+
+/** For an anchor sent with the face a tag names now (`face`): whether the part has it, and how far the point is from it. */
+type FaceOfAnchor = { faceFound?: undefined } | { faceFound: false } | { faceFound: true; faceDistance: number; faceDescriptor: string | null; faceNormal: Vec3 | null; facePoint?: Vec3 }
 
 /** Whether the kernel found the part and could say where on it the anchor is. */
 export function answered(one: NearestAnchor | undefined): one is FoundAnchor {
@@ -47,7 +52,7 @@ export function answered(one: NearestAnchor | undefined): one is FoundAnchor {
 }
 
 /** An anchor as `nearest` is asked about it. */
-export type AskedAnchor = { part: string; point: Vec3; edge?: string }
+export type AskedAnchor = { part: string; point: Vec3; edge?: string; face?: string }
 
 export type Judged = { anchor: Anchor; state: AnchorState }
 
@@ -160,7 +165,18 @@ export function asReplaced(placed: Replacement, layout: string, last: LastBuild 
 }
 
 function placedAnchor(anchor: Anchor, layout: string, revision: number, last: LastBuild | undefined): Anchor {
-  return withSpread(anchor, last?.revision === revision && typeof anchor.part === 'string' ? spreadOf(last.scene, layout, anchor.part) : null)
+  const spread = withSpread(anchor, last?.revision === revision && typeof anchor.part === 'string' ? spreadOf(last.scene, layout, anchor.part) : null)
+  return withTag(spread, last?.revision === revision ? last.scene.parts.find((p) => p.layout === layout && p.name === anchor.part) : undefined)
+}
+
+/**
+ * The anchor with the tag the model gives the face or edge it is on, when it gives one to that one alone: main says
+ * it, from the build the ref is of, and whatever the placer said of it is not kept.
+ */
+export function withTag(anchor: Anchor, part: Parameters<typeof tagOfRef>[0]): Anchor {
+  const { tag: _said, ...rest } = anchor
+  const tag = anchor.ref === undefined ? undefined : tagOfRef(part, anchor.ref)
+  return tag === undefined ? rest : { ...rest, tag }
 }
 
 /**
@@ -259,7 +275,9 @@ export async function reanchorAll(deps: ReanchorDeps, objectId: string): Promise
 
   /** By anchor: what the kernel said of it. */
   const nearest = new Map<Anchor, FoundAnchor | { part: string; found: false }>()
-  const byLayout = new Map<string, Array<{ mark: Mark; anchor: Anchor; asked: AskedAnchor }>>()
+  const byLayout = new Map<string, Array<{ mark: Mark; anchor: Anchor; asked: AskedAnchor; followed?: Followed }>>()
+  /** The anchors found again by their tag on this build. */
+  const byTag = new Set<Anchor>()
   /** By layout: the points along its strokes, each with the parts it is asked about against, and the stroke it is of. */
   const alongStrokes = new Map<string, Array<{ id: string; asked: AskedAnchor[] }>>()
   for (const mark of marks) {
@@ -267,8 +285,10 @@ export async function reanchorAll(deps: ReanchorDeps, objectId: string): Promise
       if (anchor.part === undefined) continue
       const entries = byLayout.get(mark.layout) ?? []
       byLayout.set(mark.layout, entries)
-      const edge = likePin(mark) ? edgeOfPin(anchor) : edgeRef(mark)
-      entries.push({ mark, anchor, asked: { part: anchor.part, point: anchor.point, ...(edge === undefined ? {} : { edge }) } })
+      const followed = followedTag(scene, mark.layout, anchor)
+      const edge = followed?.kind === 'E' ? followed.ref : likePin(mark) ? edgeOfPin(anchor) : edgeRef(mark)
+      const asked: AskedAnchor = { part: anchor.part, point: anchor.point, ...(edge === undefined ? {} : { edge }), ...(followed?.kind === 'F' ? { face: followed.ref } : {}) }
+      entries.push({ mark, anchor, asked, ...(followed ? { followed } : {}) })
       const names = scene.parts.filter((p) => p.layout === mark.layout).map((p) => p.name)
       const parts = names.length <= STROKE_PARTS && names.includes(anchor.part) ? names : [anchor.part]
       const samples = strokeSamples(mark).map((point) => ({ id: mark.id, asked: parts.map((part) => ({ part, point })) }))
@@ -296,14 +316,23 @@ export async function reanchorAll(deps: ReanchorDeps, objectId: string): Promise
       continue
     }
     if (superseded()) return true
-    entries.forEach(({ mark, anchor }, i) => {
+    entries.forEach(({ mark, anchor, followed }, i) => {
       const said = found[i]
       if (said.found && said.error !== undefined) {
         failures.push(`${mark.id}: ${said.error}`)
         return
       }
       nearest.set(anchor, said)
-      judged.set(anchor, (likePin(mark) ? judgePin : judge)(anchor, said, toleranceOf(layout, anchor.part)))
+      // The tag the model gives it, while the build has it, before the nearest-point rule.
+      const byName = followed && said.found && said.error === undefined ? followTag(anchor, said, followed, toleranceOf(layout, anchor.part)) : null
+      if (byName) {
+        byTag.add(anchor)
+        judged.set(anchor, byName)
+        return
+      }
+      const judgedByPoint = (likePin(mark) ? judgePin : judge)(anchor, said, toleranceOf(layout, anchor.part))
+      // A tag the build has lost stays on the anchor, so that a build that gives it back finds the mark by it.
+      judged.set(anchor, anchor.tag === undefined ? judgedByPoint : { ...judgedByPoint, anchor: { ...judgedByPoint.anchor, tag: anchor.tag } })
     })
     let at = entries.length
     for (const sample of samples) {
@@ -320,7 +349,7 @@ export async function reanchorAll(deps: ReanchorDeps, objectId: string): Promise
   }
 
   // `nearest` names faces. What a pick of an edge or of a whole part points at is not a face.
-  const picks = marks.filter((mark) => mark.kind === 'pick' && mark.target !== 'face' && nearest.get(mark.anchor)?.found === true)
+  const picks = marks.filter((mark) => mark.kind === 'pick' && mark.target !== 'face' && nearest.get(mark.anchor)?.found === true && !byTag.has(mark.anchor))
   await Promise.all(
     picks.map(async (mark) => {
       if (mark.kind !== 'pick') return
@@ -409,6 +438,51 @@ function edgeRef(mark: Mark): string | undefined {
   return part !== undefined && ref !== undefined && /^E\d+$/.test(ref.slice(part.length + 1)) && ref.startsWith(`${part}/`) ? ref : undefined
 }
 
+/** What a tag of an anchor names in this build: the one face or edge, by its ref. */
+type Followed = { kind: 'F' | 'E'; ref: string }
+
+/** The face or edge the anchor's tag names in the scene's part, when it names exactly one. */
+function followedTag(scene: Scene, layout: string, anchor: Anchor): Followed | undefined {
+  if (anchor.tag === undefined || anchor.part === undefined) return undefined
+  const part = scene.parts.find((p) => p.layout === layout && p.name === anchor.part)
+  const refs = part && tagRefs(part, anchor.tag)
+  if (refs?.length !== 1) return undefined
+  return { kind: refs[0].slice(anchor.part.length + 1).startsWith('F') ? 'F' : 'E', ref: refs[0] }
+}
+
+/**
+ * An anchor as its tag leaves it: on the face or edge the tag names now, which is `ok` however far that has moved,
+ * the model having named it. Its point stays where the person put it while that is within reach of the face (the
+ * surface's tolerance is not known here: within `EDGE_TOLERANCE_MM` of an edge, `tolerance` of a face), else
+ * it is set on the nearest point of what the tag names. Null when the kernel could not say.
+ */
+function followTag(anchor: Anchor, said: FoundAnchor, followed: Followed, reach: number): Judged | null {
+  const { part, arranged, tag } = anchor
+  const kept = { ...(arranged ? { arranged } : {}), ...(tag === undefined ? {} : { tag }) }
+  if (followed.kind === 'F') {
+    if (said.faceFound !== true) return null
+    const point = said.faceDistance <= reach || !said.facePoint ? anchor.point : said.facePoint
+    return {
+      anchor: { point, part, ref: followed.ref, ...(said.faceNormal ? { normal: said.faceNormal } : {}), ...(typeof said.faceDescriptor === 'string' ? { descriptor: said.faceDescriptor } : {}), ...kept },
+      state: 'ok'
+    }
+  }
+  if (said.edgeFound !== true) return null
+  const point = said.edgeDistance <= EDGE_TOLERANCE_MM || !said.edgePoint ? anchor.point : said.edgePoint
+  return {
+    anchor: {
+      point,
+      part,
+      ref: followed.ref,
+      ...(anchor.edge === undefined ? {} : { edge: followed.ref }),
+      ...(said.edgeBetween?.length === 2 ? { between: [said.edgeBetween[0], said.edgeBetween[1]] as [string, string] } : {}),
+      ...(typeof said.edgeDescriptor === 'string' ? { descriptor: said.edgeDescriptor } : {}),
+      ...kept
+    },
+    state: 'ok'
+  }
+}
+
 /**
  * The answers of a `nearest` reply, when there is one for each anchor asked
  * about, in order, and each that named an edge is told of it. Throws otherwise.
@@ -424,6 +498,7 @@ export function nearestReply(reply: unknown, asked: AskedAnchor[]): NearestAncho
       // The part is there, and the kernel could say nothing of this point.
       if (one.found === true && typeof one.error === 'string') return true
       if (one.found !== true || typeof one.ref !== 'string' || !isDistance(one.distance)) return false
+      if (asked[i].face !== undefined && !(one.faceFound === false || (one.faceFound === true && isDistance(one.faceDistance)))) return false
       if (asked[i].edge === undefined) return true
       return one.edgeFound === false || (one.edgeFound === true && isDistance(one.edgeDistance))
     })

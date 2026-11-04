@@ -1076,12 +1076,37 @@ describe('describe', () => {
     [{ ref: 'lid/F2' }, "no part 'lid' in layout assembly (parts: base, post)"],
     [{ ref: 'base/F6' }, 'base has 6 faces, F0 to F5: there is no F6'],
     [{ ref: 'post/E3' }, 'post has 3 edges, E0 to E2: there is no E3'],
-    [{ ref: 'base/top' }, "no part 'base/top' in layout assembly (parts: base, post); a ref is a part, part/F<n> or part/E<n>"],
+    [{ ref: 'base/top' }, "no part 'base/top' in layout assembly (parts: base, post); a ref is a part, part/F<n>, part/E<n> or part/@tag"],
     [{ ref: 'base', layout: 'exploded' }, "no layout 'exploded'; layouts: assembly, print"]
   ])('says what there is when %o names nothing', async (args, text) => {
     const deps = fake()
     expect(await describeTool(deps, 'bracket', args)).toEqual({ isError: true, content: [{ type: 'text', text }] })
     expect(deps.w.described).toEqual([])
+  })
+
+  describe('a tag the model gives a face', () => {
+    const tagged = { ...SCENE, parts: SCENE.parts.map((p) => (p.name === 'base' && p.layout === 'assembly' ? { ...p, tags: { top: { faces: [5] }, holes: { faces: [1, 2] }, rim: { edges: [0] } } } : p)) } as Scene
+    const withTags = (): Fake => fake({ scene: (id) => (id === 'bracket' ? { revision: OK.revision, scene: tagged } : undefined) })
+
+    it('is asked of the kernel by its name, which answers with the face', async () => {
+      const deps = withTags()
+      expect((await describeTool(deps, 'bracket', { ref: 'base/@top' })).isError).toBeUndefined()
+      expect(deps.w.described).toEqual([{ layout: 'assembly', ref: 'base/@top' }])
+    })
+
+    it('names nothing when it has several faces, or is not there, and says what there is', async () => {
+      const deps = withTags()
+      expect(textOf(await describeTool(deps, 'bracket', { ref: 'base/@holes' }))).toBe('base/@holes names 2 faces and edges, not one: base/F1, base/F2; name one of them')
+      expect(textOf(await describeTool(deps, 'bracket', { ref: 'base/@lid' }))).toBe('base has no tag @lid; its tags: @top, @holes, @rim')
+      expect(textOf(await describeTool(deps, 'bracket', { ref: 'post/@top' }))).toBe('post has no tag @top; it has no tags')
+      expect(deps.w.described).toEqual([])
+    })
+
+    it('is highlighted as the faces it names', async () => {
+      const deps = withTags()
+      await highlightTool(deps, 'bracket', { refs: ['base/@holes', 'base/@top'] })
+      expect(deps.w.highlights).toEqual([{ layout: 'assembly', refs: ['base/F1', 'base/F2', 'base/F5'] }])
+    })
   })
 
   it('passes on what the kernel says when it cannot answer, and that there is no build', async () => {

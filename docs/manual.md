@@ -313,6 +313,26 @@ A declaration that is not one fails the build and says what is wrong, as a bad `
 never fails the build, and never holds the agent back when it would stop; it is told with the build
 (What the agent is told) and listed in the window under Checks. torno never writes `checks(p)`.
 
+**Names for faces and edges.** A face number (`lid/F12`) changes whenever the topology does. A model with `Params()`
+may also define `tags(p, parts)`, which names faces and edges, and a name holds across builds:
+
+```python
+def tags(p, parts):
+    lid = parts["lid"]
+    return {"lid": {"top": lid.faces().sort_by(Axis.Z)[-1], "screw_holes": lid.faces().filter_by(GeomType.CYLINDER)}}
+```
+
+It is called once for each layout, with the dict of parts that layout's function returned, and returns part name to
+tag name to a face, an edge or a list of them, taken from those very shapes. A tag name is a letter or `_` and then
+letters, digits, `_`, `.` or `-`. The ref of a tag is `lid/@top`: it names one face or edge (several, `lid/@screw_holes`,
+are taken whole by `highlight` and `ask`; where one face or edge is needed, a tag of several is refused, naming them). `describe`, `measure`, `highlight` and the
+dimensions take it, `scene` lists each part's tags with the faces and edges they are now, and the pointer says
+`lid/F12 · @top`. A mark you place on a face or an edge that has a tag keeps the tag, and each build looks for it
+first: the mark follows the face by its name when the numbers shift, or the face moves. If the build has lost the tag
+(or it names several faces now) the mark is found by its point, as any mark is, and keeps the tag for a build that
+brings it back. A tag that names nothing the part has (a shape of another part, a face taken before an edit, an empty
+list) fails the build and says which. torno never writes `tags(p, parts)`.
+
 **Builds.** Saving a file in the project's folder (dotfiles, `out/`, `cache/`,
 `.torno/` and `__pycache__/` are ignored, as are `build/`, `dist/`,
 `node_modules/`, `.venv/` and `.git/`) or in the workspace's `common/` starts
@@ -448,7 +468,8 @@ When the project is in a git work tree, the status line and the card say what ha
 
 The pointer is told what it is on: a face (`lid/F12`), or an edge within reach
 of it (`lid/E3`), with a line from the kernel on what that is, such as
-`plane, normal +Z, z = 20, 1180 mm²`. Hidden parts are never picked. While the
+`plane, normal +Z, z = 20, 1180 mm²`; a face or an edge that the model names (`tags(p, parts)`, see Projects and
+builds) is told with its name, `lid/F12 · @top`. Hidden parts are never picked. While the
 parts on screen are older than the model (a build is running, or the last one
 failed) nothing is picked, and the pointer says why.
 
@@ -1060,7 +1081,7 @@ them: `scene`, `look`, `marks`, `describe` and `measure`. The others are found b
 | `mcp__torno__scene` | The build status and error, what the model printed in the last build (`output`), the layouts, every part of one layout (the one you have on screen, or `layout`; the parts of the others are counted) with its size, bounding box, volume and whether it is visible, the model's groups of parts, your camera, section and explode, the saved views, the scans, how many dimensions pass, fail and are not measured, and the checks the model declares with how each stands. It notes when the parts of the print layout were spread along X. Over 200 parts, or when the list would not fit, a part is its name, size and group only (`partsTruncated`); `describe` gives the rest. |
 | `mcp__torno__look` | A picture from the renderer you are looking at, with the marks drawn. With no arguments it is your view, cut by your section or drawn apart as you have it. It takes `view` (`iso`, `front`, `back`, `left`, `right`, `top`, `bottom`, the name of a saved view, or a camera), `layout`, `parts`, `size` (long edge, 1280 by default, 2000 at most), `marks` (false leaves them out), `section` (`'current'`, `null`, or a plane), `explode` (0 to 1, or `{amount, axis, scale}`; `null` together), `scans`, `scanColour` and `frame`. With `focus` (a ref such as `lid/F12` or `lid/E3`, a part, a group, a mark such as `M4`, or a box `{min, max}` in mm) and `margin` (a share of the box, 0.3 by default) it frames a detail up close: from the side `view` names (`front`, `iso`, …; without one, the way your camera looks), at the picture's whole resolution, with the parts drawn together. The caption says what was drawn, and, with a focus, what was framed and when the middle of it is hidden behind other parts. Also saved under `.torno/views/`. |
 | `mcp__torno__marks` | Your marks and the agent's as data, each with a line of text. It lists the marks that are not resolved, 50 at a time; `status` (`resolved` too), `ids` (`["M4"]`, any status), `limit` (200 at most) and `next` say which. A stroke is given as a summary of its points (count, first, last, box) unless `ids` names it. What was left out is said (`omitted`, `next`). |
-| `mcp__torno__describe` | The geometry of a part, a face or an edge (`lid`, `lid/F12`, `lid/E3`), or of a group of parts by its name: the box of its parts and their volume. Of a face or an edge it also gives a `selector`: a build123d expression on `part`, such as `part.faces().filter_by(Axis.Z).sort_by(Axis.Z)[-1]`, that the kernel evaluated on this build and that gave exactly that shape, as `robust` `by geometry` (a direction, an extreme, a radius, a place) or `by order` (an index into a sort, which the next edit may break), and `selectorFrame`, which says in whose frame it is. |
+| `mcp__torno__describe` | The geometry of a part, a face or an edge (`lid`, `lid/F12`, `lid/E3`, or one the model names, `lid/@top`), or of a group of parts by its name: the box of its parts and their volume. Of a face or an edge it also gives a `selector`: a build123d expression on `part`, such as `part.faces().filter_by(Axis.Z).sort_by(Axis.Z)[-1]`, that the kernel evaluated on this build and that gave exactly that shape, as `robust` `by geometry` (a direction, an extreme, a radius, a place) or `by order` (an index into a sort, which the next edit may break), and `selectorFrame`, which says in whose frame it is. |
 | `mcp__torno__highlight` | Tints faces or edges in your viewport with a note, to ask "this one?", until you click or a minute passes. A group's name tints all of its parts. |
 | `mcp__torno__ask` | Asks you to choose and waits: a card above the box of the chat (under the view for a terminal session) with a button for each answer, and the refs of an answer light up in your view while the pointer is on its button. If it allows, you may answer with the one face or edge you select in the view instead, or with "None of these". The agent gets back what you chose, as refs. The session shows Needs input meanwhile; the question ends by itself after 10 minutes with "not answered", and when the turn ends. |
 | `mcp__torno__show` | Changes your camera, layout, visible parts (a group's name stands for its parts), section, explode and scans to show you something, or puts a saved view on screen by its name; with `focus` and `margin`, as `look` takes them, it puts your camera on a ref, a mark or a box. For now only: what `.torno/scene.json` keeps stays yours. Refused while you hold a button in the viewport. |

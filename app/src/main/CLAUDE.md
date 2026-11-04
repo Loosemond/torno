@@ -28,6 +28,17 @@ is the detail of this folder, under the headings it has there. Paths are from `a
     by the difference before it is judged. An anchor that records none (a
     mark from before) is not moved: the check records it. Main sets
     `arranged` (`asPlaced`), never the window.
+  - A tag the model gives a face or an edge (`Part.tags`, from `tags(p, parts)`; `shared/tags.ts`) is kept on the
+    anchor of a mark placed on that one (`Anchor.tag`): main says it from the build the ref is of (`withTag`, in
+    `asPlaced`, `asReplaced` and `anchorFor`), never taken from the window or a tool. A check looks for it first:
+    when the build's part has the tag and it names exactly one face or edge, the anchor is on that (`ref`,
+    `edge`, normal, descriptor, `between` refreshed; `nearest` is asked `face` or `edge` of it, so the answer says how
+    far the point is), `ok` however far it moved, and its point stays while it is within reach (the part's
+    `tolerance` of a face, `EDGE_TOLERANCE_MM` of an edge) and else is set on the nearest point of it. Without the
+    tag, or with a tag of several, the nearest-point rule judges it as ever and the tag stays on the anchor for a
+    build that gives it back. The tools take `<part>/@<tag>` (`checkRef` gives the face's own ref beside the tag;
+    `highlight` and `ask` take a tag of several as its refs; the kernel resolves the tag itself for `describe` and
+    `measure`).
   - A check writes what it judged each mark from; `MarkStore.reanchor` passes
     over a mark whose anchors are no longer those (it was put somewhere else
     meanwhile).

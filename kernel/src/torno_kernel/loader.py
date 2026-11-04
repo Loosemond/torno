@@ -47,6 +47,12 @@ def choose_model(dir: Path) -> Path:
     raise LoadError("no_model", f"more than one model file in {dir}: {names}")
 
 
+class Layouts(dict):  # type: ignore[type-arg]
+    """The layouts of a scene, layout → name → shape, and the tags the model gave their parts (``_tags``)."""
+
+    tags: dict[tuple[str, str], dict[str, dict[str, list[int]]]]
+
+
 def load_scene(dir: Path, model: str) -> dict[str, dict[str, Any]]:
     """Import ``dir/model`` and return its scene as layout → name → shape."""
     return load_model(dir, model)[0]
@@ -63,6 +69,8 @@ def load_model(
         scene = _collect_scene(module)
         groups = _groups(module, scene) if scene else []
         checks = _checks(module, scene, groups) if scene else []
+        scene = Layouts(scene)
+        scene.tags = _tags(module, scene) if scene else {}
     except LoadError:
         raise
     except Exception as e:
@@ -148,6 +156,78 @@ def _groups(module: ModuleType, scene: dict[str, dict[str, Any]]) -> list[dict[s
             owner[member] = name
         groups.append({"name": name, "parts": list(dict.fromkeys(members))})
     return groups
+
+
+_TAG_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]*")
+
+
+def _tags(module: ModuleType, scene: dict[str, dict[str, Any]]) -> dict[tuple[str, str], dict[str, dict[str, list[int]]]]:
+    """The model's ``tags(p, parts)``: part → tag → a face, an edge, or a list of them, taken from the shapes it
+    was given. Called once per layout with that layout's parts, read only under the ``Params`` convention.
+
+    Each face or edge is matched to the kernel's index (``topo``) by ``IsSame``, here, before the build spreads a
+    print layout (a moved shape is not the same one). Returns ``(layout, part) → tag → {"faces": [...], "edges":
+    [...]}``, the empty lists left out and the indices in the order given. A tag that names nothing the part has
+    (a shape of another part, a solid, an empty list), a name that is no tag name, or a part no layout has fails
+    the build, saying which.
+    """
+    function = getattr(module, "tags", None)
+    if not callable(function) or not hasattr(module, "Params"):
+        return {}
+    from . import topo
+    from .ocp import TopAbs_EDGE, TopAbs_FACE, TopExp, TopTools_IndexedMapOfShape
+
+    shape = "tags() must return a dict of part name to a dict of tag name to a face, an edge or a list of them"
+    params = module.Params()
+    known = ", ".join(dict.fromkeys(name for layout in scene.values() for name in layout))
+    found: dict[tuple[str, str], dict[str, dict[str, list[int]]]] = {}
+    for layout, parts in scene.items():
+        made = function(params, dict(parts))
+        if not isinstance(made, dict):
+            raise LoadError("exception", f"{shape}, got {type(made).__name__}")
+        for part, named in made.items():
+            if not isinstance(part, str) or not isinstance(named, dict):
+                raise LoadError("exception", f"{shape}, got {part!r}: {type(named).__name__}")
+            if part not in parts:
+                if any(part in other for other in scene.values()):
+                    continue  # a part the model keeps out of this layout
+                raise LoadError("exception", f"tags() names {part}, which no layout has; parts: {known}")
+            whole = getattr(parts[part], "wrapped", parts[part])
+            maps = {}
+            for kind in (TopAbs_FACE, TopAbs_EDGE):
+                maps[kind] = TopTools_IndexedMapOfShape()
+                TopExp.MapShapes_s(whole, kind, maps[kind])
+            count = {"face": len(topo.faces(parts[part])), "edge": len(topo.edges(parts[part]))}
+            tagged: dict[str, dict[str, list[int]]] = {}
+            for tag, shapes in named.items():
+                where = f"tags(): {part}/@{tag}"
+                if not isinstance(tag, str) or not _TAG_NAME.fullmatch(tag):
+                    raise LoadError(
+                        "exception", f"tags(): {tag!r} is no tag name of {part}: a letter or _ first, then letters, digits, _ . -"
+                    )
+                items = list(shapes) if isinstance(shapes, (list, tuple)) else [shapes]
+                if not items:
+                    raise LoadError("exception", f"{where} is an empty list: it names no face or edge of {part}")
+                indices: dict[str, list[int]] = {"faces": [], "edges": []}
+                for item in items:
+                    wrapped = getattr(item, "wrapped", None)
+                    kind = wrapped.ShapeType() if wrapped is not None else None
+                    if kind not in (TopAbs_FACE, TopAbs_EDGE):
+                        raise LoadError("exception", f"{where} is {type(item).__name__}, not a face or an edge of {part}")
+                    what = "face" if kind == TopAbs_FACE else "edge"
+                    number = maps[kind].FindIndex(wrapped) - 1
+                    if number < 0:
+                        raise LoadError(
+                            "exception",
+                            f"{where} is a {what} that {part} does not have (the tag is stale: it was taken from another "
+                            f"shape, or from {part} before it was changed); {part} has {count[what]} {what}s",
+                        )
+                    if number not in indices[what + "s"]:
+                        indices[what + "s"].append(number)
+                tagged[tag] = {side: numbers for side, numbers in indices.items() if numbers}
+            if tagged:
+                found[(layout, part)] = tagged
+    return found
 
 
 def _checks(module: ModuleType, scene: dict[str, dict[str, Any]], groups: list[dict[str, Any]]) -> list[dict[str, Any]]:

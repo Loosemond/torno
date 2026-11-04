@@ -145,6 +145,16 @@ describe('measure', () => {
     expect(data(result)).toEqual({ layout: 'assembly', revision: 4, ...planes, reading: '6 mm between planes, tub/F5 to tub/F0' })
   })
 
+  it('takes the face a tag of the model names for an end, and asks the kernel for that face', async () => {
+    const tagged: Scene = { ...SCENE, parts: [part('assembly', 'tub', { tags: { top: { faces: [5] } } }), ...SCENE.parts.slice(1)] }
+    const deps = fake(() => planes, { scene: () => ({ revision: 4, scene: tagged }) })
+    const result = await measureTool(deps, 'box', { kind: 'distance', a: 'tub/@top', b: 'tub/F0' })
+    expect(result.isError).toBeUndefined()
+    expect(deps.queries).toEqual([{ name: 'measure', args: { kind: 'distance', a: { ref: 'assembly:tub/F5' }, b: { ref: 'assembly:tub/F0' } } }])
+    const wrong = await measureTool(deps, 'box', { kind: 'distance', a: 'tub/@nope', b: 'tub/F0' })
+    expect(wrong.isError).toBe(true)
+  })
+
   it('reads a diameter, a radius of a torus, an angle, and a wall with the point it was moved to', async () => {
     const reading = async (said: object, args: Parameters<typeof measureTool>[2]): Promise<string> => data(await measureTool(fake(() => said), 'box', args)).reading
     expect(await reading({ kind: 'diameter', value: 8, unit: 'mm', how: 'cylinder', exact: true }, { kind: 'diameter', a: 'tub/F9' })).toBe('⌀ 8 mm, tub/F9')

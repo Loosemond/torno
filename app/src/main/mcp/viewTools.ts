@@ -11,6 +11,7 @@ import { type SavedView, MAX_PROPOSALS, VIEW_NOT_BOTH, cleanViewName, findView, 
 import { number } from '../../shared/format'
 import { FOCUS_NOT_EXPLODED } from '../../shared/focus'
 import { groupOf, groupsIn, groupVisibility, partsNamed } from '../../shared/groups'
+import { tagRefs } from '../../shared/tags'
 import { alignmentSaid } from '../scans/said'
 import { type Focused, MARGIN_NEEDS_FOCUS, NO_SAVED_FRAME, focusOf, hiddenText, marginShare, notDrawn } from './focus'
 import { unknownKeys } from './keys'
@@ -141,7 +142,9 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
     ...((p.openShells ?? 0) > 0 ? { openShells: p.openShells } : {}),
     // What the mesh encloses only where it is a warning: never a number to rely on.
     ...(p.meshDisagrees === true && p.meshVolume !== undefined ? { meshVolume: round(p.meshVolume), meshDisagrees: true } : {}),
-    ...(p.arranged ? { arranged: p.arranged.map(round) } : {})
+    ...(p.arranged ? { arranged: p.arranged.map(round) } : {}),
+    // The names the model gives its faces and edges (`part/@tag`), with the refs they are now.
+    ...(p.tags && Object.keys(p.tags).length > 0 ? { tags: Object.fromEntries(Object.keys(p.tags).map((tag) => [tag, tagRefs(p, tag)])) } : {})
   })
   // Past SCENE_PARTS parts, or when the full list would not fit, each part is its name, size and group: describe gives the rest.
   const compact = (p: ScenePart): object => ({
@@ -152,7 +155,8 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
     sizeExact: p.bboxExact === true,
     ...(p.reversed && p.reversed.length > 0 ? { reversed: p.reversed } : {}),
     ...((p.openShells ?? 0) > 0 ? { openShells: p.openShells } : {}),
-    ...(p.meshDisagrees === true ? { meshDisagrees: true } : {})
+    ...(p.meshDisagrees === true ? { meshDisagrees: true } : {}),
+    ...(p.tags && Object.keys(p.tags).length > 0 ? { tags: Object.keys(p.tags) } : {})
   })
   const fits = (list: readonly object[]): boolean => JSON.stringify(list).length <= SCENE_CHARS
   const detailed = inLayout.length > SCENE_PARTS ? null : inLayout.map(full)

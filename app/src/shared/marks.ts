@@ -6,7 +6,7 @@ export interface Anchor {
   point: Vec3
   normal?: Vec3
   part?: string            // part name; absent for a point in empty space
-  ref?: string             // `lid` | `lid/F12` | `lid/E3`, refreshed after each build
+  ref?: string             // `lid` | `lid/F12` | `lid/E3`, refreshed after each build; never `lid/@top` (a tag is kept in `tag`)
   descriptor?: string      // from the kernel: "plane, normal +Z, z = 20, 1180 mm²"
   /**
    * How far its part had been spread for display (`Part.arranged`) on the build
@@ -22,6 +22,13 @@ export interface Anchor {
   edge?: string
   /** The two faces that meet at `edge`: `['lid/F12', 'lid/F40']`. */
   between?: [string, string]
+  /**
+   * The tag the model gives the face or edge `ref` names (`top` of `lid/@top`; `tags(p, parts)`), when it names that
+   * one and no other. Set by main when the mark is placed and refreshed by every check: while the build still has
+   * the tag, the anchor follows it (`ref` is what the tag names now) before the nearest-point rule is asked. Never
+   * taken from the window or from a tool.
+   */
+  tag?: string
 }
 export type MarkStatus = 'draft' | 'sent' | 'resolved'
 export type AnchorState = 'ok' | 'drifted' | 'orphaned'

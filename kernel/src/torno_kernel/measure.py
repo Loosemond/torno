@@ -133,9 +133,9 @@ def measure(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any] |
             "bad_request",
             f"measure needs args.kind, one of {', '.join(KINDS[:-1])} and {KINDS[-1]}",
         )
-    a = _target(shapes, kind, "a", args.get("a"))
+    a = _target(shapes, kind, "a", args.get("a"), kept)
     if kind in _BETWEEN:
-        b = _target(shapes, kind, "b", args.get("b"))
+        b = _target(shapes, kind, "b", args.get("b"), kept)
         if a.layout != b.layout:
             raise QueryError(
                 "bad_request",
@@ -158,7 +158,7 @@ def measure(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any] |
     return {"kind": kind, **result}
 
 
-def _target(shapes: dict[str, Any], kind: str, name: str, value: Any) -> _Target:
+def _target(shapes: dict[str, Any], kind: str, name: str, value: Any, kept: dict[Any, Any] | None = None) -> _Target:
     refusal = QueryError("bad_request", f"measure {kind} needs args.{name}, {_TARGET}")
     if not isinstance(value, dict):
         raise refusal
@@ -174,7 +174,7 @@ def _target(shapes: dict[str, Any], kind: str, name: str, value: Any) -> _Target
             raise refusal
         need_layout(shapes, layout)
         return _Target(name, layout, "point", point=at)
-    key, what, shape = resolve(shapes, ref)
+    key, what, shape = resolve(shapes, ref, kept)
     of_ref = key.split(":", 1)[0]
     if layout is not None and layout != of_ref:
         raise QueryError(

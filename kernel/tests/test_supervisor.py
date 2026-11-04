@@ -1897,3 +1897,31 @@ def test_on_macos_a_workers_socket_has_buffers_of_a_mebibyte_each_way(routed, ws
         os.kill(worker.pid, signal.SIGKILL)
         os.waitpid(worker.pid, 0)
         worker.sock.close()
+
+
+def test_a_models_tags_come_with_its_scene_and_name_refs(fresh, tmp_path):
+    """`tags(p, parts)` is read by the worker, before the print layout is spread, and a ref `part/@tag` is resolved there."""
+    from test_loader import _TAGGED
+
+    (tmp_path / "t.py").write_text(_TAGGED)
+    reply, _ = fresh.build(tmp_path, "t.py")
+    assert reply["ok"] is True, reply
+    parts = {p["key"]: p for p in reply["scene"]["parts"]}
+    assert set(parts["assembly:plate"]["tags"]) == {"top", "sides", "top_edge", "mixed"}
+    assert "tags" not in parts["assembly:post"]
+    # The print layout spreads its parts: the tag follows the face, not the place.
+    top = parts["print:plate"]["tags"]["top"]["faces"][0]
+    by_tag = fresh.describe(tmp_path, "print:plate/@top")["result"]
+    by_index = fresh.describe(tmp_path, f"print:plate/F{top}")["result"]
+    assert by_tag["ref"] == f"print:plate/F{top}" and by_tag["tag"] == "top"
+    assert by_tag["center"] == by_index["center"] and by_tag["normal"] == pytest.approx([0, 0, 1])
+    edge = fresh.describe(tmp_path, "assembly:plate/@top_edge")["result"]
+    assert edge["kind"] == "edge" and edge["tag"] == "top_edge"
+    many = fresh.describe(tmp_path, "assembly:plate/@sides")
+    assert many["ok"] is False and "names 4 faces and edges, not one" in many["error"]["message"]
+    nope = fresh.describe(tmp_path, "assembly:plate/@lid")
+    assert nope["ok"] is False and "plate has no tag @lid; its tags: @top, @sides" in nope["error"]["message"]
+    measured = fresh.query(
+        tmp_path, "measure", {"kind": "distance", "a": {"ref": "assembly:plate/@top"}, "b": {"ref": "assembly:plate/F0"}}
+    )
+    assert measured["ok"] is True, measured

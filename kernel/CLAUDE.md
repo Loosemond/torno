@@ -302,6 +302,22 @@ is the detail of this folder, under the headings it has there.
   `exception` that says what is wrong. The scene carries it as `groups` (`[]` without), and each part of a group
   names it (`group`); the supervisor passes the
   frame on and reads none of it.
+- **Tags are read by the worker too, and matched before the print layout is spread** (`loader._tags`). Under the
+  `Params` convention an optional `tags(p, parts)` is called once for each layout with a copy of the dict that
+  layout's function returned (the shapes themselves, so a face taken from one is the part's own), and returns part
+  name to tag name to a face, an edge or a list of them. Each is matched to the kernel's index by `IsSame` in
+  `TopExp.MapShapes` maps, the same as `topo` walks, in `load_model`, before `tess.build_scene` runs `arrange.spread`
+  (a moved shape is no longer the same one; the order of faces and edges survives it). They travel with the layouts
+  (`loader.Layouts.tags`, `(layout, part)` → tag → `{"faces": [...], "edges": [...]}`, empty lists left out), so
+  `load_model` still returns four things. A tag that is not a letter or `_` then letters, digits, `_ . -`, a part no
+  layout has, a result of the wrong shape, an empty list, a shape that is not a face or an edge, or one the part
+  does not have (a face of another part or taken before the part was changed: the tag is stale) fails the build as
+  an `exception` that says which; a part named that this layout lacks but another has is skipped. The scene carries
+  them on the part as `tags` (`worker._tag_parts`), and the worker keeps them in `kept[("tags", key)]` for
+  `queries.resolve`, which takes `layout:part/@tag` for the face or edge it names when it names exactly one (`describe`
+  tells the face's own ref and the `tag`) and refuses several, naming them. `nearest` may be given the `face` a tag
+  names now (as it is given an `edge`) and says whether the part has it and how far the point is (`faceFound`,
+  `faceDistance`, `facePoint`, `faceDescriptor`, `faceNormal`; an edge's `edgePoint`).
 - **The model's own checks are declarations, measured by torno** (`modelchecks.py`). Under the `Params` convention an
   optional `checks(p)` returns a list of dicts in torno's vocabulary, not predicates: `name`, `kind` (`clearance`,
   `overlap`, `solids`, `volume`, `thin`, `overhang`, `mesh`, `bed`, and `interference`, which takes no part: it passes when no pair of the layout shares volume),

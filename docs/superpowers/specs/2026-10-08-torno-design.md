@@ -118,7 +118,7 @@ So today's objects load unchanged. `airbox.py` has only `printable`, so it shows
 
 A small helper package, `torno`, is importable from models: `torno.Scene`, `torno.reference(shape)`, `torno.tag(face_or_edge, "name")`. Tagged geometry gets a named ref (`lid/mount_face`) that survives topology changes. The helper is optional.
 
-*Note, 2026-11-04: none of this is built. The loader does not look for `torno_scene()`, and there is no `torno` package, `torno.reference` or `torno.tag`. `torno_scene()` is struck. Named faces and edges are to come as a plain `tags(p, parts)` function, like `groups(p)`, per #65. Reference bodies are to come per #57. Until then, the `torno` helper in this section and the `torno.tag` in Geometry identity are a plan, not a feature.*
+*Note, 2026-11-04 (updated when #65 shipped): none of this is built, except that named faces and edges now exist as `tags(p, parts)`. The loader does not look for `torno_scene()`, and there is no `torno` package, `torno.reference` or `torno.tag`. `torno_scene()` is struck. Named faces and edges are the plain `tags(p, parts)` function, like `groups(p)`, per #65 (`torno.tag` is struck). Reference bodies are to come per #57. Until then, the `torno` helper in this section and the `torno.tag` in Geometry identity are a plan, not a feature.*
 
 ### Process model
 
@@ -158,7 +158,7 @@ A face ref is the part name plus the face's index in OCC explorer order (`lid/F1
 - Marks are anchored to a **point in the model frame**, with the ref recorded as a hint.
 - After each build, each anchor is re-projected to the nearest surface of the same part. The ref is updated; if the surface moved more than a tolerance, the mark is flagged `drifted`; if the part is gone, `orphaned`.
 - Everything sent to the agent carries a descriptor beside the ref: "planar face, normal +Z, z = 20, 1180 mm²".
-- `torno.tag` gives permanent names where the author wants them.
+- The model gives permanent names where its author wants them, with an optional `tags(p, parts)` (built; it replaces `torno.tag`): a tag is a ref `lid/@top`, and a mark on a face or an edge that has one is found again by it before the nearest-point rule.
 
 ## 5. Marks
 

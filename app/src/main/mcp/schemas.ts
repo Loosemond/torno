@@ -114,7 +114,7 @@ export type ExplodeArg = number | (Pick<ExplodeState, 'amount'> & Partial<Explod
 
 type Vec3 = [number, number, number]
 
-const refText = 'A ref names a part (lid), one of its faces (lid/F12) or edges (lid/E3), as given by marks, scene and describe.'
+const refText = 'A ref names a part (lid), one of its faces (lid/F12) or edges (lid/E3), as given by marks, scene and describe; or a face or edge the model names (lid/@top, from tags() in the model, listed by scene), which holds across builds.'
 const layoutText = 'The layout the refs are of, as listed by scene. Default: the one on screen.'
 
 const sceneInput = {

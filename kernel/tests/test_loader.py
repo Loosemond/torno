@@ -1,5 +1,7 @@
 import re
 
+from build123d import Axis
+
 import pytest
 
 from torno_kernel.loader import LoadError, choose_model, load_model, load_scene
@@ -276,3 +278,81 @@ def test_used_files_is_empty_for_a_model_that_imports_nothing_of_the_workspace(w
 
     load_scene(ws / "plain", "plain.py")
     assert used_files(ws / "plain", "plain.py") == []
+
+
+_TAGGED = '''
+from dataclasses import dataclass
+from build123d import *
+
+
+@dataclass
+class Params:
+    size: float = 20.0
+
+
+def assembly(p: Params):
+    return {"plate": Box(p.size, p.size, 4), "post": Pos(0, 0, 10) * Cylinder(3, 12)}
+
+
+def printables(p: Params):
+    return {"plate": Box(p.size, p.size, 4), "post": Cylinder(3, 12)}
+
+
+def tags(p: Params, parts):
+    plate = parts["plate"]
+    return {
+        "plate": {
+            "top": plate.faces().sort_by(Axis.Z)[-1],
+            "sides": plate.faces().filter_by(Axis.Z, reverse=True),
+            "top_edge": plate.faces().sort_by(Axis.Z)[-1].edges().sort_by(Axis.X)[0],
+            "mixed": [plate.faces().sort_by(Axis.Z)[0], plate.edges().sort_by(Axis.Z)[0]],
+        }
+    }
+'''
+
+
+def _tagged(tmp_path, source=_TAGGED):
+    (tmp_path / "t.py").write_text(source)
+    return load_model(tmp_path, "t.py")[0]
+
+
+def test_tags_of_a_face_an_edge_and_a_list_are_matched_to_the_kernels_indices(tmp_path):
+    from torno_kernel import topo
+
+    layouts = _tagged(tmp_path)
+    tags = layouts.tags[("assembly", "plate")]
+    plate = layouts["assembly"]["plate"]
+    top = plate.faces().sort_by(Axis.Z)[-1]
+    faces = topo.faces(plate)
+    assert [faces[i].IsSame(top.wrapped) for i in tags["top"]["faces"]] == [True]
+    assert "edges" not in tags["top"]
+    assert len(tags["sides"]["faces"]) == 4
+    assert len(tags["top_edge"]["edges"]) == 1 and "faces" not in tags["top_edge"]
+    assert len(tags["mixed"]["faces"]) == 1 and len(tags["mixed"]["edges"]) == 1
+    # Called once per layout: the print layout has its own.
+    assert ("print", "plate") in layouts.tags
+    assert ("assembly", "post") not in layouts.tags
+
+
+def test_no_tags_function_gives_none(ws):
+    assert load_model(ws / "bracket", "bracket.py")[0].tags == {}
+
+
+@pytest.mark.parametrize(
+    "body, said",
+    [
+        ('{"plate": {"top": parts["post"].faces()[0]}}', "plate/@top is a face that plate does not have (the tag is stale"),
+        ('{"plate": {"top": []}}', "plate/@top is an empty list"),
+        ('{"plate": {"top": parts["plate"]}}', "plate/@top is Box, not a face or an edge"),
+        ('{"plate": {"two words": parts["plate"].faces()[0]}}', "is no tag name of plate"),
+        ('{"nope": {"top": parts["plate"].faces()[0]}}', "tags() names nope, which no layout has"),
+        ('["plate"]', "tags() must return a dict of part name"),
+        ('{"plate": ["top"]}', "tags() must return a dict of part name"),
+    ],
+)
+def test_bad_tags_fail_the_build(tmp_path, body, said):
+    head, _ = _TAGGED.split("def tags(")
+    source = head + f"def tags(p, parts):\n    return {body}\n"
+    with pytest.raises(LoadError, match=re.escape(said)) as e:
+        _tagged(tmp_path, source)
+    assert e.value.kind == "exception"

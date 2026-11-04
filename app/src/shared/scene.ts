@@ -46,7 +46,15 @@ export interface Part {
   arranged?: [number, number, number]
   /** The group of parts the model puts it in (`Scene.groups`), named by the worker; absent for a part in none. An explode moves a group as one body. */
   group?: string
+  /**
+   * The faces and edges the model named (`tags(p, parts)`), by tag: the kernel's indices (`F<i>`, `E<j>`) of each, in
+   * the order the model gave them. A ref is `lid/@top`. Absent for a part with none, and from a kernel that does not
+   * read them.
+   */
+  tags?: Record<string, PartTag>
 }
+/** What a tag names on a part: faces and edges by index; an empty list is left out. */
+export interface PartTag { faces?: number[]; edges?: number[] }
 /**
  * A field of the model's `Params` dataclass, as the worker that loaded the model read it (`loader.read_params`).
  * `type` is as written in the source; `default` is the value `Params()` holds when JSON can say it, else null;

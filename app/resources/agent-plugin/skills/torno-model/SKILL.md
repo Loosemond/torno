@@ -95,6 +95,34 @@ def groups(p: Params):
 - Name the parts with the group as a prefix (`flat-centre`), so that a reader of the file sees it too.
 - Asked to group parts, edit `groups(p)` in the model: torno keeps no groups of its own.
 
+## Tags
+
+A face number (`lid/F12`) is renumbered whenever the model's topology changes. When a face or an edge matters across
+edits (a mounting face, the edge a dimension is on, the screw holes), name it in the model with an optional
+`tags(p, parts)`, beside `assembly` and `printables`. It is called once for each layout with the dict of parts that
+layout's function returned, and returns part name to tag name to a face, an edge, or a list of them, **taken from
+those very shapes**:
+
+```
+def tags(p: Params, parts):
+    lid = parts["lid"]
+    return {"lid": {"top": lid.faces().sort_by(Axis.Z)[-1], "screw_holes": lid.faces().filter_by(GeomType.CYLINDER)}}
+```
+
+- The ref is `lid/@top`; a tag of several (`lid/@screw_holes`) is taken whole by `mcp__torno__highlight` and
+  `mcp__torno__ask`, and refused where one face or edge is needed (it names them). `describe`, `measure`, marks and
+  dimensions take a tag of one. `mcp__torno__scene` lists each part's tags with the faces and edges they are now.
+- A mark placed on a tagged face or edge keeps the tag, and every build looks for it first: it follows the face when
+  the numbers shift or the face moves. Prefer a tag to a bare `F12` in anything that must outlive an edit.
+- A tag name is a letter or `_`, then letters, digits, `_`, `.` or `-`. A tag that names nothing the part has (a
+  face of another part or taken before an edit, a solid, an empty list) fails the build and says which. A part
+  the layout lacks is skipped; a part no layout has fails.
+- The shapes are the layout's own, so in a `print` layout that poses a part differently a selection by direction
+  (`sort_by(Axis.Z)[-1]`) may pick another face than in `assembly`: choose faces by something that does not depend on
+  the pose, or tag them where the layouts agree.
+- Asked to name a face, edit `tags(p, parts)` in the model: torno keeps no tags of its own. No `torno` import is
+  needed.
+
 ## Checks
 
 What must stay true when a size changes can be declared in the model, with an optional `checks(p)` beside `groups`.

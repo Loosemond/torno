@@ -129,6 +129,7 @@ def _build(
         for part in scene.get("parts", []):
             if part.get("name") in group_of:
                 part["group"] = group_of[part["name"]]
+        _tag_parts(scene, getattr(layouts, "tags", {}), kept)
         scene["checks"] = _model_checks(declared, shapes, groups, kept)
         _flush_output()
         # Inside the try: a scene that cannot be written as JSON (a NaN volume)
@@ -150,6 +151,17 @@ def _build(
         error["diagnosis"] = diagnosis
     write_frame(channel, {"ok": False, "error": error})
     return None
+
+
+def _tag_parts(scene: dict[str, Any], tags: dict[tuple[str, str], Any], kept: dict[Any, Any]) -> None:
+    """Each part names the tags the model gave it (``Part.tags``: tag → faces and edges by index), and the worker
+    keeps them for ``queries.resolve``. Indices were matched before the print layout was spread, and spreading
+    keeps the order of faces and edges."""
+    for part in scene.get("parts", []):
+        named = tags.get((part.get("layout"), part.get("name")))
+        if named:
+            part["tags"] = named
+            kept["tags", part["key"]] = named
 
 
 def _model_checks(
