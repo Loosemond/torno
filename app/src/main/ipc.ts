@@ -14,6 +14,7 @@ import type { ObjectCard, ThumbnailOf } from '../shared/show'
 import type { ViewState } from '../shared/view'
 import type { ObjectInfo, RecentFolder, WorkspaceInfo } from '../shared/workspace'
 import { Builds, buildTimeout, watchFolder } from './builds'
+import { keepExample } from './example'
 import { type ExportDeps, exportFile, exportPlan, forgetExportScans } from './export/build'
 import { loadAssets } from './export/html'
 import { type ModelDeps, checkModelFile, makeModelFile } from './export/model'
@@ -59,7 +60,7 @@ function handle(channel: string, fn: (event: Electron.IpcMainInvokeEvent, ...arg
 
 // Channel names, repeated in src/preload/index.ts.
 //   invoke: workspace:current, workspace:pick, workspace:open, workspace:versions, ready:check, ready:make,
-//           workspace:recent, workspace:forget, workspace:hasExample, workspace:openExample,
+//           workspace:recent, workspace:forget, workspace:hasExample, workspace:openExample, workspace:keepExample,
 //           object:open, object:rebuild, object:sceneFile,
 //           session:current, session:start, session:trust, session:instructions, session:revealInstruction, session:stop, session:chooseView,
 //           chat:history, chat:reference, chat:send, chat:interrupt, chat:setModel, chat:setEffort, chat:models,
@@ -535,6 +536,30 @@ export function registerIpc(
     const folder = await opts.example?.()
     if (!folder) throw new Error('this torno has no example beside it')
     return openWorkspace(folder, { example: true })
+  })
+  // "Keep this as a folder": the open example copied, whole, to a new folder at a path the person chooses in the save dialog
+  // (under test `pickSave`), which is then opened and remembered like any folder they chose. Null when they chose none.
+  handle('workspace:keepExample', async (event): Promise<WorkspaceInfo | null> => {
+    const ws = requireWorkspace()
+    // The copy to keep is the open one, which main made: never a path from the window.
+    if (!ws.info.example) throw new Refusal('Only the example can be kept this way.')
+    const usual = join(homedir(), 'objects')
+    const defaultPath = join(existsSync(usual) ? usual : homedir(), 'torno-example')
+    let picked: string | null
+    if (opts.pickSave) picked = await opts.pickSave(defaultPath)
+    else {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      const options: Electron.SaveDialogOptions = { title: 'Keep this as a folder', buttonLabel: 'Keep', defaultPath, properties: ['createDirectory'] }
+      const answer = await (win ? dialog.showSaveDialog(win, options) : dialog.showSaveDialog(options))
+      picked = answer.canceled || !answer.filePath ? null : answer.filePath
+    }
+    if (picked === null) return null
+    try {
+      await keepExample(ws.info.root, picked)
+    } catch (e) {
+      throw new Refusal(e instanceof Error ? e.message : String(e))
+    }
+    return chosen(await openWorkspace(picked))
   })
 
   handle('ready:check', async (_event, fresh: unknown) => {

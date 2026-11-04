@@ -1,10 +1,10 @@
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import { loadMarksFile } from './marks/file'
 import { loadSceneFile } from './scenefile'
-import { EXAMPLE_MARKER, EXAMPLE_OBJECTS, copiedOfExample, copyExample, exampleSource, removeExample, sweepExamples } from './example'
+import { EXAMPLE_MARKER, EXAMPLE_OBJECTS, MOST_KEPT_BYTES, copiedOfExample, copyExample, exampleSource, keepExample, removeExample, sweepExamples } from './example'
 
 const made: string[] = []
 const temp = (): string => {
@@ -124,4 +124,84 @@ it('sweeps the copies a crash left: only folders its own marker names, of a torn
   expect(readFileSync(join(theirs, 'kept.txt'), 'utf8')).toBe('kept')
   // A temporary folder that is not there is nothing to sweep.
   expect(await sweepExamples(join(into, 'nowhere'))).toEqual([])
+})
+
+/** A copy of the example with what a session made in it: a new model, a chat, the conversation to resume, a link. */
+async function worked(): Promise<{ copy: string; parent: string }> {
+  const copy = await copyExample(stand(temp()), temp())
+  const project = join(copy, 'enclosure')
+  writeFileSync(join(project, 'lid2.py'), '# made in the session\n')
+  mkdirSync(join(project, '.torno', 'chat'))
+  writeFileSync(join(project, '.torno', 'chat', 'a.jsonl'), '{}\n')
+  writeFileSync(join(project, '.torno', 'session.json'), '{}')
+  writeFileSync(join(project, '.torno', 'state.md'), 'state')
+  mkdirSync(join(project, '__pycache__'))
+  writeFileSync(join(project, '__pycache__', 'x.pyc'), 'x')
+  const elsewhere = temp()
+  writeFileSync(join(elsewhere, 'secret.txt'), 'secret')
+  symlinkSync(elsewhere, join(project, 'tools'))
+  symlinkSync(join(elsewhere, 'secret.txt'), join(project, 'notes.txt'))
+  return { copy, parent: temp() }
+}
+
+it('keeps the example as a folder: all that was made in it, whole, and not the marker, a link or what is only of the run', async () => {
+  const { copy, parent } = await worked()
+  const before = readdirSync(copy, { recursive: true }).sort()
+  const to = join(parent, 'my-enclosure')
+  await keepExample(copy, to)
+  const kept = readdirSync(to, { recursive: true }).map(String).sort()
+  expect(kept).toEqual(['enclosure', 'enclosure/.torno', 'enclosure/.torno/chat', 'enclosure/.torno/chat/a.jsonl', 'enclosure/.torno/marks.json', 'enclosure/.torno/scene.json', 'enclosure/brief.md', 'enclosure/enclosure.py', 'enclosure/lid2.py'])
+  expect(readFileSync(join(to, 'enclosure', 'lid2.py'), 'utf8')).toBe('# made in the session\n')
+  expect(existsSync(join(to, EXAMPLE_MARKER))).toBe(false)
+  // Only the folder: no hidden folder beside it, and the copy it was made from is as it was.
+  expect(readdirSync(parent)).toEqual(['my-enclosure'])
+  expect(readdirSync(copy, { recursive: true }).sort()).toEqual(before)
+})
+
+it('keeps nothing onto a folder or a file of the name, in any case, and nothing that is not a copy of the example', async () => {
+  const { copy, parent } = await worked()
+  mkdirSync(join(parent, 'Taken'))
+  writeFileSync(join(parent, 'Taken', 'mine.txt'), 'mine')
+  writeFileSync(join(parent, 'file'), 'a file')
+  mkdirSync(join(parent, 'empty'))
+  for (const name of ['Taken', 'taken', 'file', 'empty']) await expect(keepExample(copy, join(parent, name)), name).rejects.toThrow('is there already')
+  expect(readdirSync(parent).sort()).toEqual(['Taken', 'empty', 'file'])
+  expect(readFileSync(join(parent, 'Taken', 'mine.txt'), 'utf8')).toBe('mine')
+  // A folder that is not the copy that torno made, however much it looks like one.
+  const other = temp()
+  mkdirSync(join(other, 'enclosure'))
+  await expect(keepExample(other, join(parent, 'new'))).rejects.toThrow('Only the copy of the example')
+  await expect(keepExample(join(copy, 'enclosure'), join(parent, 'new'))).rejects.toThrow('Only the copy of the example')
+  // Not a path to a folder that can be made.
+  await expect(keepExample(copy, 'relative')).rejects.toThrow('not a path')
+  await expect(keepExample(copy, join(parent, 'nowhere', 'new'))).rejects.toThrow('is not a folder')
+  await expect(keepExample(copy, join(parent, 'a\nb'))).rejects.toThrow('not a name')
+  await expect(keepExample(copy, parent + '/..')).rejects.toThrow()
+  expect(readdirSync(parent).sort()).toEqual(['Taken', 'empty', 'file'])
+})
+
+it('keeps it whole or not at all: a failure, or a folder that appears meanwhile, leaves nothing of it', async () => {
+  const { copy, parent } = await worked()
+  const to = join(parent, 'new')
+  await expect(keepExample(copy, to, { beforeRename: () => Promise.reject(new Error('the disk is full')) })).rejects.toThrow('the disk is full')
+  expect(readdirSync(parent)).toEqual([])
+  // The name is taken while the copy is being written: the other folder is left as it is.
+  await expect(
+    keepExample(copy, to, {
+      beforeRename: (temp) => {
+        expect(readdirSync(parent)).toEqual([basename(temp)])
+        expect(basename(temp)).toMatch(/^\.new\.torno-new-[0-9a-f]{12}$/)
+        mkdirSync(to)
+        writeFileSync(join(to, 'theirs.txt'), 'theirs')
+      }
+    })
+  ).rejects.toThrow('is there already')
+  expect(readdirSync(parent)).toEqual(['new'])
+  expect(readdirSync(to)).toEqual(['theirs.txt'])
+  // A copy that grew past what is kept is refused before anything is made.
+  const big = join(copy, 'enclosure', 'big.bin')
+  writeFileSync(big, '')
+  truncateSync(big, MOST_KEPT_BYTES + 1)
+  await expect(keepExample(copy, join(parent, 'other'))).rejects.toThrow('torno keeps no more')
+  expect(readdirSync(parent).sort()).toEqual(['new'])
 })

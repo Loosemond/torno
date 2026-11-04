@@ -105,7 +105,12 @@ person would, two marks, a dimension that fails and two saved views. It is
 copied to a temporary folder. That copy is
 removed when torno quits, with whatever was made in it, and the window says so
 under the workspace's name for as long as it is open; one that a crash left is
-removed at the next start. A folder given to `scripts/torno` is added to the
+removed at the next start. To keep what you made in it, press "Keep this as a
+folder…" under the workspace's name: choose a name in the dialog and torno copies
+the whole example, with the marks, the views and the chat, to a new folder of
+that name, whole or not at all, and opens it in place of the copy. It never
+writes into a folder that exists, so a name that is taken is refused, and the
+new folder is added to the folders opened lately. A folder given to `scripts/torno` is added to the
 folders opened lately, as one opened from the window is.
 
 Once a folder is open, the folder button at the top left opens a menu with the
@@ -1470,6 +1475,7 @@ Outside the workspace:
 - `~/Library/Application Support/torno/kernel-env` on macOS, for the packaged app only: the kernel's Python
   environment, made at the first build of a workspace with no `pyproject.toml`. Never inside `torno.app`.
 - The one file an export writes, at the path you choose.
+- The one new folder "Keep this as a folder…" makes of the example, at the path you choose.
 - `torno.desktop`, only by `scripts/torno --install-desktop`.
 - A copy of the example in the system's temporary folder, removed when torno
   quits, or at the next start after a crash (only folders its own marker file

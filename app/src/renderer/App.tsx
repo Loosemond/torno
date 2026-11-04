@@ -63,6 +63,8 @@ async function pickWorkspace(): Promise<void> {
 /** Stand for the folder the person has yet to choose in the dialog, and for the copy of the example main makes. */
 const PICK = 'pick'
 const EXAMPLE = 'example'
+/** Stands for the new folder the open example is kept in, at a path the person chooses in the dialog. */
+const KEEP = 'keep'
 
 /**
  * Leave the workspace for a folder, or for the one chosen in the dialog. A folder that cannot be opened leaves the
@@ -70,9 +72,18 @@ const EXAMPLE = 'example'
  * when nothing went wrong (also when the dialog was cancelled).
  */
 async function goTo(to: string): Promise<string | null> {
-  const what = to === PICK ? 'The folder' : to === EXAMPLE ? 'The example' : basename(to)
+  const what = to === PICK ? 'The folder' : to === EXAMPLE ? 'The example' : to === KEEP ? 'The example' : basename(to)
   try {
-    const info = to === PICK ? await window.torno.workspace.pick() : to === EXAMPLE ? await window.torno.workspace.openExample() : store.getState().workspace?.root === to ? null : await window.torno.workspace.open(to)
+    const info =
+      to === PICK
+        ? await window.torno.workspace.pick()
+        : to === EXAMPLE
+          ? await window.torno.workspace.openExample()
+          : to === KEEP
+            ? await window.torno.workspace.keepExample()
+            : store.getState().workspace?.root === to
+              ? null
+              : await window.torno.workspace.open(to)
     if (info) showWorkspace(info) // null: the dialog was cancelled
     return null
   } catch (e) {
@@ -375,7 +386,10 @@ export function App() {
         {/* For as long as the example is open: what is made here does not outlive torno, and it says so where the folder is named. */}
         {workspace.example && (
           <p className="workspace-example" role="note">
-            {EXAMPLE_NOTE}
+            {EXAMPLE_NOTE}{' '}
+            <button type="button" className="link-button" disabled={leaving !== null} title="Copies this folder, with whatever was made in it, to a new folder you choose, and opens that one" onClick={() => leave(KEEP)}>
+              Keep this as a folder…
+            </button>
           </p>
         )}
         {openFailed !== null && (

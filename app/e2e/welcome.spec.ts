@@ -180,6 +180,47 @@ test('the example is a copy in a temporary folder: the repository\'s own is neit
   expect(existsSync(copy)).toBe(false)
 })
 
+test('the example can be kept as a folder: a new one at the path chosen, never over one that is there, opened and remembered', async () => {
+  const home = temp('keep')
+  const config = join(home, 'config.json')
+  const bare = await launch({ TORNO_CONFIG: config })
+  const choose = (to: string | null): Promise<void> => bare.evaluate((_e, path) => void ((globalThis as unknown as { __tornoMain: { pickSave: string | null } }).__tornoMain.pickSave = path), to)
+  try {
+    const first = await bare.firstWindow()
+    await first.getByRole('button', { name: 'Open the example' }).click()
+    await first.waitForSelector('[data-region="left"]')
+    const copy = (await first.evaluate(() => window.__tornoTest!.state())).workspace!.root
+    const keep = first.getByRole('button', { name: 'Keep this as a folder…' })
+    // A name that is taken is refused, and said under the folder's name; nothing is written and the example stays open.
+    mkdirSync(join(home, 'taken'))
+    await choose(join(home, 'taken'))
+    await keep.click()
+    await expect(first.locator('.workspace-problem')).toContainText('is there already')
+    expect(readdirSync(join(home, 'taken'))).toEqual([])
+    expect((await first.evaluate(() => window.__tornoTest!.state())).workspace!.root).toBe(copy)
+    // The dialog cancelled: nothing happens.
+    await choose(null)
+    await keep.click()
+    expect((await first.evaluate(() => window.__tornoTest!.state())).workspace!.root).toBe(copy)
+    // A new name: the folder is there whole, opened in place of the copy, and remembered.
+    const kept = join(home, 'my-enclosure')
+    await choose(kept)
+    await keep.click()
+    await expect(first.locator('.workspace-name')).toHaveText('my-enclosure')
+    await expect(first.locator('.workspace-example')).toHaveCount(0)
+    expect((await first.evaluate(() => window.__tornoTest!.state())).workspace!.root).toBe(realpathSync(kept))
+    expect(readdirSync(kept, { recursive: true }).map(String).sort()).toEqual(['enclosure', 'enclosure/.torno', 'enclosure/.torno/marks.json', 'enclosure/.torno/scene.json', 'enclosure/brief.md', 'enclosure/enclosure.py'])
+    expect(readdirSync(home).filter((name) => name.includes('torno-new'))).toEqual([])
+    await expect.poll(() => (JSON.parse(readFileSync(config, 'utf8')) as { recent: string[] }).recent[0]).toBe(realpathSync(kept))
+    // It is a folder of the person's own: it builds, and its marks came with it.
+    await first.locator('.object-row', { hasText: 'enclosure' }).click()
+    await expect.poll(async () => (await first.evaluate(() => window.__tornoTest!.state())).build?.status, { timeout: 60_000 }).toBe('ok')
+  } finally {
+    await bare.close()
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
 test('? shows every key of the one table; what is typed searches it, and no tool behind it hears a key', async () => {
   await open('plain')
   await page.locator('[data-region="viewport"] canvas').first().click({ position: { x: 5, y: 5 } })

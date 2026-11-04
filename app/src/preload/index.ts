@@ -36,6 +36,7 @@ const bridge: TornoBridge = {
     forget: (root) => invoke('workspace:forget', root),
     hasExample: () => invoke('workspace:hasExample'),
     openExample: () => invoke('workspace:openExample'),
+    keepExample: () => invoke('workspace:keepExample'),
     onRequested: (cb) => subscribe('workspace:requested', cb),
     onCloseAsked: (cb) => subscribe('window:closeAsked', cb),
     answerClose: (close) => ipcRenderer.send('window:closeAnswer', close)

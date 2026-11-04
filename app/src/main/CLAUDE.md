@@ -333,7 +333,14 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `WorkspaceInfo.example` says the open folder is it, and the window says
   `EXAMPLE_NOTE` under the workspace's name.
   The example's own folder is never opened in place and never written to (the kernel's test workspace has nothing
-  to do with it). The copy is
+  to do with it). **Keeping it** (`keepExample`, channel `workspace:keepExample`; the root CLAUDE.md names it among the writes
+  outside `.torno/`) copies the open copy, with whatever was made in it (not the marker, `__pycache__`, links, nor
+  `.torno/session.json` and `state.md`, which are of the run), to a new folder at the path the save dialog gave
+  (under test `pickSave`): planned first (256 MB, 5,000 entries, 12 deep at most), written in a hidden
+  `.<name>.torno-new-<random>` beside it, the name taken by `mkdir` and the hidden folder renamed onto it as the last
+  step, refused for any name that is taken in any case; the copy to keep is `ws.info.root`, which must carry the
+  marker. The folder is then opened and remembered like one chosen in "Open folder"; the temporary copy stays until
+  quit, as ever. The copy is
   not remembered: not as the workspace to open next, not as a recent folder.
 
 - **What torno needs** (`main/ready.ts`, `main/readiness.ts` `ReadyKeeper`, `shared/ready.ts` `Ready`; the channels `ready:check`,
