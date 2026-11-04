@@ -3,6 +3,7 @@ import { MeshAsks } from './scanMeshes'
 import { useEffect, useRef, useState } from 'react'
 import { apply } from '../../shared/align'
 import { EXPLODED_TOOLS, explodeOf } from '../../shared/explode'
+import { fadeIn } from '../../shared/build'
 import { measuredValue } from '../../shared/dimension'
 import type { Vec3 } from '../../shared/marks'
 import type { Scene } from '../../shared/scene'
@@ -182,6 +183,16 @@ function connect(viewport: Viewport, readout: Readout): () => void {
   const underTest = new URLSearchParams(location.search).has('test')
   // The pictures on the cards of the page of objects: one of every build that lands, of whichever object. The
   // one subscription to the builds is this one, which hands each on: the meshes cross from main once.
+  // The parts fade for a build that takes a while (`fadeIn`), not at each save; the pick lock does not wait.
+  let fadeTimer: ReturnType<typeof setTimeout> | undefined
+  const fade = (s: TornoState): void => {
+    clearTimeout(fadeTimer)
+    fadeTimer = undefined
+    const wait = s.scene === null ? null : fadeIn(s.build, Date.now(), viewport.faded())
+    if (wait === null || wait === 0) return viewport.setStale(wait === 0)
+    viewport.setStale(false)
+    fadeTimer = setTimeout(() => fade(store.getState()), wait)
+  }
   const thumbs = connectThumbs(viewport)
   const offScene = window.torno.object.onScene((m) => {
     thumbs.landed(m)
@@ -194,7 +205,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     viewport.setLayout(s.layout)
     // Before the first view is fitted: it frames the parts where they are drawn.
     viewport.setExplode(explodeNow(s))
-    viewport.setStale(s.build?.stale ?? false)
+    fade(s)
     if (first) viewport.setView('iso')
     report()
   })
@@ -303,6 +314,10 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     e.preventDefault()
   }
   window.addEventListener('keydown', onKey)
+  // The ghosts of what a build changed are put away by any key or click: the person has seen enough, or is on to something else.
+  const endGhosts = (): void => viewport.endGhosts()
+  window.addEventListener('keydown', endGhosts, true)
+  viewport.canvas.addEventListener('pointerdown', endGhosts, true)
 
   /** The build on show, as the dimensions' values are held against it: none until there is a scene. */
   const shown = (s: ReturnType<typeof store.getState>): number => (s.scene ? s.revision : 0)
@@ -341,11 +356,12 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     if (apart !== null && wasApart === null) putDown()
     if (s.objectId !== prev.objectId || (prev.scene && !s.scene)) {
       viewport.setScene(NO_SCENE, new ArrayBuffer(0))
+      clearTimeout(fadeTimer)
       viewport.setStale(false)
       return
     }
     if (s.scene !== prev.scene) return // the scene handler above brings the viewport in line
-    if (s.build !== prev.build) viewport.setStale((s.build?.stale ?? false) && s.scene !== null)
+    if (s.build !== prev.build) fade(s)
     if (s.layout !== prev.layout) viewport.setLayout(s.layout)
     if (s.layers !== prev.layers) applyLayers(s)
     // After the layout, whose parts it is of. Over a moment when it is all that changed (a key, the agent, the
@@ -436,6 +452,9 @@ function connect(viewport: Viewport, readout: Readout): () => void {
       },
       project,
       exploded: () => viewport.exploded(),
+      faded: () => viewport.faded(),
+      ghosts: () => viewport.ghostKeys(),
+      holdGhosts: (held) => viewport.holdGhosts(held),
       // What a pointer move costs: the same call, at points spread over the canvas in a grid.
       timePicks: (count = 200, opts) => timed(count, (x, y) => viewport.pick(x, y, opts) !== null),
       underAt: (fx, fy) => viewHost()?.under([[fx, fy]])[0] ?? null,
@@ -497,8 +516,11 @@ function connect(viewport: Viewport, readout: Readout): () => void {
   }
 
   return () => {
+    clearTimeout(fadeTimer)
     putDown()
     window.removeEventListener('keydown', onKey)
+    window.removeEventListener('keydown', endGhosts, true)
+    viewport.canvas.removeEventListener('pointerdown', endGhosts, true)
     offTool()
     offScene()
     offStore()

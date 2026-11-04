@@ -7,7 +7,7 @@ import { KernelError, isBusy } from '../kernel/client'
 import { scanNumber } from '../../shared/format'
 import { type FilletDiagnosis, WHY, diagnosisText, sizeText } from '../../shared/diagnosis'
 import { number, sizes, vector } from '../marks/describe'
-import { DIFF_APPROXIMATE, DIFF_REFS, clean, partDiff } from '../sanity'
+import { clean, sceneDiff } from '../../shared/diff'
 import { plain, wire } from '../marks/measure'
 import { isMoved, movedForDisplay, spreadApart, spreadLayout } from '../marks/spread'
 import { type End, type EndArg, checkRef, endsOf } from './markTools'
@@ -766,29 +766,6 @@ export function diffTool(deps: ToolDeps, objectId: string, args: DiffToolArgs): 
   const to = pick(args.to, kept.at(-1)!)
   if ('content' in to) return to
 
-  let approximate = false
-  let refsMoved = false
-  const named = (parts: Part[], name: string): Part | undefined => parts.find((p) => p.name === name)
-  const layouts = [...new Set([...to.scene.layouts, ...from.scene.layouts])].map((layout) => {
-    const before = from.scene.parts.filter((p) => p.layout === layout)
-    const after = to.scene.parts.filter((p) => p.layout === layout)
-    const parts = after.flatMap((p) => {
-      const was = named(before, p.name)
-      if (!was) return []
-      const told = partDiff(was, p)
-      approximate ||= told.approximate
-      refsMoved ||= told.refsMoved
-      return [told.data]
-    })
-    const only = !from.scene.layouts.includes(layout) ? { only: 'to' } : !to.scene.layouts.includes(layout) ? { only: 'from' } : {}
-    return {
-      layout,
-      ...only,
-      added: after.filter((p) => !named(before, p.name)).map((p) => p.name),
-      removed: before.filter((p) => !named(after, p.name)).map((p) => p.name),
-      parts
-    }
-  })
-  const notes = [...(approximate ? [DIFF_APPROXIMATE] : []), ...(refsMoved ? [DIFF_REFS] : [])]
+  const { layouts, notes } = sceneDiff(from.scene, to.scene)
   return reply(clean({ object: found.obj.id, from: from.revision, to: to.revision, layouts, ...(notes.length > 0 ? { notes } : {}) }))
 }

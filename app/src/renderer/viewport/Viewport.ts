@@ -15,6 +15,8 @@ import { mmPerPx, needsCamera } from './marks/labels'
 import { MarkLayer, type Draft } from './marks/MarkLayer'
 import { overlayFonts, type LabelStyle } from './overlay'
 import { OverlayPass } from './overlayPass'
+import { partChanged } from '../../shared/diff'
+import { Ghosts, type GhostItem } from './ghosts'
 import { STALE_FADE, colorFor, colorsByName, edgeTint, mix } from '../../shared/palette'
 import { aimKeyLight, makeLights } from './lights'
 import { buildPart, type BuiltPart, disposePart } from './partMesh'
@@ -75,6 +77,8 @@ export class Viewport {
   private layouts: string[] = []
   private layout = ''
   private stale = false
+  /** The old edges and the new of the parts the last build changed, for a moment (`ghosts.ts`). */
+  private readonly ghosts = new Ghosts(() => this.invalidate())
   /** False until a scene with parts has been framed; after that the camera is the user's. */
   private framed = false
   /** Everything drawn in the current layout, for the clip planes: the parts and the grid (`groundExtent`), and the marks. */
@@ -155,7 +159,7 @@ export class Viewport {
     this.ground.material.depthWrite = false
     this.ground.renderOrder = -1
     this.ground.frustumCulled = false
-    this.scene.add(this.ground, this.scans.group, this.marks.group, this.section.decor)
+    this.scene.add(this.ground, this.scans.group, this.marks.group, this.section.decor, this.ghosts.group)
 
     this.overlay = new OverlayPass({ canvas, marks: this.marks, camera: () => this.camera, layout: () => this.layout, style: () => ({ ...this.labelStyle(), accent: this.theme.accent }), frame: () => ({ muted: this.theme.muted, axes: [this.theme.axisX, this.theme.axisY, this.theme.axisZ] as const, gridStep: this.gridStepMm }), project: (p) => this.project(p), syncMatrices: () => this.syncMatrices(), exploded: () => this.apart.any })
     // A label drawn before its face has loaded is in the fallback face: draw again once it is there.
@@ -222,7 +226,15 @@ export class Viewport {
       namedView: (name, parts, aspect, also) => this.namedCamera(name, withBox(drawnBox(parts, this.apart.offsets()), also ?? null) ?? EMPTY_BOX, aspect, true),
       cameraFor: (view, aspect, extent) => this.pictureCamera(view, aspect, extent),
       hiddenParts: (layout, drawn) => this.hiddenParts(layout, drawn),
-      hideGizmo: () => this.gizmo.hide(),
+      // A picture is of the model: the ghosts of a build that just landed go with the gizmo.
+      hideGizmo: () => {
+        const gizmoBack = this.gizmo.hide()
+        const ghostsBack = this.ghosts.hide()
+        return () => {
+          gizmoBack()
+          ghostsBack()
+        }
+      },
       section: () => this.section.get(),
       cutBy: (plane, layout, decor) => this.cutBy(plane, layout, decor),
       layGround: (layout) => reachingApart(this.rebuildGround(layout), this.partsOf(layout), this.apart),
@@ -250,9 +262,15 @@ export class Viewport {
   /** Shows a new build. The camera stays where it is, unless this is the first scene with parts. */
   setScene(scene: Scene, blob: ArrayBuffer): void {
     const seen = new Set<string>()
+    // Where the parts that changed stood, for the ghosts: not with a section on, nor with the parts apart (the ghost would have to be cut, or moved, the same way).
+    const stood = new Map<string, GhostItem['before']>()
+    const ghostable = this.section.get() === null && !this.apart.any
     for (const part of scene.parts) {
       seen.add(part.key)
       let entry = this.entries.get(part.key)
+      if (ghostable && entry && partChanged(entry.part, part)) {
+        stood.set(part.key, { edges: entry.built.edges.geometry.clone(), position: entry.built.group.position.clone(), quaternion: entry.built.group.quaternion.clone() })
+      }
       if (entry && entry.part.hash === part.hash) {
         entry.part = part
       } else {
@@ -276,12 +294,45 @@ export class Viewport {
     if (!this.layouts.includes(this.layout)) this.layout = this.layouts[0] ?? ''
     this.colors = colorsByName(scene.parts.map((p) => p.name))
     this.refresh()
+    this.showGhosts(stood)
 
     if (!this.framed && this.shownParts().length > 0) {
       this.framed = true
       this.setView('iso', false)
     }
     this.invalidate()
+  }
+
+  /** Draws the old edges (and the new, in the accent) of the parts that changed, for a moment; the ones of other layouts or switched off are let go. */
+  private showGhosts(stood: Map<string, GhostItem['before']>): void {
+    const items: GhostItem[] = []
+    for (const [key, before] of stood) {
+      const entry = this.entries.get(key)
+      if (!entry || entry.part.layout !== this.layout || this.layers.get(key)?.visible === false) {
+        before.edges.dispose()
+        continue
+      }
+      const { group, edges } = entry.built
+      items.push({ part: key, layout: entry.part.layout, before, after: { edges: edges.geometry.clone(), position: group.position.clone(), quaternion: group.quaternion.clone() } })
+    }
+    const still = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+    this.ghosts.begin(items, { old: toHex(this.theme.muted), fresh: toHex(this.theme.accent) }, performance.now(), still)
+    if (this.ghosts.on) this.invalidate()
+  }
+
+  /** Puts the ghosts of the last build away at once (a key, a click). */
+  endGhosts(): void {
+    this.ghosts.end()
+  }
+
+  /** Test only: the ghosts of the next builds stay until a key or a click, so that the window can be captured with them. */
+  holdGhosts(held: boolean): void {
+    this.ghosts.hold(held)
+  }
+
+  /** The keys of the parts the ghosts are drawn for; empty once they are gone. */
+  ghostKeys(): string[] {
+    return this.ghosts.keys()
   }
 
   /** The scans of the object on show, and the build on show (what their alignments' checks are held against): each is drawn where its alignment for the layout shown puts it, once its mesh has come (`setScanMesh`). */
@@ -465,6 +516,7 @@ export class Viewport {
   setLayout(layout: string): void {
     if (layout === this.layout || !this.layouts.includes(layout)) return
     this.layout = layout
+    this.ghosts.end()
     this.refresh()
     this.invalidate()
   }
@@ -482,6 +534,7 @@ export class Viewport {
     const to = isExploded(explode) ? explode : null
     // Asked again for what it has, or is on its way to: a move under way goes on.
     if (sameExplode(to, this.apart.get())) return
+    this.ghosts.end()
     const still = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
     this.apart.set(to, this.partsOf(this.layout), animate && !still ? performance.now() : undefined)
     this.placeParts()
@@ -606,6 +659,11 @@ export class Viewport {
     for (const entry of this.entries.values()) this.applyLook(entry)
     this.lookOfScans()
     this.invalidate()
+  }
+
+  /** Whether the parts are drawn faded now (`setStale`). */
+  faded(): boolean {
+    return this.stale
   }
 
   /** Goes to a standard view, fitted to the visible parts in the current projection, or to a given camera. */
@@ -766,6 +824,7 @@ export class Viewport {
    * Cheap enough to call with every move of a drag: the frame is drawn once.
    */
   setSection(plane: SectionPlane | null): void {
+    if (plane) this.ghosts.end()
     this.cutBy(plane, this.layout, true)
     this.extent = this.measured()
     this.invalidate()
@@ -989,6 +1048,7 @@ export class Viewport {
     this.controls.dispose()
     this.gizmo.dispose()
     this.section.dispose()
+    this.ghosts.end(false)
     this.scans.dispose()
     for (const entry of this.entries.values()) this.discard(entry)
     this.entries.clear()
@@ -1221,8 +1281,9 @@ export class Viewport {
       if (next) this.applyCamera(next)
       // The parts on their way apart or together: a step with every frame, and nothing of it through React.
       if (this.apart.step(now)) this.placeParts()
+      const ghosting = this.ghosts.step(now)
       this.draw()
-      if (this.move.under || this.apart.moving) this.invalidate()
+      if (this.move.under || this.apart.moving || ghosting) this.invalidate()
     })
   }
 

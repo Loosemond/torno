@@ -67,6 +67,14 @@
   font-weight: 500;
 }
 
+.status-landed {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .status-letgo {
   min-width: 0;
   overflow: hidden;
