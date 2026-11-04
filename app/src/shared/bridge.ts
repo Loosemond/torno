@@ -215,6 +215,10 @@ export interface TornoBridge {
     plan(req: ExportRequest): Promise<ExportPlan>
     /** Asks where to save (under test: `__tornoMain.pickSave`), writes the file there, and says where; of a file of the model, what its check found. Null when the dialog was cancelled. The path is the dialog's alone: the window never names one. */
     save(req: ExportRequest): Promise<ExportSaved | null>
+    /** Shows the file this sheet saved last in its folder. It takes no path: main keeps the one it wrote. Rejects when the file is gone. */
+    reveal(): Promise<void>
+    /** Has the system open the file this sheet saved last (a page, in the browser). No path either. */
+    openSaved(): Promise<void>
     /** The export sheet was put away: what main kept ready for it (scans reduced) is let go. */
     done(): void
   }

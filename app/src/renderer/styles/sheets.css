@@ -342,3 +342,15 @@
   font-family: var(--font-mono);
   text-align: left;
 }
+
+/* The two quiet things to do with the file just saved, and the names left out of a file, which open themselves. */
+.export-after {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-left: var(--space-1);
+}
+
+.export-cannot .link-button {
+  font-family: var(--font-mono);
+}
