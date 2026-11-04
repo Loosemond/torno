@@ -124,6 +124,38 @@ describe('a picture is behind when anything its object is built from is newer', 
     expect((await cardsOf(deps({ sourcesMtimeMs: level })))[1].thumb).toMatchObject({ behind: false })
   })
 
+  it('is behind by a file the last build imported from another project, and the card names it', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'torno-uses-'))
+    try {
+      mkdirSync(join(root, 'box'))
+      writeFileSync(join(root, 'box', 'box.py'), 'x = 1\n')
+      utimesSync(join(root, 'box', 'box.py'), 3, 3) // 3000 ms
+      const dir = join(root, 'lid')
+      const files: Record<string, string> = {
+        [join(dir, '.torno', 'thumb.json')]: JSON.stringify({ at: '2026-10-08T21:14:03.000Z', layout: 'assembly', parts: 1, model: 'lid.py', sourcesMtimeMs: 1000, bytes: 200, hash: 'x' }),
+        [join(dir, '.torno', 'marks.json')]: JSON.stringify({ next: 1, marks: [] })
+      }
+      const over = (uses: string[]): Partial<CardDeps> => ({
+        objects: () => [{ id: 'lid', name: 'lid', dir, model: 'lid.py' }],
+        opened: () => true,
+        build: () => ({ objectId: 'lid', status: 'ok', revision: 1, stale: false }),
+        marks: async () => [],
+        readFile: async (path) => files[path] ?? missing(),
+        sourcesMtimeMs: async (d) => (d === dir ? 1000 : null),
+        size: async () => 200,
+        uses: () => uses
+      })
+      const [card] = await cardsOf(deps(over(['box/box.py'])))
+      expect(card.thumb).toMatchObject({ behind: true })
+      expect(card.uses).toEqual(['box/box.py'])
+      const [plain] = await cardsOf(deps(over([])))
+      expect(plain.thumb).toMatchObject({ behind: false })
+      expect(plain.uses).toBeUndefined()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('looks at the common folder once for all the cards', async () => {
     const asked: string[] = []
     await cardsOf(deps({ sourcesMtimeMs: async (dir) => (asked.push(dir), 1000) }))

@@ -190,6 +190,7 @@ function cards(): Promise<ObjectCard[]> {
     },
     readFile: (path) => readFile(path, 'utf8'),
     sourcesMtimeMs: newestPython,
+    uses: (id) => ws.builds.scene(id)?.scene.uses ?? [],
     size: (path) => stat(path).then((s) => s.size, () => null)
   })
 }
@@ -202,7 +203,8 @@ const keeping: KeepDeps = {
     const revision = current?.builds.scene(id)?.revision
     if (revision === undefined) return undefined
     const built = current?.builtFrom.get(id)
-    return { revision, ...(built?.revision === revision && built.startedMs !== undefined ? { startedMs: built.startedMs } : {}) }
+    const uses = current?.builds.scene(id)?.scene.uses
+    return { revision, ...(built?.revision === revision && built.startedMs !== undefined ? { startedMs: built.startedMs } : {}), ...(uses ? { uses } : {}) }
   }
 }
 

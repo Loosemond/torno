@@ -95,6 +95,18 @@ def groups(p: Params):
 - Name the parts with the group as a prefix (`flat-centre`), so that a reader of the file sees it too.
 - Asked to group parts, edit `groups(p)` in the model: torno keeps no groups of its own.
 
+## Fitting a part to another project
+
+A lid made for a box, a mount made for a part another project holds: import the other project's maker rather than
+copying its numbers, and put its part in `assembly(p)` only, never in `printables(p)` (it is not printed here), so
+that `check clearance` and `check overlap` work across the two. Put the other project's folder on `sys.path` first
+(`sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "box"))`) and `import box`.
+
+torno reads which files the model imported from beside its folder (`uses` in `mcp__torno__scene` and `state.md`):
+a save in one of them builds this project again, and the project's card says `A source has changed since`. It
+declares nothing of its own. If two projects import each other, both show each other in `uses`; Python will
+usually refuse the cycle, so break it by moving what they share into `common/`.
+
 ## Params is the one source of sizes
 
 Every size, clearance and count is a field of `Params`, with a default; functions read `p.wall`, never a number

@@ -174,6 +174,8 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
     ...(printed ? { output: printed.text, ...(printed.cut ? { outputCut: true } : {}) } : {}),
     layout: view?.layout ?? null,
     layouts: scene.layouts,
+    // The files the model imported from outside its folder (another project's, common/): a save in one builds this project again.
+    ...(scene.uses && scene.uses.length > 0 ? { uses: scene.uses } : {}),
     // The model's Params as the kernel read them from the source: read only, the model file is the user's.
     params: scene.params ?? [],
     ...(groups.length > 0 ? { groups } : {}),

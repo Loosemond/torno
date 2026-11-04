@@ -242,6 +242,11 @@ is the detail of this folder, under the headings it has there.
   `exception` that says what is wrong. The scene carries it as `groups` (`[]` without), and each part of a group
   names it (`group`); the supervisor passes the
   frame on and reads none of it.
+- **The scene says what the model imported (`uses`).** After the load, the worker (`loader.used_files`, from
+  `sys.modules`, never from a declaration) lists the Python files under the workspace (the folder above the
+  model's) that it imported from outside its own folder, `common/` included, as paths from the workspace with `/`.
+  `.venv`, `site-packages` and models loaded as models are not among them. Main watches those files and rebuilds on
+  a save; a cycle between two projects is shown on both and never refused here. Only a good build reports it.
 - The app starts the kernel with `PYTHONDONTWRITEBYTECODE=1`, so importing a
   model writes no `__pycache__` into the workspace.
 - **The build123d skill's API reference is made from the pinned build123d.** `app/resources/agent-plugin/skills/build123d/reference/api-<version>.txt`
