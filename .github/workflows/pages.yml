@@ -1,13 +1,14 @@
 name: Pages
 
-# GitHub Pages: the exported bracket at / (site/index.html, made by app/e2e/site.spec.ts and checked in) and the
-# manual at /manual/ (docs/manual.md rendered by app/scripts/build-manual.mjs). Pages must be set to deploy from
+# GitHub Pages: the landing page at / (site/index.html, site/assets/, checked in; its fonts and pictures copied
+# here from app/node_modules and docs/images), the exported bracket at /demo/ (site/demo/index.html, made by
+# app/e2e/site.spec.ts and checked in) and the manual at /manual/ (docs/manual.md rendered by app/scripts/build-manual.mjs). Pages must be set to deploy from
 # GitHub Actions (Settings, Pages, Source).
 
 on:
   push:
     branches: [main]
-    paths: [site/**, docs/**, app/scripts/build-manual.mjs, app/scripts/manual-page.mjs, .github/workflows/pages.yml]
+    paths: [site/**, docs/**, app/scripts/build-manual.mjs, app/scripts/manual-page.mjs, app/scripts/build-site.mjs, .github/workflows/pages.yml]
   workflow_dispatch:
 
 permissions:
@@ -34,6 +35,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: node app/scripts/build-manual.mjs site/manual
+      - run: node app/scripts/build-site.mjs
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

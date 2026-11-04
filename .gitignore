@@ -14,3 +14,8 @@ docs/images/raw/
 
 # The manual page the Pages workflow builds (app/scripts/build-manual.mjs)
 site/manual/
+
+# Copied by app/scripts/build-site.mjs and build-manual.mjs for the Pages build
+site/assets/fonts/
+site/assets/img/
+site/manual/

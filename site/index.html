@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>torno</title>
+<meta name="description" content="A desktop workbench for making CAD parts with an AI coding agent. You point at the part, Claude Code writes the build123d code, torno builds it every time you save.">
+<meta name="color-scheme" content="light dark">
+<meta property="og:title" content="torno">
+<meta property="og:description" content="A desktop workbench for making CAD parts with an AI coding agent.">
+<meta property="og:image" content="https://torno.luisg.me/assets/img/social-preview.png">
+<link rel="icon" href="assets/torno.svg" type="image/svg+xml">
+<link rel="preload" href="assets/fonts/plex-sans-400.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/site.css">
+<script src="assets/site.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the page</a>
+
+<header class="top">
+  <a class="brand" href="./" aria-label="torno, home">
+    <img src="assets/torno.svg" alt="" width="32" height="32">
+    <span>torno</span>
+  </a>
+  <nav aria-label="Site">
+    <a href="demo/">Live project</a>
+    <a href="manual/">Manual</a>
+    <a href="https://github.com/luisg0nc/torno">GitHub</a>
+  </nav>
+</header>
+
+<main id="main">
+
+<section class="hero" aria-labelledby="hero-title">
+  <div class="hero-text">
+    <h1 id="hero-title">A workbench for making CAD parts with Claude Code.</h1>
+    <p class="lede">You point at the part. The agent writes the build123d code. torno builds it every time you save,
+      and checks the numbers on the real geometry.</p>
+    <p class="actions">
+      <a class="button primary" href="demo/">Open a live project</a>
+      <a class="button" href="#run">Run it</a>
+    </p>
+    <p class="note">New and early. Linux and macOS. Apache-2.0.</p>
+  </div>
+
+  <figure class="bench" aria-labelledby="bench-cap">
+    <svg id="part" viewBox="0 0 400 340" role="img" aria-labelledby="bench-cap">
+      <g class="grid" aria-hidden="true"></g>
+      <g class="edges" aria-hidden="true"></g>
+      <g class="dim" aria-hidden="true">
+        <line class="dim-line"></line>
+        <text class="dim-text"></text>
+      </g>
+      <g class="pin" aria-hidden="true">
+        <line class="pin-stem"></line>
+        <circle class="pin-head" r="7"></circle>
+        <text class="pin-ref">M1</text>
+      </g>
+    </svg>
+    <figcaption id="bench-cap">
+      <span class="readout"><span class="ref">M1</span> pin on <span class="ref">bracket/F4</span>: make this wall
+        <span class="num" data-want>3</span> mm</span>
+      <span class="readout"><span class="ref">M2</span> wall <span class="num" data-wall>2.000</span> mm,
+        <span class="verdict" data-verdict>fails</span></span>
+    </figcaption>
+  </figure>
+</section>
+
+<section class="loop reveal" aria-labelledby="loop-title">
+  <h2 id="loop-title">The loop</h2>
+  <p class="section-lede">One turn takes a prompt and a save. The numbers the agent is told come from the B-rep, not
+    from the mesh, and say whether they are exact.</p>
+  <div class="loop-body">
+    <svg id="ring" viewBox="0 0 320 320" role="img" aria-label="A ring of four steps, gone round again and again: you point, Claude Code edits, the kernel rebuilds, torno checks and tells">
+      <circle class="ring-track" cx="160" cy="160" r="120"></circle>
+      <circle class="ring-trail" cx="160" cy="160" r="120"></circle>
+      <g class="ring-nodes"></g>
+      <circle class="ring-dot" r="6" cx="160" cy="40"></circle>
+    </svg>
+    <ol class="steps">
+      <li data-step="0"><h3>You point at the part</h3>
+        <p>Pin a face, measure an edge, draw on the view. Each mark has a ref like <span class="ref">lid/F12</span>
+          and a note.</p></li>
+      <li data-step="1"><h3>Claude Code edits the model</h3>
+        <p>torno sends your prompt with the marks as refs. The agent looks and measures through torno's MCP tools,
+          then edits the Python.</p></li>
+      <li data-step="2"><h3>The kernel rebuilds it</h3>
+        <p>On save, build123d rebuilds the model in a worker and the window shows the new parts.</p></li>
+      <li data-step="3"><h3>torno checks and tells the agent</h3>
+        <p>Each dimension is measured again on the B-rep and passes or fails. The agent hears which, with the
+          number.</p></li>
+    </ol>
+  </div>
+</section>
+
+<section class="recording reveal" aria-labelledby="rec-title">
+  <h2 id="rec-title">Twenty seconds of it</h2>
+  <p class="section-lede">An airbox in a scan of its engine bay. A pin on the tub wall asks for 3 mm. Claude Code
+    looks, measures, edits; the model rebuilds and the dimension passes.</p>
+  <video controls muted playsinline loop preload="none" poster="assets/img/hero.png" width="1600" height="1000">
+    <source src="assets/img/demo.mp4" type="video/mp4">
+    <a href="assets/img/demo.mp4">Download the recording</a>.
+  </video>
+</section>
+
+<section class="window reveal" aria-labelledby="win-title">
+  <h2 id="win-title">The window</h2>
+  <picture class="wide">
+    <source media="(prefers-color-scheme: dark)" srcset="assets/img/hero-dark.png">
+    <img src="assets/img/hero.png" loading="lazy" width="1600" height="1000" alt="torno with an airbox open, sitting in a 3D scan of the engine bay it is for: the projects on the left, the parts in 3D in the middle with a pin and dimensions on them, the chat with Claude Code on the right">
+  </picture>
+  <div class="shots">
+    <figure>
+      <img src="assets/img/marks.png" loading="lazy" alt="A pin and dimensions on a speaker stand, with the Marks list showing two dimensions passing and one failing">
+      <figcaption>Marks. Pins, picks, arrows, strokes and dimensions, each with a note.</figcaption>
+    </figure>
+    <figure>
+      <img src="assets/img/chat.png" loading="lazy" alt="The chat: a prompt with the marks torno added, the agent calling look and measure, its edit of the model and the build that followed">
+      <figcaption>The chat. Claude Code in its own headless mode, under your login.</figcaption>
+    </figure>
+    <figure>
+      <img src="assets/img/export.png" loading="lazy" alt="The export sheet: one HTML file, STEP, STL or 3MF, a picture of the view, or a section drawing">
+      <figcaption>Export. One HTML file anyone can open, or STEP, STL and 3MF.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="fit reveal" aria-labelledby="fit-title">
+  <h2 id="fit-title">What goes well, and what does not</h2>
+  <div class="fit-cols">
+    <div>
+      <h3>Goes well</h3>
+      <ul>
+        <li>Prismatic parts with sizes you measured</li>
+        <li>Brackets, enclosures, holders</li>
+        <li>A lid and a box, hole patterns</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Needs more from you</h3>
+      <ul>
+        <li>A part that must fit a place you can only scan</li>
+        <li>An assembly of more than three or four parts that touch</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Does not go well</h3>
+      <ul>
+        <li>Organic shapes described in words alone</li>
+        <li>Gears and threads written by hand</li>
+        <li>Sizes read from a photo</li>
+      </ul>
+    </div>
+  </div>
+  <p class="aside">Whatever the part, give a measured number, a scan or a dimension mark in place of a description.
+    The <a href="manual/#what-goes-well-and-what-does-not">manual</a> has the lists.</p>
+</section>
+
+<section class="try reveal" aria-labelledby="try-title">
+  <h2 id="try-title">See one in your browser</h2>
+  <p class="section-lede">A bracket with two marks, exported from torno as one HTML file. Nothing to install.</p>
+  <p class="actions"><a class="button primary" href="demo/">Open a live project</a>
+    <a class="button" href="manual/">Read the manual</a></p>
+</section>
+
+<section class="run reveal" id="run" aria-labelledby="run-title">
+  <h2 id="run-title">Requirements and run</h2>
+  <div class="run-cols">
+    <div>
+      <h3>You need</h3>
+      <ul>
+        <li>Linux or macOS (not Windows)</li>
+        <li>Node.js <span class="num">22.12</span> or later, and pnpm <span class="num">10</span></li>
+        <li><a href="https://docs.astral.sh/uv/">uv</a> (it fetches Python <span class="num">3.11</span> or <span class="num">3.12</span> if you have neither)</li>
+        <li><a href="https://docs.anthropic.com/en/docs/claude-code">Claude Code</a> on your <code>PATH</code>, logged in</li>
+      </ul>
+      <p class="aside">torno checks all of this on its first screen and says what is missing. The first build sets
+        up its own Python environment with build123d (about <span class="num">900</span> MB, once). More in
+        <a href="manual/#requirements">Requirements</a>.</p>
+    </div>
+    <div>
+      <h3>Then</h3>
+<pre><code>git clone https://github.com/luisg0nc/torno.git
+cd torno
+pnpm install
+scripts/torno ~/projects</code></pre>
+      <p class="aside">The launcher rebuilds the app when the sources change. On the first screen,
+        "Open the example" opens a small project in a temporary copy. More in <a href="manual/#run">Run</a>.</p>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="foot">
+  <p><img src="assets/torno.svg" alt="" width="20" height="20"> torno is open source under the
+    <a href="https://github.com/luisg0nc/torno/blob/main/LICENSE">Apache-2.0</a> licence.</p>
+  <p><a href="https://github.com/luisg0nc/torno">Source on GitHub</a>
+    <a href="https://github.com/luisg0nc/torno/issues">Open an issue</a></p>
+</footer>
+</body>
+</html>
