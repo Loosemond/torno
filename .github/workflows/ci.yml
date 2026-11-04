@@ -89,6 +89,15 @@ jobs:
       - run: xvfb-run -a pnpm -C app exec playwright test e2e/packaged.spec.ts
         env:
           TORNO_PACKAGED: ${{ github.workspace }}/app/dist/linux-unpacked/torno-app
+          # No GPU on the runner: WebGL is drawn in software, or the window says the 3D view could not start.
+          TORNO_E2E_SOFTWARE_GL: '1'
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: torno-linux-test-results
+          path: app/e2e/.results
+          retention-days: 7
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
           name: torno-linux

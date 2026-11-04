@@ -35,11 +35,16 @@ function listing(root: string): string[] {
     .sort()
 }
 
+// A runner with no GPU (CI, under xvfb) has no WebGL unless Chromium is told to draw in software: without it the
+// window says "The 3D view could not start" and the page's test hooks, which the viewport installs, never exist.
+// `TORNO_E2E_SOFTWARE_GL=1` passes the flags; on a desktop with a GPU it is left unset.
+const software = process.env.TORNO_E2E_SOFTWARE_GL === '1' ? ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : []
+
 // TORNO_TEST=1 makes main create the window with show: false. Never launch without it.
 const launch = (env: Record<string, string> = {}): Promise<ElectronApplication> =>
   electron.launch({
     executablePath: packaged!,
-    args: [],
+    args: software,
     env: { ...process.env, TORNO_TEST: '1', TORNO_CONFIG: join(temp('config'), 'config.json'), TORNO_AGENT_CMD: `node ${fakeAgent}`, ...env }
   })
 
