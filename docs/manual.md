@@ -1206,11 +1206,18 @@ metres when the whole is under 20 units across, with Y up for OBJ and Z up
 otherwise. Right after an import in the window, when either was assumed, a
 short sheet at the top of the Scans panel asks once: `How is S1 read?`, with the
 unit and the up axis and the size the scan would have read so (`Its size would
-be 120 × 120 × 0 mm`); the scan is drawn in the view meanwhile. "Keep" says the
+be 120 × 120 × 0 mm`) and, under it, the size of the parts of the layout shown
+(`The parts of assembly: about 40 × 40 × 41 mm`); when the two diagonals are
+more than 100 times apart either way, a line in the warning colour says how many
+times and names the unit that would bring them near (`About 1,000 times the
+parts: is it in millimetres?`). The scan is brought into view with the parts once,
+right after the import and again after "Apply"; the views and `F` still frame
+the parts only. The scan is drawn in the view meanwhile. "Keep" says the
 guess is right, "Apply" reads it as chosen, "Later" puts the question away. Until
 it is answered the row has a dot after the name, and its detail says the size and
 what was assumed (`120 × 120 × 0 mm, from m, Z up (assumed)`) and asks
-`Read as metres, Z up: right?` with "Yes" and the unit and axis under it.
+`Read as metres, Z up: right?` with "Yes" and the unit and axis under it (not
+while the sheet is up, which asks the same).
 Changing either drops the scan's alignments, which torno says before it does it.
 
 **The Scans panel.** Each scan (`S1`, `S2`, never reused) has a row of one
@@ -1220,15 +1227,28 @@ in the tooltip), an opacity slider when pointed at, and a switch. The arrow at
 the end, or a click on the name, opens its detail beneath it, one scan at a time:
 its size and how it was read, how it stands in a sentence, what it rests on,
 "Frame" (bring it into view: `F` and the views frame the parts only), "Align",
-"Rename" (its name in torno: Enter keeps it, Esc leaves it), the unit and up
-axis, its colours, and "Remove". A scan drawn solid hides what is
+"Rename" (its name in torno: Enter keeps it, Esc leaves it), then the regions
+painted on it as chips that go to the mark (`M5 wiring loom`), the unit and up
+axis (folded under "How it is read" once the reading has been answered), its
+colours, and last "Remove". On a row the state word gives way before the name,
+which keeps at least ten characters. A scan drawn solid hides what is
 behind it and takes the pointer; one drawn see-through lets you point at the
 part behind it. The section cuts a scan open like the parts.
 
 **Aligning** (`L`). A scan is aligned in one layout at a time; in a layout
-where it is not, its row says `unaligned` and nothing is checked
-against it. The bar at the bottom of the viewport has three ways, which can
-follow one another:
+where it is not, its row says `unaligned` (in the quiet colour until the scan
+has been aligned anywhere: it is only the next step) and nothing is checked
+against it. The detail of such a scan makes "Align" its main button, and the
+sheet that asks how a new scan is read offers `Next: align S1`, which takes up
+the tool on Floor. The bar at the bottom of the viewport has three steps,
+`1 Floor · 2 Pairs · 3 Nudge`, which can follow one another. A tick on a step
+says it has been done for the scan in this layout, and one line under them says
+what the step is for. The bar opens on the first step not done: Floor for a
+scan with no alignment that is much larger than the parts (ten times their
+diagonal: a room, an engine bay), Pairs for one about their size, Pairs once a
+floor is down, Nudge once there are pairs. When a floor or pairs are kept, the
+bar goes on to the next. Any step can still be chosen, and the bar comes back
+to the one you chose last for that scan, in this window:
 
 - **Floor.** Click a flat patch of the scan (`[` and `]` change its size), or
   three points with Shift. "Ground" lays it at a height, "On a face" on the

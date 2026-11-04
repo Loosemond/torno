@@ -143,6 +143,8 @@ function connect(viewport: Viewport, readout: Readout): () => void {
   // The scans of the open object: which there are comes through the store, their meshes straight from main to the
   // viewport, each asked for once by its scan's id. Main alone knows where a mesh is kept.
   const asks = new MeshAsks()
+  // A scan to bring into view as soon as it is drawn: one just imported has its mesh still on the way.
+  let framing: string | null = null
   const applyScans = (s: TornoState) => {
     viewport.setScans(s.scans, s.scene ? s.revision : 0)
     // Every scan, each time: the viewport remembers how one is looked at by id, and ids repeat between objects.
@@ -166,6 +168,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
         .then((blob) => {
           if (!current()) return // of a scan that is gone, or of a mesh that was replaced meanwhile
           viewport.setScanMesh(id, blob)
+          if (framing === id && viewport.frameScan(id)) framing = null
           report()
         })
         .catch((e: unknown) => {
@@ -385,7 +388,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     // After the layout: a mark of another layout is gone to once that layout is shown.
     if (s.markFocus !== prev.markFocus && s.activeMark) viewport.focusMark(s.activeMark)
     else if (s.markReveal !== prev.markReveal && s.activeMark) viewport.revealMark(s.activeMark)
-    if (s.scanFramed !== prev.scanFramed && s.scanFramed) viewport.frameScan(s.scanFramed.id)
+    if (s.scanFramed !== prev.scanFramed && s.scanFramed) framing = viewport.frameScan(s.scanFramed.id) ? null : s.scanFramed.id
   })
 
   // After the store's own subscription above: by then the viewport has the scans as they now are.
