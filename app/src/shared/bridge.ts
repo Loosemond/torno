@@ -3,6 +3,7 @@ import type { BuildState } from './build'
 import type { TurnChanges } from './changes'
 import type { AgentChoice, ChatAnswer, ChatHistory, ChatCommand, ChatItem, ChatMeta, ChatModel, Effort, Mode } from './chat'
 import type { GitState } from './git'
+import type { HistoryList } from './history'
 import type { ExportPlan, ExportRequest, ExportSaved } from './exportdata'
 import type { Described, MeasureProbe, MeasuredOnce } from './geometry'
 import type { InstructionFile } from './instructions'
@@ -243,6 +244,19 @@ export interface TornoBridge {
     saveThumbnail(objectId: string, revision: number, png: Uint8Array, of: ThumbnailOf): void
     /** Something a card says may have changed. */
     onChanged(cb: () => void): () => void
+  }
+  /** The builds kept of an object under its `.torno/history/` (`main/history.ts`). The window reads them and stars them; it never restores anything. */
+  history: {
+    /** Oldest first; null for an object that is not of the open workspace. */
+    list(objectId: string): Promise<HistoryList | null>
+    /** The PNG kept with a build, or null. */
+    thumbnail(objectId: string, id: string): Promise<ArrayBuffer | null>
+    /** The text of one copied source file of a build (`file` is one of its `files`), or null. */
+    source(objectId: string, id: string, file: string): Promise<string | null>
+    /** Stars a build, or takes the star away: a starred build is not let go. False for a build that is not kept. */
+    star(objectId: string, id: string, starred: boolean): Promise<boolean>
+    /** Told, with the object, when its history changed. */
+    onChanged(cb: (objectId: string) => void): () => void
   }
   /** What git says of an object's sources, read and never written; null where there is no git, no repository, or no answer in time. */
   git: {

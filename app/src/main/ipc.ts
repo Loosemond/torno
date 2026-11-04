@@ -16,8 +16,8 @@ import type { ViewState } from '../shared/view'
 import type { ObjectInfo, RecentFolder, WorkspaceInfo } from '../shared/workspace'
 import { Builds, buildTimeout, watchFolder } from './builds'
 import { BuildLog } from './buildlog'
-import { History, readHistory, readHistoryScene } from './history'
-import type { HistoryEntry } from '../shared/history'
+import { History, readHistory, readHistoryScene, readHistorySource, readHistoryThumb } from './history'
+import type { HistoryEntry, HistoryList } from '../shared/history'
 import type { Verdict } from '../shared/sanity'
 import { gitStateRecently } from './git'
 import { keepExample } from './example'
@@ -69,6 +69,7 @@ function handle(channel: string, fn: (event: Electron.IpcMainInvokeEvent, ...arg
 
 // Channel names, repeated in src/preload/index.ts.
 //   invoke: workspace:current, workspace:pick, workspace:open, workspace:versions, ready:check, ready:make,
+//           history:list, history:thumbnail, history:source, history:star,
 //           workspace:recent, workspace:forget, workspace:hasExample, workspace:openExample, workspace:keepExample,
 //           object:open, object:rebuild, object:sceneFile,
 //           session:current, session:start, session:trust, session:instructions, session:revealInstruction, session:stop, session:chooseView,
@@ -84,7 +85,7 @@ function handle(channel: string, fn: (event: Electron.IpcMainInvokeEvent, ...arg
 //   to the renderer: object:build, object:scene, view:look, view:show, view:highlight, view:drawSection, view:saveView (sent by src/main/look.ts),
 //           session:data, session:status, chat:item, chat:meta, chat:capabilities, workspace:requested and window:closeAsked (sent by src/main/index.ts,
 //           which hears the answer, window:closeAnswer),
-//           ready:changed, marks:changed, marks:problem, scans:changed, scans:progress, scans:problem, show:changed, asks:changed (sent by src/main/index.ts)
+//           ready:changed, marks:changed, marks:problem, scans:changed, scans:progress, scans:problem, show:changed, asks:changed (sent by src/main/index.ts), history:changed
 
 /** The longest prompt the window may send. */
 const MAX_PROMPT_CHARS = 200_000
@@ -249,6 +250,11 @@ export async function openWorkspace(root: string, opts: { example?: boolean } = 
       })
   })
   const ws: OpenWorkspace = { info, scan: scanOrder(), kernel, builds, opened: new Set(), shown: null, started: new Map(), builtFrom: new Map(), buildLog: new BuildLog(), history: new History() }
+  // The window is told when an object's history changed (a build kept, a picture or a star added).
+  ws.history.onChange((dir) => {
+    const obj = ws.info.objects.find((o) => o.dir === dir)
+    if (obj) broadcast('history:changed', obj.id)
+  })
   builds.on('build', (state) => {
     if (state.status === 'building' && state.startedAt !== undefined) ws.started.set(state.objectId, state.startedAt)
     broadcast('object:build', state)
@@ -1039,6 +1045,27 @@ export function registerIpc(
   handle('git:status', (_event, objectId: string) => {
     const obj = findObject(String(objectId))
     return obj && obj.model !== null ? gitStateRecently(obj.dir) : Promise.resolve(null)
+  })
+  // The builds kept of an object (`main/history.ts`): read, and starred; nothing is ever restored from them.
+  handle('history:list', async (_event, objectId: string): Promise<HistoryList | null> => {
+    const obj = findObject(String(objectId))
+    const kept = obj ? await historyOf(obj.id) : null
+    return obj && kept ? { run: kept.run, base: join(obj.dir, '.torno', 'history'), entries: kept.entries } : null
+  })
+  handle('history:thumbnail', async (_event, objectId: string, id: string) => {
+    const obj = findObject(String(objectId))
+    const png = obj ? await readHistoryThumb(obj.dir, String(id)) : null
+    return png && toArrayBuffer(png)
+  })
+  handle('history:source', async (_event, objectId: string, id: string, file: string) => {
+    const obj = findObject(String(objectId))
+    if (!obj) return null
+    const entry = (await readHistory(obj.dir)).find((e) => e.id === String(id))
+    return entry ? readHistorySource(obj.dir, entry, String(file)) : null
+  })
+  handle('history:star', (_event, objectId: string, id: string, starred: boolean) => {
+    const obj = findObject(String(objectId))
+    return obj && current ? current.history.star(obj, String(id), starred === true) : false
   })
   handle('show:thumbnail', async (_event, objectId: string) => {
     const obj = findObject(String(objectId))

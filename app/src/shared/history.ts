@@ -93,3 +93,16 @@ export function sceneFacts(scene: Scene): Pick<HistoryEntry, 'parts' | 'seconds'
     ...(defects.length > 0 ? { defects } : {})
   }
 }
+
+/** The history of an object as the window is given it. */
+export interface HistoryList {
+  /** The run of this torno: an entry of it has a revision the window knows (`r3`). */
+  run: string
+  /** Where the copies lie, `<project>/.torno/history`: a build's are under `<base>/h41/source/`. For naming them in a request to the agent; the window reads and writes nothing there. */
+  base: string
+  /** Oldest first. */
+  entries: HistoryEntry[]
+}
+
+/** The builds of the list an entry is among those made in this run. */
+export const madeHere = (list: Pick<HistoryList, 'run'>, entry: Pick<HistoryEntry, 'run'>): boolean => entry.run === list.run

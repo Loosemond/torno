@@ -9,6 +9,7 @@ import { makesEnvironment } from './readyLines'
 import { landedOn } from '../state/landing'
 import { actions, partsInLayout, useStore } from '../state/store'
 import { BuildErrorSheet } from './BuildErrorSheet'
+import { HistorySheet } from './HistorySheet'
 import { UNCHECKED_AFTER_MS, useLasting } from './MarkRow'
 import { AGENT_LABEL } from '../../shared/agents'
 import { focusAsk, waitingObjects } from './sessionSign'
@@ -110,6 +111,10 @@ export function BuildStatus({ onOpen }: { onOpen: (id: string) => void }) {
   // What git says of the sources: read by main, never written.
   const git = useGit()
 
+  // The builds kept of the project, in a sheet of their own (`HistorySheet`).
+  const [historyOpen, setHistoryOpen] = useState(false)
+  useEffect(() => setHistoryOpen(false), [objectId])
+
   // The sheet shows the failure of the build it was opened for, no longer.
   useEffect(() => {
     if (errorOpen && !error) actions.setErrorOpen(false)
@@ -166,6 +171,11 @@ export function BuildStatus({ onOpen }: { onOpen: (id: string) => void }) {
               {build.stale && 'showing '}
               <span className="num">r{build.revision}</span>
             </span>
+          )}
+          {hasScene && (
+            <button type="button" className="status-history" aria-expanded={historyOpen} title="The builds kept of this project: compare, read their source, ask the agent to go back" onClick={() => setHistoryOpen(!historyOpen)}>
+              History
+            </button>
           )}
           {git && (
             <span className="status-git" data-part="git" title={git.changed > 0 ? gitFilesSaid(git) : undefined}>
@@ -224,6 +234,7 @@ export function BuildStatus({ onOpen }: { onOpen: (id: string) => void }) {
         </button>
       )}
       {build123d && <span className="num">build123d {build123d}</span>}
+      {historyOpen && name !== null && <HistorySheet objectName={name} onClose={() => setHistoryOpen(false)} />}
       {errorOpen && error && name !== null && (
         <BuildErrorSheet objectName={name} error={error} onClose={() => actions.setErrorOpen(false)} />
       )}

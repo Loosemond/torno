@@ -130,6 +130,13 @@ const bridge: TornoBridge = {
   git: {
     status: (objectId) => invoke('git:status', objectId)
   },
+  history: {
+    list: (objectId) => invoke('history:list', objectId),
+    thumbnail: (objectId, id) => invoke('history:thumbnail', objectId, id),
+    source: (objectId, id, file) => invoke('history:source', objectId, id, file),
+    star: (objectId, id, starred) => invoke('history:star', objectId, id, starred),
+    onChanged: (cb) => subscribe<string>('history:changed', cb)
+  },
   export: {
     plan: (req) => invokePlain('export:plan', req),
     save: (req) => invokePlain('export:save', req),
