@@ -297,6 +297,18 @@ length and the points along it) is also named by that ref, as of that build. Not
 the result of its edit and in `scene`, and can try a fillet on the last good
 build with `try_fillet` before it edits the model again.
 
+**A failed boolean.** A cut, a fuse, an intersect or a split that fails (a `StdFail_NotDone`, or `Null TopoDS_Shape
+object`) is looked into the same way, within the same 5 s, by looking at its operands: nothing is run again. The error
+says which of these it found, such as `cut failed: tool is a face, not a solid`: an operand that is empty, one that is not a
+solid, one that is not valid (OpenCascade's check, and what its argument analyzer finds, such as a face that crosses
+itself), a tool that ends flush with the face it cuts instead of overshooting it (faces of the two that lie on one
+plane facing the same way), faces that lie on each other, shapes further apart than they should be, and shapes that
+only touch. Then a line for each operand (its type, whether it is valid, its faces and its box) and for each pair of
+faces that lie on each other, with the area they share. The operands are not parts on screen: their faces are numbered
+by their place in the operand, from 0 (`tool F5`), and their numbers are in the operand's own frame (`local`). A
+distance is OpenCascade's and is told with `≈`; a count of points of one lying inside the other is of points sampled
+on its vertices and the middles of its edges, so it can say that none was found, never that none is there.
+
 **The window.** On the left, the list of projects, then the layers, the parameters and the scans of the
 open project, then its marks. Projects, Layers, Parameters and Scans each fold by their title; folded, the
 title says what matters (`Layers 12 · 3 hidden`, `Scans 1 · unaligned`). Marks never folds:

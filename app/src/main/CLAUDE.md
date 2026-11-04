@@ -800,6 +800,9 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `build.error.diagnosis` (the data and its `reading`) and in its error before a first build that worked, `state.md`,
   and the error sheet (`ui/BuildErrorSheet.tsx`, under "Why", and in what Copy takes). Nothing is retried in the
   model: the agent decides.
+  A failed **boolean** carries a diagnosis of the other kind (`BooleanDiagnosis`, the kernel's `booleans.py`: its
+  operands, how base and tool meet, `causes`), told by the same `diagnosisText` in the same places. Its operands are
+  not parts of any build and `Builds.withRefs` leaves it as it is (`isBoolean`): nothing in it is named by a ref.
 - A `StopFailure` hook (a turn an error of the API ended: a login that failed, an overload; posted in place of the
   `Stop`) is idle and ends the turn as a `Stop` does, and is never held back (`stopAnswer` is not asked; the CLI reads
   no answer to it), so a terminal session is not left "working" until its next prompt.

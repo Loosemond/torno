@@ -219,6 +219,24 @@ is the detail of this folder, under the headings it has there.
   `kind`): the fillet of them all is tried first, and only when it fails is it diagnosed, in `TRIAL_BUDGET` (20 s)
   of the query's 30, its edges named by their refs, ends in the object frame (`frame: "object"`). Every try is a
   new shape thrown away: the worker's shapes are left as they were.
+- **A failed boolean says why** (`booleans.py`, reached through `diagnose.find` and `diagnose.from_exception`). When a
+  build fails inside a boolean of build123d (the innermost `_bool_op` frame of a build123d shape in the traceback, or
+  in that of the exception it was raised from; a `cut`, `fuse`, `intersect` or `split` and the operators and builders
+  over them), the worker that failed takes `args` and `tools` from that frame's locals and looks at them: it runs
+  no boolean, tries nothing in the model and starts no process, on the same budget, clock, `SLACK` rule,
+  `/dev/null` for OCC's prints and note in the captured output as a fillet's (`worker._diagnose`). Each operand is
+  told by its type (`solid`, `face`, `empty`, …), OCC's `BRepCheck_Analyzer` and the `BOPAlgo_ArgumentAnalyzer`'s
+  faults (self-intersection, small edges); for each base and tool that are valid solids, `BRepExtrema`'s distance
+  (`apartExact: false`), how many points sampled on each (its vertices and the middles of its edges, 60 at most)
+  `BRepClass3d_SolidClassifier` finds inside the other solid, and the pairs of faces that are one surface (planes
+  within `NEAR`, 1e-4 mm, with their `gap` and whether they face the `same` or `opposite` ways; cylinders and spheres
+  to `SAME`, 1e-7 mm) and share area (the area of `BRepAlgoAPI_Common` of the two faces only, never of the
+  operands). `causes` is what that comes to; a count of points inside is a sample, never told as proof, and
+  operands past `MOST_OPERANDS` (4) a side are left out and counted (`operandCount`, `complete: false`). The
+  operands have no place in the scene: faces are numbered by their place in the operand (`F3`, from 0) and
+  everything is in the frame of the operand, `frame: "local"`. The error carries it as `diagnosis` beside a
+  fillet's, told apart by `operation` (`cut`, `fuse`, `intersect`, `split`); main sets no `sameAs` on it. A boolean that
+  succeeds but gives an empty or wrong result raises nothing and is not diagnosed.
 - **A worker is not trusted.** A frame from the building worker that is not a
   result (not JSON, or without its scene or error) is a `crash` of that build;
   the supervisor carries on. Frames are written with `allow_nan=False`: a scene
