@@ -608,6 +608,11 @@ export class Viewport {
     this.invalidate()
   }
 
+  /** Whether the parts are drawn faded now (`setStale`). */
+  faded(): boolean {
+    return this.stale
+  }
+
   /** Goes to a standard view, fitted to the visible parts in the current projection, or to a given camera. */
   setView(v: ViewName | Camera, animate = false): void {
     // Sent somewhere: the camera is no longer the one drawing the parts apart framed.

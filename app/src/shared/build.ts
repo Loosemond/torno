@@ -98,3 +98,18 @@ export function stillLatest(build: Pick<BuildState, 'status' | 'revision' | 'err
   if (build?.status !== 'failed' || build.error === undefined || item.error === undefined) return false
   return build.revision === (item.revision ?? 0) && errorLine(build.error) === item.error
 }
+
+/** How long a build runs before the parts on screen fade: most builds land before it, and nothing blinks at each save. */
+export const FADE_AFTER_MS = 600
+
+/**
+ * When the parts on screen fade for a build, in ms from `now`: null while they are not to fade (not stale), 0 for
+ * now, else the wait left. A failed build fades them at once (the previous revision stays, dimmed); one under way
+ * only once it has run `FADE_AFTER_MS`, unless they are faded already (it follows a failed one). The pick lock is
+ * not this: it holds from the first moment (`stale`).
+ */
+export function fadeIn(build: Pick<BuildState, 'status' | 'stale' | 'startedAt'> | null | undefined, now: number, faded = false): number | null {
+  if (!build?.stale) return null
+  if (build.status !== 'building' || faded) return 0
+  return Math.max(0, (build.startedAt ?? now) + FADE_AFTER_MS - now)
+}

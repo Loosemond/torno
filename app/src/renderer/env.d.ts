@@ -28,6 +28,8 @@ declare global {
       project(point: [number, number, number], part?: string): [number, number]
       /** Whether the viewport draws the parts apart now, or is on its way there or back. */
       exploded(): boolean
+      /** Whether the parts are drawn faded (older than the latest build attempt, and that has run a while or failed). */
+      faded(): boolean
       /** Where the label of a mark is drawn, as such fractions, and whether it is in view; null for a mark that is not drawn. */
       markScreen(id: string): { x: number; y: number; visible: boolean } | null
       /** The mark whose chip the viewport rings as pointed at (its row or its chip hovered); null for none. */

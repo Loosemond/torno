@@ -333,7 +333,9 @@ reason outside the model (the build took too long, stopped, or was cancelled) or
 was let go to make room: building the same sources again may work. After an error
 in the model it stays quiet, since the same sources give the same error. While a
 build runs it reads "Building…" and takes no press: that build is of the sources
-as they are.
+as they are. The parts on screen are older than that build, so a click cannot pick
+them from the first moment; they fade only when it has run for 0.6 s, so a quick
+save does not make them blink. A build that fails fades them at once.
 
 "Build failed" opens the error: what happened in words ("Python error in the
 model", "The build took too long (timeout)", "The build process stopped
