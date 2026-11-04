@@ -42,9 +42,9 @@ export function themeOf(): Theme {
   }
 }
 
-export function markColours(theme: Theme): { user: string; agent: string; reference: string; casing: string } {
+export function markColours(theme: Theme): { user: string; agent: string; reference: string; casing: string; ink: string } {
   // The casing of a mark's lines is the panel's colour, as the border of its chip is.
-  return { user: toHex(theme.user), agent: toHex(theme.agent), reference: toHex(theme.muted), casing: toHex(theme.panel) }
+  return { user: toHex(theme.user), agent: toHex(theme.agent), reference: toHex(theme.muted), casing: toHex(theme.panel), ink: toHex(theme.ink) }
 }
 
 /** Any CSS colour as #RRGGBB. */

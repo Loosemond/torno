@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { COLUMN_DEFAULT, COLUMN_KEY, MARKS_FLOOR, readColumn, switcherShown, writeColumn } from './column'
+import { clampLeft, COLUMN_DEFAULT, LEFT_DEFAULT, COLUMN_KEY, MARKS_FLOOR, readColumn, switcherShown, writeColumn } from './column'
 
 /** A storage of the window, as the tests need it: what was written, and one that refuses. */
 function memory(start: Record<string, string> = {}): Storage & { data: Record<string, string> } {
@@ -28,22 +28,22 @@ const refusing = {
 
 describe('the left column as the person keeps it', () => {
   it('starts with Objects folded to its switcher, the rest unfolded, and the marks at their share', () => {
-    expect(COLUMN_DEFAULT).toEqual({ folded: { objects: true, layers: false, params: true, scans: false }, marks: null })
+    expect(COLUMN_DEFAULT).toEqual({ folded: { objects: true, layers: false, params: true, checks: true, print: true, scans: false }, marks: null, width: null })
     expect(readColumn(memory())).toEqual(COLUMN_DEFAULT)
     expect(readColumn(null)).toEqual(COLUMN_DEFAULT)
   })
 
   it('reads back what was written, and nothing but the window keeps it', () => {
     const storage = memory()
-    writeColumn(storage, { folded: { objects: false, layers: true, params: false, scans: true }, marks: 320 })
+    writeColumn(storage, { folded: { objects: false, layers: true, params: false, checks: true, print: true, scans: true }, marks: 320, width: 400 })
     expect(Object.keys(storage.data)).toEqual([COLUMN_KEY])
-    expect(readColumn(storage)).toEqual({ folded: { objects: false, layers: true, params: false, scans: true }, marks: 320 })
+    expect(readColumn(storage)).toEqual({ folded: { objects: false, layers: true, params: false, checks: true, print: true, scans: true }, marks: 320, width: 400 })
   })
 
   it('takes what it can of a value that is not its own, and the default for the rest', () => {
     expect(readColumn(memory({ [COLUMN_KEY]: 'not json' }))).toEqual(COLUMN_DEFAULT)
     expect(readColumn(memory({ [COLUMN_KEY]: '[1, 2]' }))).toEqual(COLUMN_DEFAULT)
-    expect(readColumn(memory({ [COLUMN_KEY]: JSON.stringify({ folded: { layers: true, scans: 'yes' }, marks: 'tall' }) }))).toEqual({ folded: { objects: true, layers: true, params: true, scans: false }, marks: null })
+    expect(readColumn(memory({ [COLUMN_KEY]: JSON.stringify({ folded: { layers: true, scans: 'yes' }, marks: 'tall' }) }))).toEqual({ folded: { objects: true, layers: true, params: true, checks: true, print: true, scans: false }, marks: null, width: null })
     // A height under the floor of the marks is no height they are given: the floor holds anyway.
     expect(readColumn(memory({ [COLUMN_KEY]: JSON.stringify({ marks: MARKS_FLOOR - 1 }) })).marks).toBeNull()
     expect(readColumn(memory({ [COLUMN_KEY]: JSON.stringify({ marks: Number.POSITIVE_INFINITY }) })).marks).toBeNull()
@@ -71,5 +71,20 @@ describe('switcherShown', () => {
     expect(at({ objectId: null })).toBe(false)
     expect(at({ page: 'objects' })).toBe(false)
     expect(at({ objects: [{ id: 'hollow' }] })).toBe(false)
+  })
+})
+
+describe('the width of the column', () => {
+  it('is kept only when it is wider than the default', () => {
+    expect(readColumn(memory({ [COLUMN_KEY]: JSON.stringify({ width: 360.4 }) })).width).toBe(360)
+    for (const width of [LEFT_DEFAULT, 100, 'wide', null]) expect(readColumn(memory({ [COLUMN_KEY]: JSON.stringify({ width }) })).width).toBeNull()
+  })
+
+  it('is bounded below by the default and above by the room the viewport keeps beside the dock', () => {
+    expect(clampLeft(100, 1600, 520)).toBe(LEFT_DEFAULT)
+    expect(clampLeft(400, 1600, 520)).toBe(400)
+    expect(clampLeft(5000, 1600, 520)).toBe(1600 - 520 - 240)
+    expect(clampLeft(5000, 1600, 0)).toBe(1600 - 240)
+    expect(clampLeft(5000, 600, 520)).toBe(LEFT_DEFAULT)
   })
 })

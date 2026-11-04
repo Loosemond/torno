@@ -12,6 +12,10 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   the agent), all of them acknowledged in one change (one atomic write, one `changed`), or none and a refusal
   that names the first that is not the agent's to acknowledge. Only the person asks it (`marks:acknowledge`);
   no MCP tool does.
+- A delete is undone by `MarkStore.restore` (`marks:restore`): the store keeps, in memory only, the mark removed
+  last of each object, whole (`MAIN_ONLY_KEYS` as main had them), with a region's bits (`removeMark` reads them
+  first); restoring puts it back by its number in one change (a region's mask is written first, `restoreMark`),
+  only that mark and once, and `forget` clears it.
 - After every successful build, and when a mark is added, reopened or put
   somewhere else, the marks are checked against the build
   (`src/main/marks/reanchor.ts`, one `nearest` query per layout). A mark stays
@@ -24,6 +28,17 @@ is the detail of this folder, under the headings it has there. Paths are from `a
     by the difference before it is judged. An anchor that records none (a
     mark from before) is not moved: the check records it. Main sets
     `arranged` (`asPlaced`), never the window.
+  - A tag the model gives a face or an edge (`Part.tags`, from `tags(p, parts)`; `shared/tags.ts`) is kept on the
+    anchor of a mark placed on that one (`Anchor.tag`): main says it from the build the ref is of (`withTag`, in
+    `asPlaced`, `asReplaced` and `anchorFor`), never taken from the window or a tool. A check looks for it first:
+    when the build's part has the tag and it names exactly one face or edge, the anchor is on that (`ref`,
+    `edge`, normal, descriptor, `between` refreshed; `nearest` is asked `face` or `edge` of it, so the answer says how
+    far the point is), `ok` however far it moved, and its point stays while it is within reach (the part's
+    `tolerance` of a face, `EDGE_TOLERANCE_MM` of an edge) and else is set on the nearest point of it. Without the
+    tag, or with a tag of several, the nearest-point rule judges it as ever and the tag stays on the anchor for a
+    build that gives it back. The tools take `<part>/@<tag>` (`checkRef` gives the face's own ref beside the tag;
+    `highlight` and `ask` take a tag of several as its refs; the kernel resolves the tag itself for `describe` and
+    `measure`).
   - A check writes what it judged each mark from; `MarkStore.reanchor` passes
     over a mark whose anchors are no longer those (it was put somewhere else
     meanwhile).
@@ -115,6 +130,15 @@ is the detail of this folder, under the headings it has there. Paths are from `a
     of a dimension when it gives an end another ref or point, and
     `MarkStore.measured` keeps nothing measured through other ends, or for a
     resolved mark.
+  - `history` (`DimensionMark.history`, `DimensionSample`: build and value) is what the kernel said of a dimension on
+    each of the last 20 builds of this run (`HISTORY_LENGTH`, `withSample` in `shared/dimension.ts`). It is main's
+    alone and in memory only (`MarkStore.histories`, by folder and mark id; cleared by `forget`): never in
+    `marks.json`, since revisions count from 1 in every run, and never taken from the window or a tool (the sanitiser
+    does not read it). It is added to the marks only for the window (`MarkStore.shown`, in the `marks:changed`
+    broadcast and `marks:list`); `list()`, the tools, the prompts and `state.md` never carry it. It starts again when an end
+    is put on other geometry (`reanchor`). The verdict of each sample is worked out where it is shown (`samplesOf`), from
+    the expectation as it is now; `since(mark, revision)` says `fails since r12; passed on r11`. Telling the agent
+    the same is not done here.
   - Sent and unresolved, it is "pinned": with every prompt, under
     `Dimensions (measured on rN):` (`dimensionsHead`: it also says when a
     build is running or the latest failed, so that these are not of the last
@@ -124,16 +148,39 @@ is the detail of this folder, under the headings it has there. Paths are from `a
     (`src/main/context.ts`). A draft dimension is
     told with the drafts. The status line counts every unresolved dimension
     that fails, sent or not.
+- **The model's own checks** (`checks(p)`, kernel `modelchecks.py`) arrive in the scene as `checks`, measured by the
+  kernel, each with its `status`, `value`, `unit`, wanted `min`/`max`, the kernel's `exact` and `how`, and the
+  `declared` dict. They are the model's, never the person's: no check resolves, replaces or silences a dimension
+  (a mark). `shared/modelChecks.ts` is the one rule for the words (`checksLine`, `checkText`). `context.ts` tells
+  them in one line (at most `CHECKS_LIMIT`) after the dimensions, with every prompt and after an edit, saying
+  while a build runs that they are not of the last edit; `state.md` has a `## Checks` section; `scene` gives them
+  under `checks`. A failing check never holds the Stop back and never fails a build. The agent writes both the part
+  and its checks, so `Builds.succeeded` compares each new build's checks with the build before (`keepNotes`) and
+  keeps, as `Scene.checkNotes`, a note for each check removed, made easier to pass (`min` lowered, `max` raised or
+  dropped, a bed made larger, an angle widened) or aimed at other parts, with the build it was first seen on; it
+  stays while the check is weaker than it first was, in memory only. The window shows the notes; the agent is told
+  of them by `state.md` and `scene` (`checksEasier`).
 - The MCP tools (`src/main/mcp/schemas.ts` holds every input schema and
   description, and `TOOLS`; `mcp/tools.ts` registers them and holds what
   every tool shares, with `marks` and `describe`; `scene`, `look`, `show` and
   `save_view` are in `mcp/viewTools.ts`; those that place and resolve marks in
   `mcp/markTools.ts`; those that read the part in `mcp/readTools.ts`; those
   that ask about scans in `mcp/scanTools.ts`): `scene`, `look`, `marks`,
-  `describe`, `highlight`, `show`, `save_view`, `add_mark`, `resolve_mark`,
-  `measure`, `section`, `check`, `diff`, `try_fillet`, `scans`, `scan_clash`, `scan_deviation`.
-  `diff` compares two of the last two successful builds (`Builds.scenes`; the blob of the older is not kept; each
-  part by `partDiff` of `sanity.ts`)
+  `describe`, `highlight`, `ask`, `show`, `save_view`, `add_mark`, `resolve_mark`,
+  `measure`, `section`, `check`, `diff`, `history`, `expect`, `try_fillet`, `try_params`, `features`, `scans`, `scan_clash`, `scan_deviation`.
+  `expect` (`mcp/expectTools.ts`, `Expectations`, wired in `index.ts`) is the agent's note on one edit: checks on a
+  part's volume, faces, edges or size, a `measure` with `expected`, or `unchanged` parts, taken against the last
+  build and held in memory for the next successful build only (never a file, never a mark, never a Stop reason). It is
+  settled in `buildContextFor`'s wrapper in `index.ts` and told once as the last line of the edit's answer; `scene`
+  keeps the last verdict. Numbers not exact are `≈` and judged within the kernel's doubt; a ref of a part whose
+  face (or edge) count changed is told as moved and not measured.
+  `diff` compares two of the last two successful builds (`Builds.scenes`; the blob of the older is not kept) or any build kept in the history (#56:
+  `from` and `to` take a revision, `r3`, or an id, `h41`; `ToolDeps.history` and `historyScene`, read by `ipc.ts` `historyOf` after the writes that
+  just landed, 2 s at most; a revision of this run that is no longer in memory is found there too; given only the last build, the
+  default is the newest kept build of other sources; what a kept build had then (`failingChecks`, `defects`, `dimensions`) is told with a
+  note that it is as of then); `history` (`historyTool`) lists the kept builds newest first or gives one with the paths of its
+  copies, so that the agent can read them and edit the project's files itself.
+  Each part is compared by `partDiff` of `shared/diff.ts`, which the window's status line and ghosts use too,
   from what the kernel sent with each, asking it nothing: a number is `exact` only where both builds say so.
   `look` and `show` take the name of a saved view as `view`, and `save_view`
   proposes one (Views). `show` changes
@@ -146,7 +193,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   - What a client reads of a tool before it calls one is beside its description in `TOOLS`: a `title` (sentence
     case), `annotations` and, for the tools loaded upfront, `meta`. Every tool has `openWorldHint: false`; the
     ones that only read have `readOnlyHint: true` (`scene`, `look`, `marks`, `describe`, `measure`, `section`,
-    `check`, `diff`, `try_fillet`, `scans`, `scan_clash`, `scan_deviation`: Claude Code runs the calls of those side by side;
+    `check`, `diff`, `history`, `try_fillet`, `try_params`, `features`, `scans`, `scan_clash`, `scan_deviation`: Claude Code runs the calls of those side by side;
     `look` reads, the picture it writes under `.torno/views/` being torno's own), the rest `readOnlyHint: false,
     destructiveHint: false`. `scene`, `look`, `marks`, `describe` and `measure` have
     `_meta["anthropic/alwaysLoad"]` (Claude Code's tool search defers every other MCP tool until it is searched for,
@@ -186,12 +233,33 @@ is the detail of this folder, under the headings it has there. Paths are from `a
     moved for display is framed where it is shown, and the reply says so. The window says what stands between the
     camera and the middle of the focus (`LookResult.hiddenBy`) and the reply tells the agent how to see it
     (`hiddenText`).
+  - `describe` of a face or an edge asks the kernel for a `selector` (`deps.describe(…, { selector: true })`; a part and
+    the window's hover never do), a build123d expression on `part` that picks it now, with `robust` (`by geometry` or
+    `by order`) and `checked: "this build only"`, or `selector: null` with `selectorWhy`. It is of the part as it stands in
+    the layout asked: `selectorFrame` (`mcp/tools.ts`) says whose frame that is, and where the layout moves or turns the
+    part from where its function builds it (`Part.loc`), names the layouts that leave it as built. torno never writes it
+    into the model.
   - `try_fillet` (`tryFilletTool` in `mcp/readTools.ts`) has the kernel try a fillet or a chamfer of edges of one
     part on the last build that worked and throw it away (`try_fillet` in `queries.py`). The part and its edges are
     checked against the scene before the kernel is asked (`checkRef`: refs of that part's edges, 200 at most; a
     radius above 0; `kind` fillet or chamfer), each refusal saying what to give. It answers with the kernel's reply
     (`works`, and when false the diagnosis of a failed build, `frame: 'object'`, its edges by ref) and a `reading`:
     `Tried on rN and thrown away, nothing changed:` and `diagnosisText`. Read-only: it changes no model and no mark.
+  - `try_params` (`tryParamsTool` in `mcp/readTools.ts`, `ToolDeps.trial`, `Builds.trial`, the kernel's `trial` request)
+    builds the model with other values of its `Params` (`set`, the fields `scene` lists with an `editable` kind,
+    each checked for its type before the kernel is asked, over the person's own overrides) in a worker the
+    supervisor forks and throws away, and answers `measure` (`bbox`, `volume`, `area`, `mass`, `distance`) and
+    `check` queries there, 10 of each at most, of whole parts by name: a trial has no refs of a build to give, so a
+    face, an edge or a mark is refused. It answers with `sceneDiff` against the last build, each reading as
+    `measureReading` and `checkReading` word it, and says everywhere it is of the trial. It changes and keeps nothing
+    (no file, no live worker, no scene sent to the window, no revision); a trial the kernel refuses (`busy`,
+    `no_room`) is told as such. To keep a value the agent edits the model.
+  - `features` (`featuresTool` in `mcp/featureTools.ts`) has the kernel's live worker of the last good build list the
+    holes, bosses, fillets, chamfers and patterns of one part (`features.py`; `part`, `kinds`, `layout`; the part is checked against the scene as
+    `try_fillet`'s is). It answers with the kernel's data (each feature with its numbers, `exact` and, when false,
+    `how`; the faces it is made of and the ones it opens in as refs; counts of what was left out or is no feature)
+    and a `reading` worded from that data alone: equal holes counted together, `≈` before a number the kernel did
+    not say is exact. The reading is never worked out from a feature's numbers here.
   - The picture `section` returns is a 2D drawing of the kernel's outlines
     (`src/renderer/viewport/sectionDrawing.ts`), made by the window on a
     canvas of its own whichever object it shows, on the light sheet whatever
@@ -231,7 +299,50 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   (`src/main/statefile.ts`): the build (and under it the digest of a build that
   worked, naming tools as `the diff tool`), the parts, the scans with how each is
   aligned in every layout, the open marks. Its first line is when it was
-  written.
+  written. A `## Params` section lists each numeric `Params` field with the source its comment begins with
+  (`shared/params.ts` `sourceOf`: the model's claim, never checked; no or unknown word is `no source`, never
+  `assumed`). The answer to an edit adds `Assumed: …; no source: n` (`paramsLine` in `context.ts`) only when the set
+  differs from the build before's, compared from the two kept scenes, so no state is tracked.
+
+## Params the person tries
+
+- `<object>/.torno/params.json` (`{ "overrides": { "wall": { "value": 2.4, "default": 2 } } }`, `src/main/paramsfile.ts`)
+  holds the values the person tries in place of the model's defaults, with the default the file had when each was
+  made. Main is the only writer: one change at a time per folder, atomically (`writeOwn`), git-ignored
+  (`ensureIgnored`), the memory put back when a write fails. The model file is never written: that is the rule that
+  keeps torno from being a modeller, and the one thing that bakes a value in is the agent editing the model.
+  `Builds` gives every build of the folder `overrideValues(dir)` (`overrides` of the kernel's build request, which
+  applies only what an `editable` field of its type can take and says what it dropped).
+- **The file always wins.** After each good build `reconcile` (called from `Builds`, `OverridesPort`) holds the
+  overrides against the scene: one whose field the model no longer offers, that the kernel refused, or whose recorded
+  default is not the file's default now is dropped and noted (`Scene.overrides.dropped`, with the reason, until the
+  person says anything of that field), and that build, made with a value that was let go of, is made again. One equal
+  to the default is dropped with no word and no build. `scene.overrides` and each `Param.value` are how the window
+  and the agent learn what a build was made with.
+- The agent is told every time (`triedLine` of `shared/params.ts`; the second line of `contextFor` and
+  `buildContextFor`, at most `TRIED_LIMIT` characters, its room kept before the status is fitted), in `state.md`
+  (`## Params tried`) and by `scene` (`params[].value`, `paramsTried`), that the build is not the file's values. The
+  channels `object:setParam` and `object:resetParams` are the window's; the agent has no tool that writes an override
+  (`try_params` asks a trial and keeps nothing).
+
+## Print profile
+
+- The printer and material an object is made for (`shared/profile.ts`: `Profile`, the one rule for the types, the
+  starter materials, `fitVerdict`, `leastWall`, `profileLine`) are the person's numbers, never the kernel's. The
+  person's own printers and materials are in torno's user data (`profiles.json` beside `config.json`,
+  `UserProfiles` in `main/profile.ts`, in memory with no config file), never in a workspace. The object's choice is
+  `<object>/.torno/profile.json`, a copy of the values (`projectProfile` reads it at each question, `setProjectProfile`
+  writes it through `writeOwn`; the window's `profile:set`, nothing else writes it), not ignored: it travels.
+- `ToolDeps.profile` gives `check` and `measure` their defaults when the call leaves a value out: `bed` the printer's
+  bed, `thin` the least wall (the material's, else two nozzles), `overhang` the material's angle, `mass` its density.
+  A call that gives a value keeps it. A reading that used the profile ends `by your profile (Bambu X1C, PETG): the
+  person's numbers, not measured`, and the data has `profile`. `check` clearance with `fit` is judged against the
+  material's band per side (`fitJudged`: `passes`/`FAILS`, how far outside, overlap fails) and always says it is not a
+  claim that the part prints; `fit` without a material, or on another kind, is refused. The model's own `checks(p)`
+  are not given defaults: they declare their numbers.
+- A new conversation is told it in one line (`profileLine`, in `contextFor` with the references, only if it fits; not
+  in the system prompt, which is at its cap), `state.md` has a `## Print profile` section, and `scene` gives it as
+  `printProfile`. A change of the profile has `state.md` written anew (`onProfile`).
 
 ## Explode
 
@@ -321,22 +432,32 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   when the person removes it. A test run reads and writes no config file but
   one it names with `TORNO_CONFIG`, and Electron keeps its own profile in a folder of the run in the temporary
   folder (`testProfile.ts`).
-- The example is a copy of four objects of `kernel/tests/fixtures/ws`
-  (`EXAMPLE_OBJECTS` in `src/main/example.ts`) made in the system's temporary
-  folder when it is asked for, once in a run, with a marker file at its top
+- The example is a copy of the project in `app/resources/example` (`EXAMPLE_OBJECTS` in
+  `src/main/example.ts`: one, `enclosure`, a model written after the `torno-model` skill's template, with its
+  `brief.md` and, in its `.torno/`, `marks.json` and `scene.json` and nothing else of it:
+  `copiedOfExample`; `kernel/tests/test_example.py` builds it and holds its marks to the build) made in the
+  system's temporary folder when it is asked for, once in a run, with a marker file at its top
   (`EXAMPLE_MARKER`). It is removed at the end of `will-quit`, after the
   writes that were under way and the sessions have ended (`removeExample`),
   and one a crash left is removed at the next start (`sweepExamples`): only
   ever a real folder that marker names, of a torno that no longer runs.
   `WorkspaceInfo.example` says the open folder is it, and the window says
   `EXAMPLE_NOTE` under the workspace's name.
-  The fixtures are never opened in place and never written to. The copy is
+  The example's own folder is never opened in place and never written to (the kernel's test workspace has nothing
+  to do with it). **Keeping it** (`keepExample`, channel `workspace:keepExample`; the root CLAUDE.md names it among the writes
+  outside `.torno/`) copies the open copy, with whatever was made in it (not the marker, `__pycache__`, links, nor
+  `.torno/session.json` and `state.md`, which are of the run), to a new folder at the path the save dialog gave
+  (under test `pickSave`): planned first (256 MB, 5,000 entries, 12 deep at most), written in a hidden
+  `.<name>.torno-new-<random>` beside it, the name taken by `mkdir` and the hidden folder renamed onto it as the last
+  step, refused for any name that is taken in any case; the copy to keep is `ws.info.root`, which must carry the
+  marker. The folder is then opened and remembered like one chosen in "Open folder"; the temporary copy stays until
+  quit, as ever. The copy is
   not remembered: not as the workspace to open next, not as a recent folder.
 
 - **What torno needs** (`main/ready.ts`, `main/readiness.ts` `ReadyKeeper`, `shared/ready.ts` `Ready`; the channels `ready:check`,
   `ready:make`, `ready:changed`) is found before anything fails, for the first screen, the empty workspace, the page of a
   new object and the sheet of the folder menu. `checkTools` looks for the agent's command (`AgentAdapter.probe`: with
-  `TORNO_AGENT_CMD`, the stand-in's) and for `uv` on `process.env.PATH` (the login shell's, on a Mac, after
+  `TORNO_AGENT_CMD`, the stand-in's) and for `uv` on `process.env.PATH` (the login shell's, on a Mac or Linux, after
   `applyLoginPath`) with the `findCommand` a session uses, and runs nothing for it. Outside tests (`askCli`, false under
   `TORNO_TEST=1`) it also asks the CLI `--version` and `auth status`, once per run and again only for "Check again" (`get(true)`), each
   within `ASK_MS` (3 s, then the process is killed: a runner that never answers is given up on as well), nothing
@@ -374,7 +495,9 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `standingOf`). Otherwise it is null, and `lastRun` says how many open dimensions the object has and how many
   failed when they were last measured: told as `1 dimension failed as of its last run`, in no colour of a
   verdict, never as a pass. Likewise the build line: of a build of this run it is in ink behind the status
-  line's dot (`buildLine`: `standing`); of an object not opened here it is muted and has no dot.
+  line's dot (`buildLine`: `standing`); of an object not opened here it is muted and has no dot, and says
+  `Model saved N ago` from `sourcesMtimeMs` (the newest `.py` of the object and `common/`, read from the files
+  as `behind` is; absent when it has no model), the plain `Not opened in this run` being its tooltip.
 - **Main alone keeps it** (`show/cards.ts` `keepThumbnail`, `saveThumbnail`, `thumbnailOnFile`; `ipc.ts` only
   joins them to the open workspace): `<object>/.torno/thumb.png` and `thumb.json` (`at`, `layout`, `parts`,
   `model`, `sourcesMtimeMs`, `bytes`, `hash`, and `cut`, `apart`, `hidden` when the picture is cut, drawn
@@ -384,12 +507,48 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   folder go one after the other; the facts say how many bytes the picture has and their SHA-256, and **a
   picture that is not the one its facts are of is no picture**: `cardsOf` drops it by its size (one `stat`),
   `thumbnailOnFile` by its bytes, and the card then says `No picture yet` and nothing of one.
+- **git is read, never written** (`src/main/git.ts`, `shared/git.ts`; #62). `gitState(objectDir)` runs one `git status
+  --porcelain=v2 --branch -z` by `execFile` (no shell) with `--no-optional-locks`, `GIT_OPTIONAL_LOCKS=0`, `core.fsmonitor=false`, no
+  prompt, `GIT_DIR` and its kin taken out of the environment, 5 s (`GIT_TIMEOUT_MS`) and then killed, over the project's folder and
+  the `common/` beside it (the paths of the work tree, found by `rev-parse --show-toplevel`), and drops what is under `.torno/`.
+  It answers the commit, the branch and the files that differ (30 named at most, all counted), or null: no git, not a work tree,
+  no answer in time. `git.test.ts` holds that the index's mtime, inode and size are as they were after a status on a stale entry.
+  No other git command is run, none that writes: **torno never commits**; the person asks the agent to (the Marks panel offers the
+  request). It reaches the window as `git.status(objectId)` (`gitStateRecently`: an answer is kept for a second, so a page of
+  cards and the status line cost one run) and as `ObjectCard.git`.
+- **A build has an identity** (`src/main/buildlog.ts`, #62). When a build lands, `BuildLog.record` finds `sourcesHash` (twelve hex of the
+  SHA-256 of the `.py` files directly in the project's folder and in `common/`, and the files the build says it imported from
+  elsewhere in the workspace, `Scene.uses` when the kernel gives it; each by its path and bytes), the commit (`gitState`) and whether files
+  differ from it, keeps that in memory for the run (40 builds an object; `identity(id, revision)`, `buildIdentity` in `ipc.ts`) and
+  adds a line to `.torno/builds.jsonl` (`revision`, `at`, `run`, `sources`, `head`, `dirty`): one write at a time, through
+  `ownTorno` and `ensureIgnored(dir, ['builds.jsonl'])`, appended, or the last 500 lines written whole when it would pass that.
+  `run` is the run of torno (random): a revision counts from 1 in every run, so a line of the file is a revision of *that* run alone.
+  The hash is of the files as they are when the build lands; a save during a build builds again.
+- **A history of builds** (`src/main/history.ts`, `shared/history.ts`; #56). `History.keep` (called from `ipc.ts` when a build lands, with the
+  promise of `BuildLog.record`, so in the order builds landed) keeps each build that worked under `.torno/history/`, ignored through
+  `ensureIgnored(dir, ['history/'])`: `index.json` (`{ next, entries }`, written whole and atomically), and per build `h41/scene.json` (the
+  scene without `output`; its mesh was never in it), `h41/source/<path from the workspace>` (copies of the files `sourcesHash` goes by, read
+  once with `readSources`; not copied, and the entry kept with `files: []`, when they hash otherwise than `BuildRecord.sources` says, or pass
+  `MOST_FILE_BYTES` a file or `MOST_COPY_BYTES` a build) and `h41/thumb.png` (the card's picture, attached by `History.thumbnail` from
+  `show:saveThumbnail` once `keepThumbnail` took it; at most `MOST_THUMB_BYTES`). The folder of a build is written before the index names it,
+  so a crash leaves the index whole and at most a folder no index names, which the next change sweeps (only folders named `h<n>`). **An id
+  is `h<n>`, counts on across runs and is never given twice** (`next`, and above any folder there: a lost index does not repeat one); a revision
+  is of its run and is told beside it. A build made from the sources the newest entry was made from is not kept again. A build whose declared
+  checks fail is kept and marked (`failing`). The newest 100 are kept besides every starred one (`HISTORY_KEPT`; `History.star`). The entry's
+  verdicts are **as of then** (`dimensions` is set when the check that followed the build ends, `keepDimensions` in `ipc.ts`): never told as
+  how the build stands now. One writer, one change at a time per object, `ownTorno(dir, 'history')` before every write and delete; nothing
+  of it is ever copied back: torno never restores a file (the window asks the agent to).
+  **Meshes for the ghost of a kept build** (`src/main/meshes.ts` `RecentMeshes`, `ws.meshes`): the scene and the blob of each build of
+  this run, in memory only, never written; `MESH_BUDGET_BYTES` (64 MB) for all the objects, not counting the newest build of each, the
+  oldest let go first. `history:list` says which kept builds still have theirs (`ghosts`), `history:ghost` hands them to the window
+  (a build of this run only).
 - **`.torno/.gitignore` has one writer**, `src/main/ignored.ts` `ensureIgnored(dir, lines)`: it adds the
   lines that are missing at the end, makes the file when there is none, never removes or rewrites what is
   there, and adds nothing against a line the person negated (`!thumb.png`). The thumbnails ask it for
   `thumb.png` and `thumb.json`, the state file for `state.md`, a conversation put on file for `session.json`,
-  a chat's log for `chat/`, an export for `exports/`, a picture for `views/`. What is the
-  object's travels: `scene.json`, `marks.json`, `scans.json`, `agent.json`.
+  a chat's log for `chat/`, an export for `exports/`, a picture for `views/`, the builds' record for `builds.jsonl`, the overrides of
+  `Params` for `params.json`. What is the
+  object's travels: `scene.json`, `marks.json`, `scans.json`, `profile.json`, `agent.json`.
 - **`.torno` is named in one module, `src/main/own.ts`** (`FOLDER`), and every write under it goes through
   `ownTorno(dir)` first (`writeOwn` for a file written whole): a link or a file in its place is refused with a
   plain reason, nothing is written, and the person is told once for each object, in the Marks panel
@@ -613,7 +772,8 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   put them. Between two parts of which either was moved, `check overlap`,
   `check clearance` and `measure distance` are refused in main
   (`spreadApart` in `marks/spread.ts`), naming the layouts that place both
-  as assembled; so is a distance from a bare point to a part that was moved.
+  as assembled; so is a distance from a bare point to a part that was moved, and `check interference`, which is of every part
+  of the layout (`spreadLayout`).
   A dimension of such a distance is not kept, and one there already is not
   measurable on that build (`spreadReason`, with where to measure it). An
   angle is answered, since parts are moved and never turned: each end of a
@@ -654,6 +814,29 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   handed to the system once it is named (`shell.openPath`; under test the path is put in
   `__tornoMain.openedFiles` and nothing is opened). The plan of such a file weighs nothing (`exportPlan`: each
   object's `layoutParts`, and `ONE_OBJECT` when several are ticked).
+- After a save the sheet offers `export:reveal` and `export:openSaved`. Neither takes an argument: they act on
+  `savedHere`, the path the last `export:save` wrote, kept in main until `export:done`, and refuse when the
+  file is gone. Under test they go through the `revealFile` and `openFile` hooks (`revealedFiles`,
+  `openedFiles`) and nothing is shown or opened.
+
+- **A picture of the view** (`export:savePicture`; `FileFormat` `png` in `shared/exportdata.ts`; the export sheet's reader "A picture"): the window draws it
+  (`pictureForPerson`, the renderer of `look` with `ImageRequest.person`: up to 4000 px, `MAX_PICTURE_EDGE`, and
+  without the axes and scale bar when asked) and sends the PNG's bytes and the object's id; main reads the header
+  (`checkedPicture`: a PNG, at most 4000 px and 64 MB, else refused), asks where to save (`askWhere`, the same dialog and
+  hook as any export, opening in `.torno/exports/`, default name `<name>-r<revision>.png`) and writes through
+  `writeExport`. The path is the dialog's alone and no agent has a tool for it; the agent's pictures stay within
+  2000 px (`checkedImage`, `pictureSize` without `forPerson`).
+- **A drawing of the section on screen** (`export:saveSection`, `export/section.ts`, `export/sectionSvg.ts`; `FileFormat`
+  `svg`, or `pdf`): the window sends the object's id and `svg` or `pdf`. Main takes the plane, the layout and the parts that are on from the
+  view the window last reported (`latestView`), asks the kernel for the outlines within `SECTION_DEFLECTION`
+  (0.01 mm) of the last good build, in full (not the thinned points the `section` tool tells), refuses when there is no
+  section on screen (`NO_SECTION`), nothing cut (`NOTHING_CUT`) or a build landed meanwhile (`NEW_BUILD`), and writes
+  the SVG through `askWhere` and `writeExport`. A PDF (`export/pdf.ts` `pdfOfSvg`) is that SVG printed by `printToPDF` in a `BrowserWindow` that is never shown (`show: false`, sandboxed, no script, every request but the data URL cancelled) on a page of the drawing's own size in millimetres, made before the dialog is up. Both set `savedHere`, so the sheet's "Show in folder" works for them. `sectionSvg` is pure: the file is in millimetres (its width and height
+  in `mm`, the viewBox in the same numbers, so one unit is one millimetre; no scaling), with a scale bar, a title block
+  whose numbers are in full (`full`), and the dimension marks of the layout that are not resolved, are measured on the
+  build (`measuredValue`) and have both ends within `IN_PLANE_MM` of the plane, with the value and, when set, `expected
+  ± tolerance`; the others are listed in `left`. What the build was made from (#62: `identitySaid` of `buildIdentity`,
+  sources hash, commit and "with changes") goes in the title block as `Source` through `SectionDeps.identity`.
 
 ## Agents
 
@@ -681,16 +864,25 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   to the letter in the skills `scans` and `dimensions`. Started without the plugin folder (`skills` false) it is
   told the whole text (`FULL_PROMPT`, under 8,000 characters). A change to what the prompt says of scans
   or dimensions is a change to the skill too (`prompt.test.ts` holds them together); the template of
-  `torno-model` is built by the kernel's `tests/test_skill_template.py`. The `build123d` skill carries files beside its `SKILL.md`, which `electron-builder.yml` ships with the plugin folder: an API reference of the pinned build123d, generated (`kernel/scripts/build123d_api.py`) and held to it by `tests/test_skill_api.py`, which also runs the skill's examples, and `reference/fasteners.md`. The skill sends the agent to grep the reference (`${CLAUDE_SKILL_DIR}`), never to run Python for it, and says `bd_warehouse` is not in torno's kernel. Claude Code is also given a subagent on
+  `torno-model` is built by the kernel's `tests/test_skill_template.py`. The `build123d` skill carries files beside its `SKILL.md`, which `electron-builder.yml` ships with the plugin folder: an API reference of the pinned build123d, generated (`kernel/scripts/build123d_api.py`) and held to it by `tests/test_skill_api.py`, which also runs the skill's examples, and `reference/fasteners.md`. The skill sends the agent to grep the reference (`${CLAUDE_SKILL_DIR}`), never to run Python for it, and says `bd_warehouse` is in torno's kernel, with the sizes for a model that should not depend on it; the `torno-model` skill has the section on `references(p)`. Claude Code is also given a subagent on
   its command line, `--agents` with `torno-reviewer` (`claude.ts` `reviewerAgents`): tools `scene`, `look`,
-  `marks`, `measure`, `check`, `section`, `describe` and `Read`, never one that edits, resolves, adds a mark or
-  changes the view; its prompt checks the build against what was asked, every open mark and every dimension, with
-  numbers from the tools. Claude Code's prompt says to use it after a change of several steps, before saying it
+  `marks`, `measure`, `check`, `section`, `describe`, `diff`, the scan tools and `Read`, never one that edits,
+  resolves, adds a mark or changes the view; `model: sonnet` (`TORNO_REVIEWER_MODEL` names another, or `inherit`
+  passes none) and `maxTurns: 20`; its prompt reads `brief.md`, then checks the build against what was asked, every
+  open mark and every dimension, numbers first and at most two looks, and ends with lines of `HOLDS`, `FAILS` or
+  `UNCHECKED` (never left out). Claude Code's prompt says to use it after a change of several steps, before saying it
   is done. The prompt states the verify loop in one paragraph: after an edit, numbers first (`measure`, `check`,
   `section`, `diff`), then one `look` with the marks drawn, a second only for what the first could not show; `review`
   asks the same (one or two looks at all the open marks, a look at one mark alone only where numbers cannot settle
   it). It is appended with `--append-system-prompt`, not an agent definition or an output style. `contextFor`
   names tools through `opts.toolName` likewise.
+- **Ablations of an eval run** (`main/ablations.ts`, `ablations()`, read once in `index.ts`): `TORNO_EVAL_ABLATE`
+  (`skills`, `reviewer`, `stop`, `look`, `digest`), and `evalTuning()` of `TORNO_EVAL_LOOK_SIZE` (`ToolDeps.lookSize`,
+  the fallback of `clampSize`) and `TORNO_EVAL_HOLDS` (`Sessions`' `mostHolds`, 1 or 2), are read only when both
+  `TORNO_TEST=1` and `TORNO_EVAL=1` are set, and are empty otherwise; an unknown name or a value out of range throws.
+  `digest` is `ContextDeps.digest: false` on the deps of `buildContextFor` (`state.md` keeps its digest). Each is one switch: no plugin folder for the adapter, `claudeAdapter`'s
+  `reviewer: false` (no `--agents`), `Sessions`' `holdStops: false` (`stopAnswer` holds nothing), `ToolDeps.off` (the
+  tool answers `LOOK_OFF`). None of the variables reaches the agent (`agentEnv`). Only `app/evals` sets them together.
 - The view of an object's sessions, chat or terminal, is chosen under the session header and kept in
   `<object>/.torno/agent.json` (`{ "agent": "claude", "view": "terminal" }`; `sessions/choice.ts`, main's alone,
   atomic; `agent` is written still, so that the file is one an older torno reads). No file is the chat. A file
@@ -756,7 +948,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 - **The sanity pass** (`src/main/sanity.ts`, pure). After every successful build `sanity(previous, current,
   verdicts)` holds it against the successful build before (`Builds.scenes`, the data `diff` reads) from what the
   kernel sent with each (`solids`, `openShells`, `meshVolume`, `meshDisagrees`, `valid`, `reversed`): no query.
-  Parts are compared by name, each in the first layout of the build that has it, with `partDiff` (which `diff`
+  Parts are compared by name, each in the first layout of the build that has it, with `partDiff` (`shared/diff.ts`, which `diff`
   uses too: the same line, the volume's change also in percent, `≈` where either build is not exact; a number that
   is not exact has changed only by more than both builds' doubt of it, `volumeDoubt` and `bboxDoubt`, twice that of
   a size); unchanged parts are counted. Its flags are of the shape alone, never a guess at intent: not valid, inside out, no solid or
@@ -800,6 +992,9 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `build.error.diagnosis` (the data and its `reading`) and in its error before a first build that worked, `state.md`,
   and the error sheet (`ui/BuildErrorSheet.tsx`, under "Why", and in what Copy takes). Nothing is retried in the
   model: the agent decides.
+  A failed **boolean** carries a diagnosis of the other kind (`BooleanDiagnosis`, the kernel's `booleans.py`: its
+  operands, how base and tool meet, `causes`), told by the same `diagnosisText` in the same places. Its operands are
+  not parts of any build and `Builds.withRefs` leaves it as it is (`isBoolean`): nothing in it is named by a ref.
 - A `StopFailure` hook (a turn an error of the API ended: a login that failed, an overload; posted in place of the
   `Stop`) is idle and ends the turn as a `Stop` does, and is never held back (`stopAnswer` is not asked; the CLI reads
   no answer to it), so a terminal session is not left "working" until its next prompt.
@@ -824,9 +1019,10 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   clicking it (`e2e/session.spec.ts`).
 - **The chat session** (Claude Code with `view` `chat`; `sessions/transport.ts`, `stream.ts`, `transcript.ts`,
   `chatlog.ts`, `permissions.ts`, `Sessions` in `manager.ts`). `Sessions` drives a chat through `AgentTransport`
-  (`transport.ts`: `prompt`, `control` for `initialize` and `set_model`, `interrupt`, `answer` to an ask, `end`, the
-  `pid` it signals, and the events `message`, `ask`, `note`, `stderr`, `exit`) and never through a class of its own:
-  the adapter makes it (`AgentAdapter.chat`), and `ClaudeStream` (`stream.ts`) is the one there is. Another
+  (`transport.ts`: `prompt`, `control` for `initialize`, `set_model` and `set_permission_mode`, `interrupt`, `answer` to an ask, `end`, and `terminate` and `kill` for
+  an agent that stays after `end` (`Sessions.stop` times them; the process group is the transport's, `signals.ts`), and the events `message`, `ask`, `note`, `stderr`, `exit`) and never through a class of its own:
+  the adapter makes it (`AgentAdapter.chat`), and `ClaudeStream` (`stream.ts`) is the one there is. `sessions/memory.itest.ts`
+  drives `Sessions` with a transport in memory. Another
   transport (the Agent SDK's) would be another `chat` of an adapter, with the messages in the CLI's shapes, the
   transcript unchanged. The adapter adds `HEADLESS` to the same arguments as a terminal
   session (`claude.ts`); the CLI is spawned on pipes, detached, in the object's folder, with the terminal
@@ -835,6 +1031,15 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   at it. Torno answers `initialize` (the commands and models, told to the window as a `capabilities` event),
   `interrupt`, `set_model`, which changes this session's model and nothing of the person's, and `apply_flag_settings`
   for its effort (below).
+- **The mode of a session** (`MODES`, `isMode`, `MODE_NOTE` in `shared/chat.ts`; `ModeMenu`). The edits menu beside the
+  model offers `default`, `acceptEdits` and `plan`. `Sessions.setMode` (`chat:setMode`, the mode checked by `isMode`
+  first) sends the control request `set_permission_mode` and, once the CLI has answered, the transcript says it
+  (`modeSet`). The CLI holds it in memory for that session: no settings file is written, so a permission answer and a
+  mode alike never write the person's settings. `ChatMeta.permissionMode` is the `permissionMode` of every `init`
+  (the person's own start mode may be one torno does not offer; it is shown as the CLI names it). The `setMode`
+  suggestion of an ask is still never passed on (below): the mode is chosen by the menu alone. The request is built
+  on the Agent SDK's documented control request; the stand-in answers it, and a real CLI is still to be checked
+  (the manual's last section).
 - **The model and effort of a session** (`AgentChoice`, `agentChoiceOf`, `MODEL_NAME`, `EFFORTS` in `shared/chat.ts`).
   `Sessions.start` takes `model` and `effort` (`StartOptions`), for that session alone; `claude.ts` passes them as one
   argument each, `--model=<name>` and `--effort=<level>`, so that a value can never be read as a flag, and nothing
@@ -875,6 +1080,13 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `version` (`claude_code_version`), `apiKeySource` and `pluginLoaded`; `result` adds `costUsd` (`total_cost_usd`) and
   `context` (the tokens of the last request, `usage.iterations`' last or else `usage`, against the `contextWindow` of
   the session's model in `modelUsage`; unchanged when the result has no tokens, as a `/compact`'s has none);
+  the `turn` item takes the tokens the `result` counts as `usage` (`TurnUsage`: `usage` summed, `num_turns` as `requests`,
+  and `modelUsage` per model; numbers only, so it is in the chat's log; none when the result counts none);
+  a `warn` note `NO_HOOKS` says once per session that the hooks do not arrive: a prompt of ours the CLI started
+  (`command_lifecycle`, not a `/` command) with no `UserPromptSubmit` by `hookWaitMs` (8 s) or the end of its turn, in a
+  session where none has come (a setting that limits `httpHookAllowedEnvVars` makes every hook 404). It never moves
+  the status; the stand-in's `FAKE_AGENT_NO_HOOKS=1` plays it. The terminal view cannot tell it: the manual's
+  troubleshooting names it.
   `api_retry` sets `retrying` (`{ attempt }`) until a `stream_event`, an `assistant`, a `user` or a `result` comes.
   Notes: a `warn` when torno's tools are `failed` (with the text of the entry of `mcp_server_errors` that is
   `torno`'s own: a `name`, `plugin`, `plugin_name` or `server` field that is `torno`, or a string that is or begins
@@ -897,6 +1109,23 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `--plugin-dir` is left out (`LaunchContext.skills`). **A turn that could not authenticate** (#117: `-p` under `--bare` reads no login, and the CLI says `--bare` will become its default) is known by one typed field alone, an assistant message's `error: "authentication_failed"` (the Agent SDK's `SDKAssistantMessage.error`; not yet seen from a real CLI), never by the words of the message or of the `result`, and never by `apiKeySource` `none`, which a login reports too: a `warn` note once a session after what the CLI said, `LOGIN_FAILED` ("Claude Code's chat could not use your login: …"), with `action: 'terminal'`, the window's button that writes `view` `terminal` and starts a terminal session resuming the conversation, live chat or ended (`readLog` drops any other `action`). It moves no status. What is known before any session (`main/ready.ts`, The first screen) is the one place torno
   runs `claude --version` and `claude auth status`; a session says what it can of itself through its `init`. Nothing
   of the person's settings is read, and of the instruction files Claude Code reads only the paths and sizes are.
+- **`ask`, the question of torno's own** (`mcp/askTool.ts`, `main/asks.ts`, `shared/ask.ts`, `ui/QuestionCard.tsx`): `ask
+  {question, options: [{label, refs}], pick?}` puts a card to the person and waits for what they choose, as data: the
+  option (label and refs), or the one face or edge they select in the view when `pick`, or "not answered". Refs are
+  checked as `highlight`'s are (`checkedRefs`: marks and groups turned into refs, all or nothing); at most 6 options of 20
+  refs, one question per object at a time (a second is refused). It is not an `AgentAsk`: nothing of the CLI's is
+  in it, so it is no transcript item. `Asks` keeps the open questions and tells the window the whole list on every
+  change (`asks:changed`; `asks:list` for a window just begun; `asks:answer` back, checked by `answerOf` against the
+  options of that question); the window never says more than an index or a ref. **Status:** a session shows
+  `needs_input` while it has one open, by `Sessions.holdAsk` (a count, `Session.held`), the one status the hooks do not
+  say, since the call is a single tool open as long as the person takes and nothing is posted meanwhile. A
+  `PostToolUse` of another tool meanwhile does not make it `working`; when the last is answered the status goes
+  back to what it was. The question ends with the first of: an answer, 10 minutes (`ASK_LIMIT_MS`: "not answered"), the
+  client hanging up, the turn ending (the session turns `idle`: Claude Code's cancel of one call does not reach a
+  server without sessions, so the end of the turn is what ends it), the session ending, the window closing or the
+  workspace being left. While it waits the tool sends a progress notification every 30 s (`ASK_PROGRESS_MS`) when the
+  client gave a progress token, since Claude Code ends an MCP call quiet for 5 minutes. An answer says when the model was built again
+  meanwhile; a picked ref is looked up in the last build. It changes nothing in the person's view beyond lighting refs.
 - Asks (`control_request` `can_use_tool`) wait in `Session.asks`, are answered only through `Sessions.respond` and
   show the status `needs_input` while open. They end when the CLI cancels the request (`control_cancel_request`,
   which it sends right after an `interrupt`; the card reads "Cancelled: the turn was stopped", `why`), at any
@@ -975,11 +1204,37 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `readReference`) gives the window the bytes of such a file again, for a session of the open workspace (one ended
   too): only a name of the form `create.ts` gives (`REFERENCE_FILE`), only a plain file read with `readRegular` of
   `create.ts` (no link, `reference` itself no link), at most `MAX_PHOTO`; anything else is null, never an error. A resumed chat
-  reads the tail of the file as "Earlier in this conversation". A log over 5 MB is cut to its last 2,000 lines, whole
+  reads the tail of the file as "Earlier in this conversation". The pane with no session shows the end of the conversation on file the same
+  way, read-only (`chat:lastConversation`, `lastConversation` of `chatlog.ts`: the last eight `user`, `text` and `turn` items and the
+  log's modification time; it only reads, and the object must be of the open workspace). A log over 5 MB is cut to its last 2,000 lines, whole
   and atomically, when a session starts on it (`trimLog`). Switching `view` ends the session and resumes the
   conversation in the other kind (`session.json` is the same).
+- **What a turn changed in the model** (`sessions/snapshots.ts`, `shared/changes.ts`, `chat:changes`). When a
+  prompt is sent (its `UserPromptSubmit`, read before the hook is answered, so before the agent can have touched
+  anything) and when the turn ends (its `result`, as the transcript puts the turn item), main reads the text of the `.py`
+  files directly in the object's folder (as `sourceFolders` has the own folder; not `<workspace>/common`; plain files
+  only, `lstat` and `O_NOFOLLOW`, 60 files at most, `MAX_FILE_BYTES` (200 KB) each: a larger file is told to have
+  changed by its size and mtime, with no text), and keeps the files that differ as `TurnChanges`, by the id of the turn's item
+  (`KeptChanges`: the last `MAX_TURNS` (20) turns of a session and `MAX_KEPT_CHARS` (4 M characters) of text, the oldest let
+  go first). **Held in memory only**: never written (not under `.torno/`, not in `.torno/chat/`, not in `state.md`), not
+  a chat item and not logged, gone with the session's record. A prompt folded into a turn under way is not a start of its
+  own (the turn keeps its first snapshot); a turn with no hook before it begins where the last ended. What the
+  person saved between two turns is no turn's. A change made by a `Bash` is found too (it is by the files, not by
+  the tools); a file outside the folder is not. `chat:changes(sessionId, turnId)` answers null for a session that is not
+  of the open workspace and for a turn it holds nothing of (also one that changed no file there); it waits for the
+  turn's snapshot to be read. The window draws the diff (`ChangesSheet`); torno never writes the model.
+  **Undo** (`Sessions.undoTurn`, `chat:undo`, `sessions/undo.ts`) is a request, not a restore: for the last turn of an
+  idle chat (refused with a `Refusal` otherwise: working or asking, a prompt untaken, not the last turn, nothing kept of it)
+  main puts a quiet note in the transcript and sends one prompt of its own words (`undoPrompt`), as the person's, that asks
+  the agent to put the files back, with the lines to reverse (`reverseBlock`: what the file has now between what the two
+  texts share at their ends as `-`, what it had as `+`, a line of context each side; at most `MAX_REVERSE_CHARS`, 12,000, for
+  all files, a file beyond it or too large to have been kept being named without lines; a file the person saved since,
+  read again now, is said to have changed). The agent edits, through its own tools and permission cards: torno writes nothing
+  of the model, and this rule is unchanged. Claude Code's checkpoints (`--rewind-files`) are not used: they await the spike
+  in the manual's "Not yet verified" (`Part of #131`).
 - The first prompt of a new conversation (`newConversation`: a session not resumed, its first `UserPromptSubmit`;
-  or `fresh`, after /clear) is told in a last line the files of `reference/` (`referencesLine` in `context.ts`,
+  or `fresh`, after /clear or after a compaction: the `PostCompact` hook, which moves no status, or the stream's
+  `compact_boundary`, either sets `Session.compacted`, which the next prompt takes once as `fresh`) is told in a last line the files of `reference/` (`referencesLine` in `context.ts`,
   `listReferences`: plain files of create's names, photos then doodles, twelve named at most). It is no mark, and is
   left out when it does not fit in the context's limit. The onboarding prompt names them too; the repetition is
   accepted.
@@ -1010,10 +1265,15 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   deleted).
 - Photos come as paths, copied as `reference/photo-<n>.<ext>` (png, jpg, jpeg, webp; at most 25 MB; `lstat` and an
   `O_NOFOLLOW` open, so no link, folder or pipe; read through the open handle, never more than the size said). Doodles
-  come as PNG bytes (signature checked, at most 8 MB). Scans are not copied (`objects:onboard` imports them) and other objects are named
+  come as PNG bytes (signature checked, at most 8 MB). Vendor STEP files (bought parts; `.step`/`.stp`) come as paths too, copied as they are to `reference/<their name>`
+  (`stepFiles` in `shared/objectName.ts` names them, window and main alike: the stem made safe, the ending lower case, `-2` for a name taken, in any case), at most 50 MB
+  (`MAX_STEP_BYTES`), through the same `readRegular` (no link, folder or pipe). They are listed in the brief after the doodles and
+  named in the first prompt as a reference body for `import_step` and `references(p)` (`OnboardDraft.steps`: `reference/<file>` and a note;
+  the file is checked as a plain file of `reference/` with a STEP name). torno reads nothing of them. `objects:pickStep` is their dialog
+  (`__tornoMain.pickStep`, `stepPicks` count). Scans are not copied (`objects:onboard` imports them) and other objects are named
   by id; the path of a scan is refused if it holds a control character, a line break above all, as it is a line of `brief.md`,
-  which writes a path under the home folder with `~`. At most 12 photos, 6 doodles, 4 scans and 8 objects (`MOST_REFERENCES` in `shared/objectName.ts`, held by the window and main alike). `brief.md` is `# name`, the description, and `## References` with a line per item in the
-  order photos, doodles, scans, objects.
+  which writes a path under the home folder with `~`. At most 12 photos, 6 doodles, 4 bought parts (STEP), 4 scans and 8 objects (`MOST_REFERENCES` in `shared/objectName.ts`, held by the window and main alike). `brief.md` is `# name`, the description, and `## References` with a line per item in the
+  order photos, doodles, STEP files, scans, objects.
 - `objects:create` answers after `rescan`, so the listing has the object; if the workspace was left meanwhile, or it
   does not list the object, it rejects saying the object "was made, but ..." (the window then does not offer the
   draft again). It validates the request (name, caps, every note, every scan and object, the same photo, scan or object given

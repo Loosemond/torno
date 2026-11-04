@@ -5,7 +5,8 @@ import { join } from 'node:path'
 import { isInsideFolder } from './inside'
 import * as pty from 'node-pty'
 import type { AgentView, SessionStatus } from '../../shared/bridge'
-import { type AgentChoice, agentChoiceOf, type ChatAnswer, type ChatCommand, type ChatHistory, type ChatItem, type ChatMeta, type ChatModel, type Effort, isEffort } from '../../shared/chat'
+import { type AgentChoice, agentChoiceOf, type ChatAnswer, type ChatCommand, type ChatHistory, type ChatItem, type ChatMeta, type ChatModel, type Effort, isEffort, type Mode } from '../../shared/chat'
+import type { BuildIdentity } from '../../shared/git'
 import { modelsOf } from './models'
 import { type BuildState, errorLine, failedAfter } from '../../shared/build'
 import { type DrawnOver, type ViewDrawing, drawnOver } from '../../shared/drawing'
@@ -25,10 +26,15 @@ import { drawingText } from './drawing'
 import { sessionRules } from './permissions'
 import { agentEnv } from './agentEnv'
 import { findCommand } from './choice'
+import { killGroup } from './signals'
 import { SESSION_FILE, storeConversation, storedConversation, UUID } from './resume'
 import { HOOK_EVENTS, reduceStatus } from './status'
 import type { AgentAsk, AgentMessage, AgentTransport, AskAnswer, PromptBlock } from './transport'
 import { Transcript } from './transcript'
+import { changesBetween, KeptChanges, type Snapshot, snapshotSources } from './snapshots'
+import type { TurnChanges } from '../../shared/changes'
+import { Refusal } from '../refusal'
+import { undoFiles, undoPrompt } from './undo'
 
 const HOOK_BODY_LIMIT = 1024 * 1024
 const KILL_AFTER_MS = 2000
@@ -60,6 +66,8 @@ interface Session {
   promptedIn: string
   /** A conversation begun with this session (not one resumed) that no prompt has been in yet: the next is told what is new to it. */
   unprompted: boolean
+  /** The conversation was compacted since the last prompt (the `PostCompact` hook, or the stream's `compact_boundary`): the next prompt is told as one of a fresh conversation, once. */
+  compacted: boolean
   /** No prompt has been in this session yet, resumed or not: the next is told what Claude Code reads of the object's folder. */
   firstPrompt: boolean
   status: SessionStatus
@@ -76,6 +84,10 @@ interface Session {
   logFailed: boolean
   /** A chat session: the requests of the CLI's that wait for the person. */
   asks: Map<string, AgentAsk>
+  /** How many questions of torno's own (`ask`, main/asks.ts) wait for the person: the status is `needs_input` while there are any. */
+  held: number
+  /** The status a session had when the first question of torno's own was put: the one it goes back to, as it was working or idle then. */
+  beforeHold?: SessionStatus
   /** A chat session: what the CLI printed or posted last (it grows with every line and hook), to tell a moment of quiet from a change. */
   activity: number
   /** A chat session: waits a moment after a `result` that left prompts untaken, to see whether the CLI begins on them. */
@@ -162,6 +174,13 @@ interface ChatRecord {
   capabilities?: Capabilities
   /** Counts every item and meta told, so that a window that asked for the history knows which of them it holds. */
   seq: number
+  /** What the last turns changed in the model's source files (`snapshots.ts`): in memory only, never in the log, and not an item. */
+  changes: KeptChanges
+  /** The sources as they were when the prompt now at work was sent, and as they were when the last turn ended (the start of a turn the CLI took up without a hook). */
+  sourcesBefore?: Promise<Snapshot>
+  sourcesAfter?: Promise<Snapshot>
+  /** The changes of the last turn that are being worked out: a call for them waits for it. */
+  settling?: Promise<void>
 }
 
 /** What a chat session's CLI says it can do: its slash commands and the models it offers. */
@@ -296,8 +315,14 @@ export class Sessions {
       settled?: (objectId: string, revision: number, until: number) => Promise<void>
       /** When the newest `.py` of an object, and of the `common/` beside it, was saved (null: none): a `Bash` after which it is newer has rewritten the model. Absent: a `Bash` is taken for no change. */
       sourcesSaved?: (objectDir: string) => Promise<number | null>
+      /** What the build of this run with this revision was made from: told under the chat's build lines and chips. Absent: nothing is. */
+      identity?: (objectId: string, revision: number) => BuildIdentity | undefined
       /** Tests only: how long an edit's answer waits for its build, and for it to begin, and how long a `Stop` waits for a build. */
       editTiming?: { answerMs: number; graceMs: number; stopMs?: number }
+      /** False only in an eval run that takes the holds away (`main/ablations.ts`): a `Stop` is never held back. */
+      holdStops?: boolean
+      /** How many times a turn may be held back, from an eval run (`evalTuning`): MOST_HOLDS otherwise. */
+      mostHolds?: number
       /** Print the command line of every session started, and every hook it posts. */
       debug?: boolean
     }
@@ -392,14 +417,20 @@ export class Sessions {
             dir: obj.dir,
             earlier,
             seq: 0,
+            changes: new KeptChanges(),
             transcript: new Transcript({
               prefix: `${id.slice(0, 6)}-`,
               redact: http.redact,
               ...(skills && adapter.plugin ? { plugin: adapter.plugin } : {}),
               ...(adapter.tested ? { tested: adapter.tested } : {}),
               ...(isEffort(opts.effort) ? { effort: opts.effort } : {}),
+              onCompact: () => {
+                const s = this.sessions.get(id)
+                if (s) s.compacted = true
+              },
               emit: (item) => {
                 chat!.seq += 1
+                if (item.kind === 'turn') this.keepChanges(chat!, item.id)
                 this.emit('item', { sessionId: id, objectId: obj.id, item, seq: chat!.seq })
                 this.log(session)
               },
@@ -418,6 +449,7 @@ export class Sessions {
       conversationId,
       promptedIn: conversationId,
       unprompted: stored === null,
+      compacted: false,
       firstPrompt: true,
       status: 'starting',
       cols,
@@ -429,6 +461,7 @@ export class Sessions {
       logging: Promise.resolve(),
       logFailed: false,
       asks: new Map(),
+      held: 0,
       activity: 0,
       stderr: [],
       heard: false,
@@ -472,7 +505,7 @@ export class Sessions {
   /** The session running in an object's folder. */
   current(objectId: string): SessionInfo | null {
     const s = this.of(objectId)
-    return s ? { sessionId: s.id, status: s.status, cols: s.cols, rows: s.rows, pid: (s.pty ?? s.agent)?.pid ?? 0, view: s.view } : null
+    return s ? { sessionId: s.id, status: s.status, cols: s.cols, rows: s.rows, pid: s.pty?.pid ?? (s.agent && 'pid' in s.agent ? Number(s.agent.pid) : 0), view: s.view } : null
   }
 
   /** Whether a session is being started in an object's folder and is not there yet. */
@@ -569,7 +602,8 @@ export class Sessions {
     // How long it took and what it said, as data: the window draws a build line from these and the digest, never from the text.
     const took = told.buildState === 'ok' && at?.status === 'ok' && at.revision === told.revision ? at.seconds : undefined
     const error = told.buildState === 'failed' && at?.status === 'failed' && at.error ? errorLine(at.error) : undefined
-    session.chat?.transcript.toolContext({ toolUseId: session.turn?.lastToolUse, text: told.text, ...(told.revision !== undefined ? { revision: told.revision } : {}), ...(told.buildState ? { buildState: told.buildState } : {}), ...(took !== undefined ? { seconds: took } : {}), ...(error ? { error } : {}), ...(told.digest ? { digest: told.digest } : {}) })
+    const identity = told.revision === undefined ? undefined : this.deps.identity?.(objectId, told.revision)
+    session.chat?.transcript.toolContext({ toolUseId: session.turn?.lastToolUse, text: told.text, ...(told.revision !== undefined ? { revision: told.revision } : {}), ...(told.buildState ? { buildState: told.buildState } : {}), ...(took !== undefined ? { seconds: took } : {}), ...(error ? { error } : {}), ...(told.digest ? { digest: told.digest } : {}), ...(identity ? { identity } : {}) })
     return { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: told.text } }
   }
 
@@ -597,7 +631,7 @@ export class Sessions {
     const turn = session.turn
     const objectId = session.object.id
     const { build } = this.deps
-    if (!turn || !build || turn.holds >= MOST_HOLDS) return null
+    if (!turn || !build || turn.holds >= (this.deps.mostHolds ?? MOST_HOLDS) || this.deps.holdStops === false) return null
     const deadline = Date.now() + (this.deps.editTiming?.stopMs ?? STOP_WAIT_MS)
     // The build there is is the turn's only if it began after the turn first changed a source: a first build, a save of the person's, a build of before the edit is not.
     const caused = (): boolean => turn.changedAt !== undefined && (this.buildStarts.get(objectId) ?? -Infinity) >= turn.changedAt
@@ -795,7 +829,7 @@ export class Sessions {
     s.agent.answer(requestId, response)
     s.chat?.transcript.answered(requestId, response.behavior === 'allow' ? 'allowed' : 'denied', response.behavior === 'allow' ? answersText(response.updatedInput) : response.message)
     this.emit('asked', { sessionId, requestId, answered: true })
-    if (s.asks.size === 0) this.advance(s, 'answered')
+    if (s.asks.size === 0 && s.held === 0) this.advance(s, 'answered')
   }
 
   /**
@@ -807,6 +841,17 @@ export class Sessions {
     if (!s?.agent) throw new Error('This is not a chat session, or it has ended')
     await s.agent.control({ subtype: 'apply_flag_settings', settings: { effortLevel: effort } })
     s.chat?.transcript.effortSet(effort)
+  }
+
+  /**
+   * A chat session's permission mode, for the session alone (`set_permission_mode`, held in the CLI's memory): no
+   * settings file is written. The transcript says it once the CLI has taken it.
+   */
+  async setMode(sessionId: string, mode: Mode): Promise<void> {
+    const s = this.chat(sessionId, 'control')
+    if (!s?.agent) throw new Error('This is not a chat session, or it has ended')
+    await s.agent.control({ subtype: 'set_permission_mode', mode })
+    s.chat?.transcript.modeSet(mode)
   }
 
   /** A chat session: a request of ours to its agent (`interrupt`, `set_model`, `initialize`), resolved with its answer. */
@@ -834,6 +879,64 @@ export class Sessions {
     if (!r) return undefined
     const { commands, models } = r.capabilities ?? { commands: [], models: [] }
     return { items: r.transcript.items(), meta: r.transcript.meta(), earlier: r.earlier, commands, models: modelsOf(models), seq: r.seq }
+  }
+
+  /**
+   * What a turn changed in the `.py` files directly in the object's folder: the text of each that differs, at the
+   * start of the turn (when its prompt was sent) and at its end. None for a turn main did not see begin or end, one
+   * it let go of (the last `MAX_TURNS`, a few MB of text), and a session that is not a chat.
+   */
+  async changesOf(sessionId: string, turnId: string): Promise<TurnChanges | undefined> {
+    const chat = this.records.get(sessionId)
+    await chat?.settling
+    return chat?.changes.get(turnId)
+  }
+
+  /**
+   * "Undo" on the last turn: a prompt of torno's own words asks the agent to put the model files back as they were
+   * before that turn, with the lines to reverse (from the kept `changes`), after a note that says what was asked. Torno
+   * writes nothing of the model: the agent edits, through the permission card of each edit. Refused (a `Refusal`,
+   * nothing sent) unless the session is idle, the turn is the last of its transcript and main holds what it changed.
+   */
+  async undoTurn(sessionId: string, turnId: string): Promise<void> {
+    const s = this.chat(sessionId, 'undo')
+    if (!s?.agent || !s.chat) throw new Refusal('This session has ended')
+    const busy = (): boolean => s.status === 'working' || s.status === 'needs_input' || (s.chat?.transcript.untakenCount() ?? 0) > 0
+    if (busy()) throw new Refusal('Wait for the turn to end')
+    const items = s.chat.transcript.items()
+    if (items.findLast((item) => item.kind === 'turn')?.id !== turnId || items[items.length - 1]?.kind === 'user') throw new Refusal('Only the last turn can be undone')
+    const changes = await this.changesOf(sessionId, turnId)
+    if (!changes || changes.files.length === 0) throw new Refusal('Nothing is kept of what that turn changed in the model, so it cannot be undone from here')
+    // What the files hold now: one the person saved since is told to the agent, which reads it before it reverses a line.
+    const read = await snapshotSources(s.chat.dir)
+    const now = new Map<string, string | null>()
+    for (const { file } of changes.files) {
+      const held = read.get(file)
+      now.set(file, held && 'text' in held ? held.text : null)
+    }
+    // A moment passed while the files were read.
+    if (!this.chat(sessionId, 'undo')) throw new Refusal('This session has ended')
+    if (busy()) throw new Refusal('Wait for the turn to end')
+    const names = undoFiles(changes)
+    const shown = names.length > 3 ? `${names.slice(0, 3).join(', ')} and ${names.length - 3} more` : names.join(', ')
+    s.chat.transcript.note(`Undo: Claude Code is asked to put ${shown} back as it was before that turn, with the lines to reverse, which torno read before and after it. It edits through its usual permission card; torno writes nothing.`, 'quiet')
+    this.prompt(sessionId, [{ type: 'text', text: undoPrompt(changes, now) }])
+  }
+
+  /** A turn has ended: the sources now, against the sources when its prompt was sent; kept only when they differ. Never written. */
+  private keepChanges(chat: ChatRecord, turnId: string): void {
+    const before = chat.sourcesBefore ?? chat.sourcesAfter
+    chat.sourcesBefore = undefined
+    const after = snapshotSources(chat.dir)
+    chat.sourcesAfter = after
+    if (!before) return
+    chat.settling = Promise.all([before, after]).then(
+      ([was, now]) => {
+        const changes = changesBetween(was, now)
+        if (changes.files.length > 0) chat.changes.keep(turnId, changes)
+      },
+      () => undefined
+    )
   }
 
   /** The chat of an object that has ended and whose transcript is still held, for a window loaded since to show. */
@@ -957,7 +1060,7 @@ export class Sessions {
     if (!session.asks.delete(requestId)) return
     session.chat?.transcript.cancelled(requestId)
     this.emit('asked', { sessionId: session.id, requestId, answered: false })
-    if (session.asks.size === 0) this.advance(session, 'answered')
+    if (session.asks.size === 0 && session.held === 0) this.advance(session, 'answered')
   }
 
   /**
@@ -1010,12 +1113,12 @@ export class Sessions {
       s.killTimer = setTimeout(() => killGroup(child.pid), KILL_AFTER_MS)
     } else if (!s.killTimer && s.agent) {
       // Its stdin ends and it leaves by itself; one that does not is asked to, then killed, with what it started.
-      const { pid } = s.agent
+      const agent = s.agent
       // One at work is interrupted first, so that it does not run its turn out (or its tools) before it goes.
       if (s.status === 'working' || s.status === 'needs_input') s.agent.interrupt(1000).catch(() => undefined)
       s.agent.end()
-      s.termTimer = setTimeout(() => signalGroup(pid, 'SIGTERM'), TERM_AFTER_MS)
-      s.killTimer = setTimeout(() => killGroup(pid), 2 * TERM_AFTER_MS)
+      s.termTimer = setTimeout(() => agent.terminate(), TERM_AFTER_MS)
+      s.killTimer = setTimeout(() => agent.kill(), 2 * TERM_AFTER_MS)
     }
     return s.exited
   }
@@ -1052,8 +1155,38 @@ export class Sessions {
     }
   }
 
+  /**
+   * The agent put a question of torno's own to the person (`ask`): the session shows `needs_input` until the
+   * function returned is called (once). The hooks do not say it: the call is one tool, open as long as the
+   * person takes, and nothing is posted meanwhile. A session that is not there holds nothing.
+   */
+  holdAsk(objectId: string): () => void {
+    const session = this.of(objectId)
+    if (!session) return () => {}
+    session.held += 1
+    if (session.held === 1) {
+      session.beforeHold = session.status
+      this.advance(session, 'ask')
+    }
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      session.held -= 1
+      if (session.held !== 0 || session.asks.size !== 0) return
+      // Back to what it was: working, as the call that asked is still open, unless the turn has ended meanwhile.
+      const back = session.beforeHold === 'idle' || session.beforeHold === 'starting' ? session.beforeHold : undefined
+      if (back && session.status === 'needs_input') {
+        session.status = back
+        this.emit('status', { sessionId: session.id, objectId: session.object.id, status: back })
+      } else this.advance(session, 'answered')
+    }
+  }
+
   private advance(session: Session, event: string, body?: unknown): void {
-    const next = reduceStatus(session.status, event, body)
+    let next = reduceStatus(session.status, event, body)
+    // A tool of the turn that ends while a question waits (they may run side by side) is no answer to it.
+    if (next === 'working' && session.status === 'needs_input' && session.held > 0 && event !== 'answered') next = 'needs_input'
     if (next === session.status) return
     session.status = next
     this.emit('status', { sessionId: session.id, objectId: session.object.id, status: next })
@@ -1182,6 +1315,7 @@ export class Sessions {
       if (this.deps.debug) console.error(`[torno] session ${session.id} hook ${event}, held back: ${held.reason}`)
       return sendJson(res, 200, held)
     }
+    if (event === 'PostCompact') session.compacted = true
     if (event !== 'SessionEnd') this.advance(session, event, fields)
     if (event === 'Stop' || event === 'StopFailure') session.turn = undefined
     if (event === 'UserPromptSubmit') session.turn = this.beginTurn(session)
@@ -1193,12 +1327,21 @@ export class Sessions {
     const objectId = session.object.id
     // Another conversation than the last prompt was in: the agent began anew, and knows no mark by its number.
     const named = typeof conversation === 'string' && UUID.test(conversation) ? conversation : undefined
-    const fresh = named !== undefined && named !== session.promptedIn
+    // Also after a compaction: the summary may have lost the marks and the references, so they are told again.
+    const fresh = (named !== undefined && named !== session.promptedIn) || session.compacted
+    session.compacted = false
     if (named !== undefined) session.promptedIn = named
     const newConversation = fresh || session.unprompted
     session.unprompted = false
     const first = session.firstPrompt
     session.firstPrompt = false
+    // The sources as the turn begins, read before the agent can have touched them: they are what "See changes" compares with.
+    // A prompt folded into a turn under way (one result for both) is not a start of its own: the turn keeps its first.
+    if (session.chat && !session.chat.sourcesBefore) {
+      const read = snapshotSources(session.chat.dir)
+      session.chat.sourcesBefore = read
+      await read.catch(() => undefined)
+    }
     let context: PromptContext
     try {
       context = await this.deps.contextFor(objectId, { fresh, newConversation, first, toolName: this.deps.adapter.toolName })
@@ -1208,7 +1351,7 @@ export class Sessions {
       context = { text: '', sentMarkIds: [] }
     }
     const { text, sentMarkIds } = context
-    session.chat?.transcript.context({ text, sentMarkIds, ...(context.revision !== undefined ? { revision: context.revision } : {}), ...(context.buildState ? { buildState: context.buildState } : {}), ...(context.selection ? { selection: context.selection } : {}), ...(context.instructions ? { instructions: context.instructions } : {}), ...(typeof fields.prompt === 'string' ? { prompt: fields.prompt } : {}) })
+    session.chat?.transcript.context({ text, sentMarkIds, ...(context.revision !== undefined ? { revision: context.revision } : {}), ...(context.buildState ? { buildState: context.buildState } : {}), ...(context.selection ? { selection: context.selection } : {}), ...(context.instructions ? { instructions: context.instructions } : {}), ...(context.revision !== undefined && this.deps.identity?.(objectId, context.revision) ? { identity: this.deps.identity(objectId, context.revision) } : {}), ...(typeof fields.prompt === 'string' ? { prompt: fields.prompt } : {}) })
     this.emit('context', { sessionId: session.id, objectId, text, sentMarkIds, ...(typeof fields.prompt === 'string' ? { prompt: fields.prompt } : {}) })
     if (this.deps.debug) console.error(`[torno] session ${session.id} hook ${event}${text ? `, answered with: ${text}` : ''}`)
     // Marks are sent once the answer that names them has been handed over whole: not when the agent hung
@@ -1278,26 +1421,5 @@ function signal(child: pty.IPty, name: string): void {
   }
 }
 
-/**
- * Kill an agent that ignored the hangup, and with it whatever it started: a
- * PTY's child leads a process group of its own. The process alone, if the
- * group is no longer there. Nothing for a pid that is not above 1.
- */
-export function killGroup(pid: number, kill: (target: number, signal: string) => void = process.kill): void {
-  signalGroup(pid, 'SIGKILL', kill)
-}
 
-/** A signal to the group an agent leads, and to the process alone if the group is no longer there. */
-function signalGroup(pid: number, name: string, kill: (target: number, signal: string) => void = process.kill): void {
-  // Never 0 or 1 negated: -0 is this process's own group, and -1 every process it may signal.
-  if (!Number.isInteger(pid) || pid <= 1) return
-  for (const target of [-pid, pid]) {
-    try {
-      kill(target, name)
-      return
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'ESRCH') return
-    }
-  }
-}
-
+export { killGroup }

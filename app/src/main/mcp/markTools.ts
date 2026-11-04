@@ -1,5 +1,6 @@
 import { apply } from '../../shared/align'
 import { groupsIn } from '../../shared/groups'
+import { expandTag, splitTagRef } from '../../shared/tags'
 import type { Described } from '../../shared/geometry'
 import { expectedText, offBy, standingOf, valueText } from '../../shared/dimension'
 import { type Anchor, type DimensionMark, type Mark, type NewMark, type Quat, isUnchecked, markAnchors } from '../../shared/marks'
@@ -9,7 +10,7 @@ import { describeMark, number, scanVector, vector } from '../marks/describe'
 import { MAX_NOTE } from '../marks/file'
 import type { Unmeasured } from '../marks/measure'
 import { spreadApart } from '../marks/spread'
-import { EDGE_TOLERANCE_MM, answered, judge, judgePin, tolerance } from '../marks/reanchor'
+import { EDGE_TOLERANCE_MM, answered, judge, judgePin, tolerance, withTag } from '../marks/reanchor'
 import { onlyKeysWrong, unknownKeys } from './keys'
 import type { ScanInfo } from '../../shared/scans'
 import type { AlignmentSaid } from '../scans/said'
@@ -42,6 +43,10 @@ type Vec3 = [number, number, number]
 export interface CheckedRef {
   part: Part
   target: 'part' | 'face' | 'edge'
+  /** The ref as the kernel numbers it (`lid/F12`): of a ref `lid/@top`, the face or edge the tag names; else the ref given. */
+  ref: string
+  /** Of a ref that is a tag, its name (`top`). */
+  tag?: string
 }
 
 /**
@@ -51,12 +56,20 @@ export interface CheckedRef {
 export function checkRef(scene: Scene, layout: string, ref: string): CheckedRef | string {
   const parts = scene.parts.filter((p) => p.layout === layout)
   const whole = parts.find((p) => p.name === ref)
-  if (whole) return { part: whole, target: 'part' }
+  if (whole) return { part: whole, target: 'part', ref }
+  const tagged = expandTag(parts, ref)
+  if (tagged && 'error' in tagged) return tagged.error
+  if (tagged) {
+    // One face or edge only: a tag of several is not a ref but a list, which `highlight` and `ask` take whole.
+    if (tagged.refs.length !== 1) return `${ref} names ${tagged.refs.length} faces and edges, not one: ${tagged.refs.join(', ')}; name one of them`
+    const one = checkRef(scene, layout, tagged.refs[0])
+    return typeof one === 'string' ? one : { ...one, ref: tagged.refs[0], tag: splitTagRef(ref)!.tag }
+  }
   const sub = /^(.*)\/([FE])(\d+)$/.exec(ref)
   const part = sub && parts.find((p) => p.name === sub[1])
   if (!sub || !part) {
     const name = sub ? sub[1] : ref
-    const form = sub || !ref.includes('/') ? '' : '; a ref is a part, part/F<n> or part/E<n>'
+    const form = sub || !ref.includes('/') ? '' : '; a ref is a part, part/F<n>, part/E<n> or part/@tag'
     // A group's name is no ref: its faces and edges are its parts'.
     const group = groupsIn(scene, layout).find((g) => g.name === name)
     const isGroup = group ? `; ${name} is a group: its parts are ${group.parts.join(', ')}` : ''
@@ -64,7 +77,7 @@ export function checkRef(scene: Scene, layout: string, ref: string): CheckedRef 
   }
   const [letter, plural, count] = sub[2] === 'F' ? ['F', 'faces', part.faceCount] : ['E', 'edges', part.edgeCount]
   if (Number(sub[3]) >= count) return `${part.name} has ${count} ${plural}${count > 0 ? `, ${letter}0 to ${letter}${count - 1}` : ''}: there is no ${letter}${sub[3]}`
-  return { part, target: sub[2] === 'F' ? 'face' : 'edge' }
+  return { part, target: sub[2] === 'F' ? 'face' : 'edge', ref }
 }
 
 /** An end of a measurement as the agent names one: a ref, the number of a mark, a point, a ref with a point, or a point of a scan. */
@@ -172,21 +185,20 @@ export async function endsOf(deps: ToolDeps, objectId: string, scene: Scene, rev
     const { ref, point } = given
     const checked = ref === undefined ? undefined : checkRef(scene, layout, ref)
     if (typeof checked === 'string') return failure(checked)
-    ends.push({ ...(ref === undefined ? {} : { ref }), ...(point ? { point } : {}), ...(checked ? { part: checked.part } : {}), text: ref ?? vector(point!) })
+    ends.push({ ...(ref === undefined ? {} : { ref: checked?.ref ?? ref }), ...(point ? { point } : {}), ...(checked ? { part: checked.part } : {}), text: ref ?? vector(point!) })
   }
   return ends
 }
 
-export async function highlightTool(deps: ToolDeps, objectId: string, args: HighlightArgs): Promise<ToolResult> {
-  const found = onScreen(deps, objectId)
-  if ('content' in found) return found
-  const layout = layoutFor(deps, objectId, found.scene, args.layout)
-  if (typeof layout !== 'string') return layout
-
+/**
+ * Refs as an agent gave them (a mark's number, a group's name, a ref), turned into refs of the layout and checked
+ * against the last build; or the error to answer with, naming all that is wrong (`what`: "highlighted", "asked").
+ */
+export async function checkedRefs(deps: ToolDeps, objectId: string, found: { scene: Scene; revision: number }, layout: string, given: readonly string[], what: string): Promise<string[] | ToolResult> {
   const refs: string[] = []
   const wrong: string[] = []
   let marks: Mark[] | undefined
-  for (const ref of args.refs) {
+  for (const ref of given) {
     let named = ref
     if (MARK_ID.test(ref)) {
       if (!marks) {
@@ -213,12 +225,29 @@ export async function highlightTool(deps: ToolDeps, objectId: string, args: High
       for (const name of group.parts) if (!refs.includes(name)) refs.push(name)
       continue
     }
+    // A tag stands for the faces and edges it names, as a group does for its parts.
+    const tagged = expandTag(found.scene.parts.filter((p) => p.layout === layout), named)
+    if (tagged && 'refs' in tagged) {
+      for (const one of tagged.refs) if (!refs.includes(one)) refs.push(one)
+      continue
+    }
     const checked = checkRef(found.scene, layout, named)
     if (typeof checked === 'string') wrong.push(named === ref ? checked : `${ref} is on ${named}, but ${checked}`)
     else if (!refs.includes(named)) refs.push(named)
   }
   // All or nothing: a question about three faces is not asked of two.
-  if (wrong.length > 0) return failure(`nothing was highlighted: ${wrong.join('; ')}`)
+  if (wrong.length > 0) return failure(`nothing was ${what}: ${wrong.join('; ')}`)
+  return refs
+}
+
+export async function highlightTool(deps: ToolDeps, objectId: string, args: HighlightArgs): Promise<ToolResult> {
+  const found = onScreen(deps, objectId)
+  if ('content' in found) return found
+  const layout = layoutFor(deps, objectId, found.scene, args.layout)
+  if (typeof layout !== 'string') return layout
+
+  const refs = await checkedRefs(deps, objectId, found, layout, args.refs, 'highlighted')
+  if (!Array.isArray(refs)) return refs
 
   const note = args.note?.trim().slice(0, MAX_NOTE)
   let done: HighlightResult
@@ -256,7 +285,22 @@ export async function anchorFor(
   objectId: string,
   scene: Scene,
   layout: string,
-  ref: string | undefined,
+  given: string | undefined,
+  point: Vec3 | undefined,
+  kind: 'pin' | 'pick' | 'arrow' | 'shape'
+): Promise<{ anchor: Anchor; target?: CheckedRef['target']; said?: string } | ToolResult> {
+  const placed = await anchorOn(deps, objectId, scene, layout, given, point, kind)
+  if ('content' in placed) return placed
+  // The tag the model gives what it is on (`Anchor.tag`): main's to say, from this build.
+  return { ...placed, anchor: withTag(placed.anchor, scene.parts.find((p) => p.layout === layout && p.name === placed.anchor.part)) }
+}
+
+async function anchorOn(
+  deps: ToolDeps,
+  objectId: string,
+  scene: Scene,
+  layout: string,
+  given: string | undefined,
   point: Vec3 | undefined,
   kind: 'pin' | 'pick' | 'arrow' | 'shape'
 ): Promise<{ anchor: Anchor; target?: CheckedRef['target']; said?: string } | ToolResult> {
@@ -265,7 +309,7 @@ export async function anchorFor(
   // A pin is on an edge when its point is on one (`judgePin`); anything else is on the face there.
   const pin = kind === 'pin'
   try {
-    if (ref === undefined) {
+    if (given === undefined) {
       if (!point) return failure('give a ref or a point')
       const found = parts.length > 0 ? await deps.nearest(objectId, layout, parts.map((p) => ({ part: p.name, point }))) : []
       let best: Anchor | undefined
@@ -286,9 +330,9 @@ export async function anchorFor(
       return { anchor: { point }, said: 'The point is on no part of this layout, so the mark is tied to none.' }
     }
 
-    const checked = checkRef(scene, layout, ref)
+    const checked = checkRef(scene, layout, given)
     if (typeof checked === 'string') return failure(checked)
-    const { part, target } = checked
+    const { part, target, ref } = checked
     const described = await deps.describe(objectId, layout, ref)
     // A centre the kernel measured carries the noise of measuring: -3.5e-15 is 0.
     const base: Anchor = { point: point ?? tidy(centreOf(described, part)), part: part.name, ref, descriptor: described.descriptor }

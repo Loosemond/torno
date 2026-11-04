@@ -20,6 +20,7 @@ from .queries import (
     box_of,
     boxed_exactly_of,
     need_layout,
+    need_made,
     need_solid,
     resolve,
     volume_of,
@@ -133,9 +134,9 @@ def measure(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any] |
             "bad_request",
             f"measure needs args.kind, one of {', '.join(KINDS[:-1])} and {KINDS[-1]}",
         )
-    a = _target(shapes, kind, "a", args.get("a"))
+    a = _target(shapes, kind, "a", args.get("a"), kept)
     if kind in _BETWEEN:
-        b = _target(shapes, kind, "b", args.get("b"))
+        b = _target(shapes, kind, "b", args.get("b"), kept)
         if a.layout != b.layout:
             raise QueryError(
                 "bad_request",
@@ -158,7 +159,7 @@ def measure(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any] |
     return {"kind": kind, **result}
 
 
-def _target(shapes: dict[str, Any], kind: str, name: str, value: Any) -> _Target:
+def _target(shapes: dict[str, Any], kind: str, name: str, value: Any, kept: dict[Any, Any] | None = None) -> _Target:
     refusal = QueryError("bad_request", f"measure {kind} needs args.{name}, {_TARGET}")
     if not isinstance(value, dict):
         raise refusal
@@ -174,7 +175,7 @@ def _target(shapes: dict[str, Any], kind: str, name: str, value: Any) -> _Target
             raise refusal
         need_layout(shapes, layout)
         return _Target(name, layout, "point", point=at)
-    key, what, shape = resolve(shapes, ref)
+    key, what, shape = resolve(shapes, ref, kept)
     of_ref = key.split(":", 1)[0]
     if layout is not None and layout != of_ref:
         raise QueryError(
@@ -568,6 +569,7 @@ def _mass(
     if not usable:
         raise QueryError("bad_request", "density is a positive number, in g/cm³")
     need_solid(target.shape, target.key)
+    need_made(kept, target.key, target.ref or target.key, "a mass")
     volume = volume_of(target.shape, target.key, kept)
     how = f"PLA {number(PLA)} g/cm³ (default)" if default else f"at {number(density)} g/cm³"
     if not volume.exact:

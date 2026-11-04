@@ -500,11 +500,35 @@ def test_nearest_says_how_far_the_anchor_is_from_the_edge_it_names(shapes):
     assert on["edgeFound"] is True
     assert on["edgeDistance"] == pytest.approx(0, abs=1e-9)
     assert on["edgeDescriptor"] == edge["descriptor"]
+    assert on["edgePoint"] == pytest.approx([x, y, z])
+    assert off["edgePoint"] == pytest.approx([x, y, z])
     assert on["distance"] == pytest.approx(0, abs=1e-9)
     assert off["edgeDistance"] == pytest.approx(2)
     assert off["distance"] == pytest.approx(2)  # of the surface, as ever
     # An anchor that names no edge is told nothing of one.
     assert not {"edgeFound", "edgeDistance", "edgeDescriptor"} & set(plain)
+
+
+def test_nearest_says_how_far_the_anchor_is_from_the_face_it_names(shapes):
+    top = face_of(shapes, "assembly:base", normal=[0, 0, 1])
+    other = face_of(shapes, "assembly:base", normal=[-1, 0, 0])
+    named = {"part": "base", "point": [5, 3, 5.5], "face": top["ref"].split(":", 1)[1]}
+    on, off, gone, plain = nearest_with(
+        shapes,
+        "assembly",
+        named,
+        {**named, "face": other["ref"].split(":", 1)[1]},
+        {**named, "face": "base/F99"},
+        {"part": "base", "point": [5, 3, 5.5]},
+    )
+    assert on["faceFound"] is True
+    assert on["faceDistance"] == pytest.approx(3)
+    assert on["faceDescriptor"] == top["descriptor"]
+    assert on["faceNormal"] == pytest.approx([0, 0, 1])
+    assert on["facePoint"] == pytest.approx([5, 3, 2.5])
+    assert off["faceDistance"] == pytest.approx(math.hypot(25, 3))  # the face is bounded: its nearest point is on its rim
+    assert gone["faceFound"] is False
+    assert not {"faceFound", "faceDistance"} & set(plain)
 
 
 @pytest.mark.parametrize(
@@ -605,7 +629,7 @@ def test_unknown_query_names_the_queries(shapes):
     with pytest.raises(queries.QueryError) as e:
         queries.run(shapes, "nope", {})
     assert e.value.kind == "bad_request"
-    assert e.value.message == "unknown query 'nope'; the queries are describe, nearest, measure, section, check, scan_clash, scan_deviation, scan_section, export, export_check, try_fillet and match_edges"
+    assert e.value.message == "unknown query 'nope'; the queries are describe, nearest, measure, section, check, scan_clash, scan_deviation, scan_section, export, export_check, features, try_fillet and match_edges"
 
 
 def test_nearest_after_a_rebuild_with_other_topology_names_the_face_now_there():

@@ -37,11 +37,18 @@ function keysTable(): string {
   return lines.join('\n')
 }
 
+/** Writes one generated region anew, from the file as it is now: the other test's write, made first, is kept. */
+function writeRegion(begin: string, end: string, table: string): void {
+  const now = readFileSync(path, 'utf8')
+  const [from, to] = [now.indexOf(begin), now.indexOf(end)]
+  writeFileSync(path, `${now.slice(0, from + begin.length)}\n${table}\n${now.slice(to)}`)
+}
+
 it('has its table of keys from the one table of keys', () => {
   const [from, to] = [readme.indexOf(BEGIN), readme.indexOf(END)]
   expect([from >= 0, to > from]).toEqual([true, true])
   const table = keysTable()
-  if (process.env.TORNO_README === 'write') writeFileSync(path, `${readme.slice(0, from + BEGIN.length)}\n${table}\n${readme.slice(to)}`)
+  if (process.env.TORNO_README === 'write') writeRegion(BEGIN, END, table)
   else expect(readme.slice(from + BEGIN.length, to).trim()).toBe(table)
   // Every key the sheet shows is in it, and the tools' keys with their tools.
   for (const { key, label } of TOOL_KEYS) expect([label, table.includes(`\`${key}\``)]).toEqual([label, true])
@@ -51,7 +58,7 @@ it('has its table of the pointer from the one table of it', () => {
   const [from, to] = [readme.indexOf(POINTER_BEGIN), readme.indexOf(POINTER_END)]
   expect([from >= 0, to > from]).toEqual([true, true])
   const table = pointerTable()
-  if (process.env.TORNO_README === 'write') writeFileSync(path, `${readme.slice(0, from + POINTER_BEGIN.length)}\n${table}\n${readme.slice(to)}`)
+  if (process.env.TORNO_README === 'write') writeRegion(POINTER_BEGIN, POINTER_END, table)
   else expect(readme.slice(from + POINTER_BEGIN.length, to).trim()).toBe(table)
   // The walk-through says where the window shows it.
   expect(readme.slice(readme.indexOf('## Five minutes with torno'), readme.indexOf('## Projects and builds'))).toContain('the sheet of keys (`?`), where the pointer is the first group')
@@ -95,7 +102,7 @@ it('is laid out for a first-time reader: what it is, how to start it, a walk-thr
 })
 
 it('names the files torno writes and the variables it reads', () => {
-  for (const name of ['scene.json', 'marks.json', 'scans.json', 'session.json', 'agent.json', 'state.md', 'thumb.png', 'thumb.json', 'exports/', 'views/', 'config.json', 'TORNO_OZONE', 'TORNO_WORKSPACE', 'TORNO_AGENT_CMD', 'TORNO_BUILD_TIMEOUT', 'TORNO_CONFIG', 'TORNO_DEBUG', 'TORNO_TEST']) {
+  for (const name of ['scene.json', 'marks.json', 'scans.json', 'session.json', 'agent.json', 'state.md', 'thumb.png', 'thumb.json', 'builds.jsonl', 'exports/', 'views/', 'config.json', 'TORNO_OZONE', 'TORNO_WORKSPACE', 'TORNO_AGENT_CMD', 'TORNO_BUILD_TIMEOUT', 'TORNO_CONFIG', 'TORNO_DEBUG', 'TORNO_TEST']) {
     expect([name, readme.includes(name)]).toEqual([name, true])
   }
 })

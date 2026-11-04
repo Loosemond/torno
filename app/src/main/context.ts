@@ -4,12 +4,15 @@ import { standingOf, unmetDimensions } from '../shared/dimension'
 import { explodeText, isExploded } from '../shared/explode'
 import { type InstructionFile, instructionsLine } from '../shared/instructions'
 import { type DimensionMark, type Mark, isUnchecked } from '../shared/marks'
+import { checksLine } from '../shared/modelChecks'
 import type { ScanInfo } from '../shared/scans'
 import type { BuildDigest } from '../shared/sanity'
 import type { Scene } from '../shared/scene'
 import { type ViewState, MAX_SELECTION_REPORTED, planeText } from '../shared/view'
 import type { ObjectInfo } from '../shared/workspace'
+import { type Profile, profileLine } from '../shared/profile'
 import { describeMark } from './marks/describe'
+import { assumedKey, assumedLine, triedLine } from '../shared/params'
 import { digestText, sanity } from './sanity'
 import { alignmentSaid, shownText } from './scans/said'
 import { type BuildVerdicts, verdictChanges } from './verdicts'
@@ -18,6 +21,8 @@ import { type BuildVerdicts, verdictChanges } from './verdicts'
 export const CONTEXT_LIMIT = 6000
 /** The most of it that says how the build stands, when there are marks to tell of as well. */
 const STATUS_LIMIT = 2000
+/** The most of it that tells how the model's own checks stand (`checksLine`). */
+const CHECKS_LIMIT = 500
 /** The most of it that lists the numbers of the marks still open. */
 const OPEN_LIMIT = 300
 
@@ -39,6 +44,8 @@ const SELECTION_LIMIT = 1000
 const SELECTED_DESCRIPTOR_LIMIT = 100
 /** The most of it that says what scans the object has, in one line. */
 export const SCANS_LIMIT = 600
+/** The most the line of the person's `Params` overrides takes of the context. */
+export const TRIED_LIMIT = 500
 const MARKS_HEAD = 'Marks from the user (drawn in look pictures with these numbers):'
 const STILL_OPEN_HEAD = 'Marks still open (this conversation has not seen them):'
 /** A tool of torno's as Claude Code names it to its model: what is said when nothing says how another client does. */
@@ -76,6 +83,8 @@ const moreMarksBy = (toolName: ToolName) => (count: number): string => `… and 
 const moreDimensionsBy = (toolName: ToolName) => (count: number): string => `… and ${count} more unmet or unmeasured: call ${toolName('marks')}`
 
 export interface ContextDeps {
+  /** False only in an eval run that takes it away (`main/ablations.ts`): the answer to an edit has no digest. */
+  digest?: boolean
   object(objectId: string): ObjectInfo | undefined
   build(objectId: string): BuildState | undefined
   /** The last successful build. */
@@ -90,6 +99,8 @@ export interface ContextDeps {
   openObjectId(): string | null
   /** The files of the object's `reference/` (`photo-1.jpg`), photos then doodles: told to a new conversation. None when it has none or cannot be read. */
   references?(objectId: string): string[]
+  /** The printer and material the project is made for: told to a new conversation (`profileLine`). None when it has none. */
+  profile?(objectId: string): Profile | undefined
   now?(): number
   /** Takes out of text that is not torno's own what must not be told or logged (the tokens of the sessions): applied to what the model printed. */
   redact?(text: string): string
@@ -217,6 +228,10 @@ function contextText(deps: ContextDeps, objectId: string, marks: readonly Mark[]
   const passes = pinned.filter((m) => standingOf(m, revision) === 'pass')
   const passLine = passes.length > 0 ? passing(passes) : ''
   const DIMENSIONS_HEAD = dimensionsHead(deps, objectId, revision)
+  // The model's own checks, after the person's dimensions: of the last build that worked, and said not to be of the edit while another runs.
+  const modelChecked = checksLine(deps.scene(objectId)?.scene.checks ?? [], revision, CHECKS_LIMIT)
+  const checks = modelChecked && deps.build(objectId)?.status === 'building' ? `${modelChecked} [a build is running, so these are not of your last edit]` : modelChecked
+  const checksRoom = checks ? 1 + checks.length : 0
   // Under `Dimensions:` they are listed with every prompt: not once more among the marks this conversation has not seen.
   const still = opts.fresh ? open.filter((m) => m.author === 'user' && !unmet.includes(m as DimensionMark)) : []
   const told = drafts.length > 0 || open.length > 0
@@ -229,21 +244,29 @@ function contextText(deps: ContextDeps, objectId: string, marks: readonly Mark[]
   // With no marks the status has what the selection, the scans and the files' line leave; with marks STATUS_LIMIT,
   // which with the three at their limits is still within CONTEXT_LIMIT. The files' line is never what the cut below takes.
   const room = (line: string): number => (line ? line.length + 1 : 0)
-  const limit = told ? STATUS_LIMIT : CONTEXT_LIMIT - room(instructed) - room(selected) - room(scanned)
+  // The person's tries of the model's Params: what the build is made with is not what the file says, so it is said every time.
+  const shownScene = deps.scene(objectId)?.scene
+  const tried = cutEnd(triedLine(shownScene?.params, shownScene?.overrides?.dropped), TRIED_LIMIT)
+  const limit = told ? STATUS_LIMIT : CONTEXT_LIMIT - room(instructed) - room(selected) - room(scanned) - room(tried)
   // Every part of it is fitted to the limit by what it can spare; the cut holds for what none of them
   // foresaw, such as a very long name.
   const lines = [cutEnd(status(deps, objectId, limit), limit)]
   if (lines[0] === '') return { text: '', sentMarkIds: [] }
+  if (tried) lines.push(tried)
   if (selected) lines.push(selected)
   if (scanned) lines.push(scanned)
   const openLine = open.length > 0 && !opts.buildOnly ? `Open marks: ${openMarks(open, revision, toolName)}` : ''
   const named = layoutNamed(deps, objectId)
   // What the dimensions need at the least, kept from the drafts: the head, how many are left out, how many pass.
-  const floor = (unmet.length > 0 ? 1 + DIMENSIONS_HEAD.length + 1 + moreDimensions(unmet.length).length : passLine ? 1 + DIMENSIONS_HEAD.length : 0) + (passLine ? 1 + passLine.length : 0)
+  const floor = (unmet.length > 0 ? 1 + DIMENSIONS_HEAD.length + 1 + moreDimensions(unmet.length).length : passLine ? 1 + DIMENSIONS_HEAD.length : 0) + (passLine ? 1 + passLine.length : 0) + checksRoom
   // After an edit, what its build did to the parts: before the dimensions, in what their least leaves.
-  const digest = opts.buildOnly ? buildDigest(deps, objectId) : undefined
+  const digested = opts.buildOnly ? buildDigest(deps, objectId) : undefined
+  const digest = deps.digest === false ? undefined : digested
   const digestLines = digest ? digestText(digest, CONTEXT_LIMIT - lines.join('\n').length - floor - 1, toolName) : ''
   if (digestLines) lines.push(digestLines)
+  // Which sizes the model says it assumed, only when that set is other than after the build before.
+  const assumed = opts.buildOnly && digested ? paramsLine(deps, objectId) : ''
+  if (assumed && lines.join('\n').length + 1 + assumed.length <= CONTEXT_LIMIT - floor - 1) lines.push(assumed)
   let used = lines.join('\n').length + (openLine ? openLine.length + 1 : 0) + floor + (instructed ? instructed.length + 1 : 0)
   /**
    * A head, and under it a line for each mark that fits; then how many did not. Returns the marks listed.
@@ -289,14 +312,18 @@ function contextText(deps: ContextDeps, objectId: string, marks: readonly Mark[]
   const listedDrafts = list(MARKS_HEAD, drafts, news)
   list(STILL_OPEN_HEAD, still, () => undefined)
   // The room kept for the dimensions is theirs now. The count of those that pass is still to come after them.
-  used -= floor - (passLine ? 1 + passLine.length : 0)
+  used -= floor - (passLine ? 1 + passLine.length : 0) - checksRoom
   const listedUnmet = unmet.length > 0 ? list(DIMENSIONS_HEAD, unmet, () => undefined, moreDimensions) : []
   if (passLine) lines.push(...(unmet.length > 0 ? [] : [DIMENSIONS_HEAD]), passLine)
+  if (checks) lines.push(checks)
   // What has its line above is not named again; never longer than the line room was kept for.
   const rest = open.filter((m) => !listedUnmet.includes(m))
   if (rest.length > 0 && !opts.buildOnly) lines.push(`Open marks: ${openMarks(rest, revision, toolName, openLine.length - 'Open marks: '.length)}`)
   // A new conversation is told which references there are, last, and only when the line fits: it is no mark.
   const referred = (opts.fresh || opts.newConversation) && !opts.buildOnly ? referencesLine(deps.references?.(objectId) ?? []) : ''
+  // And the print profile, the person's numbers the check and measure tools default to: told the same way, in one line.
+  const profiled = (opts.fresh || opts.newConversation) && !opts.buildOnly ? profileLine(deps.profile?.(objectId)) : ''
+  if (profiled && lines.join('\n').length + 1 + profiled.length + (referred ? 1 + referred.length : 0) + (instructed ? 1 + instructed.length : 0) <= CONTEXT_LIMIT) lines.push(profiled)
   const joined = lines.join('\n')
   // Last, so that nothing above it is given up for it: it takes the room that is left.
   const printed = opts.buildOnly ? printedBlock(deps, objectId, toolName, CONTEXT_LIMIT - joined.length - 1) : ''
@@ -322,6 +349,19 @@ export function buildDigest(deps: Pick<ContextDeps, 'build' | 'scenes' | 'verdic
   const previous = kept.length > 1 ? kept.at(-2) : undefined
   const changes = previous ? verdictChanges(deps.verdicts?.(objectId, previous.revision), deps.verdicts?.(objectId, last.revision)) : []
   return sanity(previous, last, changes)
+}
+
+/**
+ * What the model's `Params` comments say of where the sizes come from (`assumedLine`), when the set of assumed and
+ * unsaid sizes of the last build is other than that of the build before it (a first build is compared with none).
+ */
+function paramsLine(deps: Pick<ContextDeps, 'scenes'>, objectId: string): string {
+  const kept = deps.scenes?.(objectId) ?? []
+  const last = kept.at(-1)
+  if (!last) return ''
+  const previous = kept.length > 1 ? kept.at(-2) : undefined
+  if (assumedKey(last.scene.params) === assumedKey(previous?.scene.params)) return ''
+  return assumedLine(last.scene.params)
 }
 
 /**

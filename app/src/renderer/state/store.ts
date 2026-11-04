@@ -47,6 +47,8 @@ export interface TornoState {
   build: BuildState | null
   /** Whether the sheet of the failed build is up (the status line's "Build failed" and the chat's "Show error" open it); it is of the open object, and goes when the build has no error. */
   errorOpen: boolean
+  /** The kept build (`h41`) drawn over the current one, for display only (the history sheet's "Show over the current"); null for none. Of the open object: another object, another layout or a section puts it away. */
+  compare: string | null
   /** What the sheet's "Start a session to fix it" asked for: the session pane starts one and puts this text in its box, never sends it. Of the open object; gone when another is opened. */
   fixRequest: string | null
   /** Whether the session dock is shown. The window's, not an object's: another object or workspace leaves it as it is. */
@@ -55,6 +57,8 @@ export interface TornoState {
   column: ColumnPrefs
   /** The last good scene of the open object, and the revision it is. */
   scene: Scene | null
+  /** The scene that was on show before `scene` landed, of the same object; null for the first build of an object. What the status line says a build changed is held against it. */
+  before: Scene | null
   revision: number
   layout: string
   /** By part name, so a setting holds in every layout. */
@@ -87,6 +91,8 @@ export interface TornoState {
   marks: Mark[]
   /** What main said was wrong with the marks file of the open object, as a sentence; null when nothing was. */
   marksProblem: string | null
+  /** Only the marks on this part are listed in the Marks panel (a click on the count of a layer row); null for all. A view of the list: the agent is told every mark. */
+  marksOnPart: string | null
   /** The mark being worked on: the row lit in the panel and the label ringed in the viewport. Null for none. */
   activeMark: string | null
   /**
@@ -121,6 +127,8 @@ export interface TornoState {
   markReveal: number
   /** The scan to bring into view with the parts, and a count of the times that was asked: "Frame" on its row. Null until it is. */
   scanFramed: { id: string; n: number } | null
+  /** A part to bring into view (a double click on its layer row): `n` makes the same part asked twice two requests. */
+  partFramed: { name: string; n: number } | null
   /**
    * What the person has picked: refs in the layout shown (`lid/F12`, `lid/E3`),
    * in the order picked. They name geometry of the revision on screen, so the
@@ -172,7 +180,7 @@ const NO_SCANS: ScanInfo[] = []
 const NOT_CLIPPED: readonly string[] = []
 const NO_VIEWS: SavedView[] = []
 const NO_SELECTION = { selection: NOTHING_SELECTED, picked: NOTHING_PICKED }
-const NO_OBJECT = { objectId: null, build: null, errorOpen: false, fixRequest: null, scene: null, revision: 0, layout: '', layers: {}, section: null, explode: {}, views: NO_VIEWS, folded: [], activeView: null, marks: [], marksProblem: null, scans: NO_SCANS, scansKnown: true, scanViews: {}, scansClipped: NOT_CLIPPED, importing: null, scansRefused: null, scanAsking: null, scansProblem: null, activeMark: null, hoveredMark: null, noting: null, shownByAgent: null, ...NO_SELECTION }
+const NO_OBJECT = { objectId: null, build: null, errorOpen: false, compare: null, fixRequest: null, scene: null, before: null, revision: 0, layout: '', layers: {}, section: null, explode: {}, views: NO_VIEWS, folded: [], activeView: null, marks: [], marksProblem: null, marksOnPart: null, scans: NO_SCANS, scansKnown: true, scanViews: {}, scansClipped: NOT_CLIPPED, importing: null, scansRefused: null, scanAsking: null, scansProblem: null, activeMark: null, hoveredMark: null, noting: null, shownByAgent: null, ...NO_SELECTION }
 
 export const store = createStore<TornoState>(() => ({
   workspace: null,
@@ -183,6 +191,7 @@ export const store = createStore<TornoState>(() => ({
   markFocus: 0,
   markReveal: 0,
   scanFramed: null,
+  partFramed: null,
   ortho: false,
   lockedView: null,
   edits: 0,
@@ -269,7 +278,7 @@ export const actions = {
     // The layout shown is gone with this build: what was being done there (a note, a mark worked on) is of
     // a layout that is no longer shown, as when the layout is changed by hand.
     const elsewhere = s.scene !== null && layout !== s.layout ? layoutChange(s, layout) : {}
-    store.setState({ ...elsewhere, scene: m.scene, revision: m.revision, layout, layers, folded, ...(same ? {} : NO_SELECTION) })
+    store.setState({ ...elsewhere, before: s.scene, scene: m.scene, revision: m.revision, layout, layers, folded, ...(same ? {} : NO_SELECTION) })
     return true
   },
 
@@ -473,9 +482,17 @@ export const actions = {
    * for whoever moves the camera to where it has it; or why not, as a sentence, and nothing is changed.
    */
   applyView(name: string): SavedView | string {
-    const s = store.getState()
-    const view = findView(s.views, name)
+    const view = findView(store.getState().views, name)
     if (!view) return `There is no view named "${name}"`
+    return actions.applyLook(view, view.name)
+  },
+
+  /**
+   * `applyView` for a view that is no saved one: what the person goes to from the chat ("See in view"). The same
+   * one edit of theirs; `active` is the saved view the strip then marks as on, none for a view of no name.
+   */
+  applyLook(view: SavedView, active: string | null = null): SavedView | string {
+    const s = store.getState()
     if (!s.scene?.layouts.includes(view.layout)) return `Layout ${view.layout} is no longer in the model`
     const theirs = sceneFileOf(s)
     let layers = { ...theirs.layers }
@@ -491,7 +508,7 @@ export const actions = {
     for (const [id, shown] of Object.entries(view.scans ?? {})) {
       if (s.scans.some((scan) => scan.id === id)) scanViews[id] = { ...scanViews[id], visible: shown.visible !== false, opacity: shown.opacity ?? 1 }
     }
-    store.setState({ ...(view.layout !== s.layout ? layoutChange(s, view.layout) : {}), layers, section: view.section ?? null, explode, scanViews, shownByAgent: null, activeView: view.name, edits: s.edits + 1 })
+    store.setState({ ...(view.layout !== s.layout ? layoutChange(s, view.layout) : {}), layers, section: view.section ?? null, explode, scanViews, shownByAgent: null, activeView: active, edits: s.edits + 1 })
     return view
   },
 
@@ -620,6 +637,16 @@ export const actions = {
     store.setState({ scanFramed: { id, n: (store.getState().scanFramed?.n ?? 0) + 1 } })
   },
 
+  /** List only the marks on this part in the Marks panel, or all of them (null). Not kept: it is of this window and this object. */
+  listMarksOnPart(part: string | null): void {
+    if (part !== store.getState().marksOnPart) store.setState({ marksOnPart: part })
+  },
+
+  /** Brings one part into view, without turning the camera: a double click on its row in the layers. */
+  framePart(name: string): void {
+    store.setState({ partFramed: { name, n: (store.getState().partFramed?.n ?? 0) + 1 } })
+  },
+
   /** Which scans the view cuts, as the viewport found them now: set only when they are others than before. */
   setScansClipped(ids: readonly string[]): void {
     const had = store.getState().scansClipped
@@ -679,6 +706,12 @@ export const actions = {
     setColumn({ ...column, folded: { ...column.folded, [section]: folded } })
   },
 
+  /** The width the person gave the left column (null: the default); the window keeps it. */
+  setLeftWidth(width: number | null): void {
+    const { column } = store.getState()
+    if (column.width !== width) setColumn({ ...column, width })
+  },
+
   /** The height the splitter gave the marks, once it is let go; null puts back their share. */
   setMarksHeight(height: number | null): void {
     const { column } = store.getState()
@@ -693,6 +726,11 @@ export const actions = {
   /** A session is wanted for the open object, with this text waiting in its box (`fixRequest`); null takes the request back. */
   setFixRequest(text: string | null): void {
     if (store.getState().fixRequest !== text) store.setState({ fixRequest: text })
+  },
+
+  /** A kept build is drawn over the current one (`ViewportPane` asks main for its meshes), or, with null, put away. */
+  compareWith(id: string | null): void {
+    if (store.getState().compare !== id) store.setState({ compare: id })
   },
 
   /** The sheet of the failed build is opened or put away. */

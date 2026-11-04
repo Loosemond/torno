@@ -1,4 +1,5 @@
 import { pressed } from '../../shared/keys'
+import { tagLabel } from '../../shared/tags'
 import { useEffect, useState } from 'react'
 import { EXPLODED_TOOLS } from '../../shared/explode'
 import { describe, descriptorOf } from '../state/descriptors'
@@ -19,6 +20,7 @@ export function Selection({ viewport }: { viewport: Viewport }) {
   const objectId = useStore((s) => s.objectId)
   const revision = useStore((s) => s.revision)
   const layout = useStore((s) => s.layout)
+  const parts = useStore((s) => s.scene?.parts)
   const canInsert = useStore((s) => runningSession(s) !== undefined)
   const selecting = useTool() === 'select'
   // Why no note can be left: the parts on screen are older than the model, and the refs would name other geometry.
@@ -57,17 +59,19 @@ export function Selection({ viewport }: { viewport: Viewport }) {
   }, [selecting, selection.length])
 
   if (!objectId || selection.length === 0) return null
+  const inLayout = parts?.filter((p) => p.layout === layout) ?? []
 
   return (
     <div className="selection" role="group" aria-label="Selection">
       <ul className="selection-chips">
         {selection.map((ref) => (
           <li key={ref} className="selection-chip" data-ref={ref}>
-            <span className="selection-ref num">{ref}</span>
+            <span className="selection-ref num">{[ref, tagLabel(inLayout, ref)].filter(Boolean).join(' · ')}</span>
             <span className="selection-descriptor num">{descriptorOf(objectId, revision, layout, ref) ?? ''}</span>
           </li>
         ))}
       </ul>
+      {selection.length === 1 && <span className="selection-hint">Shift-click to add</span>}
       <span className="viewbar-rule" aria-hidden="true" />
       <button
         type="button"

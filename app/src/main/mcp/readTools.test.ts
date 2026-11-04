@@ -2,14 +2,17 @@ import { describe, expect, it } from 'vitest'
 import type { BuildState } from '../../shared/build'
 import type { Described, SectionLoop, Sectioned } from '../../shared/geometry'
 import type { Mark, NewMark } from '../../shared/marks'
-import type { Part, Scene } from '../../shared/scene'
+import type { Param, Part, Scene } from '../../shared/scene'
 import type { Camera, LookRequest, SectionDrawingRequest, ShowRequest, ViewState } from '../../shared/view'
-import { KernelError } from '../kernel/client'
+import { KernelError, type TrialResult } from '../kernel/client'
 import { addMarkTool } from './markTools'
-import { MAX_SECTION_POINTS, checkTool, diffTool, measureTool, sectionTool, thinned, tryFilletTool } from './readTools'
+import { MAX_SECTION_POINTS, checkTool, diffTool, historyTool, measureTool, sectionTool, thinned, tryFilletTool, tryParamsTool } from './readTools'
+import type { BuildIdentity } from '../../shared/git'
+import type { HistoryEntry } from '../../shared/history'
 import { TOOLS } from './schemas'
 import { type ToolDeps, type ToolResult, describeTool } from './tools'
 import { lookTool, sceneTool, showTool } from './viewTools'
+import { STARTER_MATERIALS, type Profile, printerOf } from '../../shared/profile'
 
 // The tools the agent reads the part with, against stand-ins for the kernel,
 // the marks and the window: what is asked of each is kept, and what the
@@ -141,6 +144,16 @@ describe('measure', () => {
     expect(result.isError).toBeUndefined()
     expect(deps.queries).toEqual([{ name: 'measure', args: { kind: 'distance', a: { ref: 'assembly:tub/F5' }, b: { ref: 'assembly:tub/F0' } } }])
     expect(data(result)).toEqual({ layout: 'assembly', revision: 4, ...planes, reading: '6 mm between planes, tub/F5 to tub/F0' })
+  })
+
+  it('takes the face a tag of the model names for an end, and asks the kernel for that face', async () => {
+    const tagged: Scene = { ...SCENE, parts: [part('assembly', 'tub', { tags: { top: { faces: [5] } } }), ...SCENE.parts.slice(1)] }
+    const deps = fake(() => planes, { scene: () => ({ revision: 4, scene: tagged }) })
+    const result = await measureTool(deps, 'box', { kind: 'distance', a: 'tub/@top', b: 'tub/F0' })
+    expect(result.isError).toBeUndefined()
+    expect(deps.queries).toEqual([{ name: 'measure', args: { kind: 'distance', a: { ref: 'assembly:tub/F5' }, b: { ref: 'assembly:tub/F0' } } }])
+    const wrong = await measureTool(deps, 'box', { kind: 'distance', a: 'tub/@nope', b: 'tub/F0' })
+    expect(wrong.isError).toBe(true)
   })
 
   it('reads a diameter, a radius of a torus, an angle, and a wall with the point it was moved to', async () => {
@@ -382,6 +395,27 @@ describe('check', () => {
     expect(await reading({ distance: 1.5, overlapping: null, how: shell })).toBe(`clearance 1.5 mm between lid and tub (${shell})`)
   })
 
+  it('asks for interference of the whole layout and reads what the kernel found', async () => {
+    const said = { layout: 'assembly', parts: 4, pairs: 6, interfering: [{ a: 'tub', b: 'lid', volume: 120, volumeExact: true }], touching: [{ a: 'lid', b: 'clip' }], clear: 4, sampling: { measured: 2, of: 2, complete: true } }
+    const asked = fake(() => said)
+    const told = data(await checkTool(asked, 'box', { kind: 'interference' }))
+    expect(asked.queries[0].args).toEqual({ kind: 'interference', layout: 'assembly' })
+    expect(told.reading).toBe('assembly: 4 solid parts: 1 pair shares volume (tub and lid 120 mm³), 1 pair only touches (lid and clip); 4 pairs clear')
+    const cut = data(await checkTool(fake(() => ({ ...said, interfering: [], touching: [], clear: 3, sampling: { measured: 1, of: 2, complete: false }, notSolid: ['pin'] })), 'box', { kind: 'interference' }))
+    expect(cut.reading).toBe('assembly: 4 solid parts: no pair shares volume; 3 pairs clear; the time ran out after 1 of 2 pairs whose boxes meet, the rest are NOT measured; left out, not solids: pin')
+    expect(await checkTool(fake(), 'box', { kind: 'interference', a: 'tub' })).toEqual(refused('interference is of the whole layout: leave a out'))
+    expect(await checkTool(fake(), 'box', { kind: 'interference', b: 'tub' })).toEqual(refused('interference is of the whole layout: leave b out'))
+  })
+
+  it('refuses interference in a layout torno spread, and asks it in one that was not', async () => {
+    const deps = spread(() => ({ layout: 'x', parts: 2, interfering: [], touching: [], clear: 1 }))
+    const refusedText = (await checkTool(deps, 'box', { kind: 'interference', layout: 'print' })).content[0] as { text: string }
+    expect(refusedText.text).toContain('torno spread the parts apart for display (lid moved')
+    expect(refusedText.text).toContain('layouts: assembly')
+    expect(deps.queries).toHaveLength(0)
+    expect((await checkTool(deps, 'box', { kind: 'interference', layout: 'assembly' })).isError).toBeUndefined()
+  })
+
   it('reads a mesh that is closed, and one that is open with where', async () => {
     const reading = async (said: object): Promise<string> => data(await checkTool(fake(() => said), 'box', { kind: 'mesh', a: 'lid' })).reading
     expect(await reading({ watertight: true, openEdges: 0, where: [], triangles: 20594 })).toBe('mesh of lid: closed, 20,594 triangles')
@@ -405,14 +439,14 @@ describe('check', () => {
     expect(data(await checkTool(thinAsked, 'box', { kind: 'thin', a: 'tub', min: 0.8 })).reading).toBe('walls of tub under 0.8 mm: 1 face, thinnest ≈ 0.6 mm at tub/F3 (tub/F3), approximate: sampled at points of each face')
     expect(thinAsked.queries[0].args).toEqual({ kind: 'thin', layout: 'print', a: 'tub', min: 0.8 })
     expect(data(await checkTool(fake(() => ({ part: 'tub', min: 0.8, faces: [], count: 0, thinnest: { value: 2, ref: 'tub/F1', points: [] }, exact: false, sampling: { complete: false } })), 'box', { kind: 'thin', a: 'tub', min: 0.8 })).reading).toBe('no wall of tub under 0.8 mm where sampled, thinnest ≈ 2 mm, approximate: sampled at points of each face; the time ran out before every face was')
-    expect(await checkTool(fake(), 'box', { kind: 'thin', a: 'tub' })).toEqual(refused('thin needs min, the least wall in mm: {"kind": "thin", "a": "tub", "min": 0.8}'))
+    expect(await checkTool(fake(), 'box', { kind: 'thin', a: 'tub' })).toEqual(refused('thin needs min, the least wall in mm: {"kind": "thin", "a": "tub", "min": 0.8}; the project has no print profile to take it from'))
 
     const bedAsked = fake(() => ({ layout: 'print', parts: ['tub', 'lid'], bed: [256, 256, 256], size: [120, 80, 40], fits: true, over: [0, 0, 0], exact: true }))
     expect(data(await checkTool(bedAsked, 'box', { kind: 'bed', size: [256, 256, 256] })).reading).toBe('print layout fits a bed of 256 × 256 × 256 mm: it is 120 × 80 × 40 mm')
     expect(bedAsked.queries[0].args).toEqual({ kind: 'bed', layout: 'print', size: [256, 256, 256] })
     expect(data(await checkTool(fake(() => ({ layout: 'print', bed: [100, 100, 100], size: [120, 80, 140.5], fits: false, over: [20, 0, 40.5], exact: false })), 'box', { kind: 'bed', size: [100, 100, 100] })).reading).toBe('print layout does NOT fit a bed of 100 × 100 × 100 mm: it is ≈ 120 × 80 × 140.5 mm, over by 20 mm along x and 40.5 mm along z, approximate')
     expect(await checkTool(fake(), 'box', { kind: 'bed', a: 'tub', size: [1, 1, 1] })).toEqual(refused('bed is of the whole layout: leave a out'))
-    expect(await checkTool(fake(), 'box', { kind: 'bed' })).toEqual(refused('bed needs size, the bed in mm: {"kind": "bed", "size": [256, 256, 256]}'))
+    expect(await checkTool(fake(), 'box', { kind: 'bed' })).toEqual(refused('bed needs size, the bed in mm: {"kind": "bed", "size": [256, 256, 256]}; the project has no printer in its profile to take it from'))
     expect(await checkTool(fake(), 'box', { kind: 'overhang' })).toEqual(refused('overhang is of the part a: give a'))
   })
 
@@ -965,6 +999,18 @@ describe('diff', () => {
     expect(lid).toMatchObject({ changed: true, solids: { before: 1, after: 2 }, line: 'lid: solids 1 → 2' })
   })
 
+  it('says what each build was made from, and when the sources are the same', async () => {
+    const ids: Record<number, BuildIdentity> = { 3: { sources: 'aaaaaaaaaaaa', head: 'a1b2c3d' }, 4: { sources: 'bbbbbbbbbbbb', head: 'a1b2c3d', dirty: true } }
+    const base = kept([3, BEFORE], [4, AFTER])
+    const differing: Row = data(await diffTool({ ...base, identity: (_id, revision) => ids[revision] }, 'box', {}))
+    expect(differing.builds).toEqual({ from: { revision: 3, sources: 'aaaaaaaaaaaa', head: 'a1b2c3d' }, to: { revision: 4, sources: 'bbbbbbbbbbbb', head: 'a1b2c3d', dirty: true } })
+    expect(differing.notes ?? []).not.toEqual(expect.arrayContaining([expect.stringMatching(/same sources/)]))
+    const alike: Row = data(await diffTool({ ...base, identity: () => ({ sources: 'aaaaaaaaaaaa' }) }, 'box', {}))
+    expect(alike.notes).toEqual(expect.arrayContaining([expect.stringMatching(/same sources/)]))
+    // Where nothing is known of the builds (a revision of an earlier run), nothing is said of them.
+    expect(data(await diffTool(base, 'box', {})).builds).toBeUndefined()
+  })
+
   it('refuses with one build so far', async () => {
     const result = await diffTool(kept([1, BEFORE]), 'box', {})
     expect(result.isError).toBe(true)
@@ -973,6 +1019,96 @@ describe('diff', () => {
 
   it('refuses a revision not kept, naming those that are', async () => {
     expect(await diffTool(kept([3, BEFORE], [4, AFTER]), 'box', { from: 1 })).toEqual(refused('revision 1 is not kept: revisions 3 and 4 are'))
+  })
+
+  it('refuses what is neither a revision nor a kept id', async () => {
+    expect(text(await diffTool(kept([3, BEFORE], [4, AFTER]), 'box', { from: 'last' }))).toMatch(/^from is a revision of this run \(3\) or a build kept in the history \(h41\), not "last"/)
+  })
+
+  describe('with the history of the project (#56)', () => {
+    const entry = (id: string, more: Partial<HistoryEntry> = {}): HistoryEntry => ({ id, at: '2026-11-04T10:00:00.000Z', run: 'old', revision: 1, sources: `src-${id}`, model: 'box.py', files: ['box/box.py'], parts: 3, seconds: 1, line: 'tub changed', ...more })
+    const SCENES: Record<string, Scene> = { h2: BEFORE, h3: AFTER, h4: BEFORE }
+    /** Two runs of torno: h2 and h3 are of an earlier run, h4 is revision 1 of this one. */
+    const kept2 = (entries: HistoryEntry[], builds: Array<[number, Scene]>): Fake => ({
+      ...fake(undefined, { scenes: () => builds.map(([revision, scene]) => ({ revision, scene })), scene: () => ({ revision: builds.at(-1)![0], scene: builds.at(-1)![1] }) }),
+      history: async () => ({ run: 'now', entries }),
+      historyScene: async (_id, historyId) => SCENES[historyId] ?? null
+    })
+    const ENTRIES = [entry('h2'), entry('h3', { failing: ['walls'], dimensions: { pass: 1, fail: 1, none: 0 } }), entry('h4', { run: 'now', revision: 1 })]
+
+    it('compares any two kept builds by id, also of an earlier run, and says their checks are as of then', async () => {
+      const result: Row = data(await diffTool(kept2(ENTRIES, [[1, BEFORE]]), 'box', { from: 'h2', to: 'h3' }))
+      expect([result.from, result.to]).toEqual(['h2', 'h3'])
+      expect(result.layouts[0]).toMatchObject({ added: ['clip'], removed: ['cap'] })
+      expect(result.builds.from).toMatchObject({ id: 'h2', sources: 'src-h2' })
+      expect(result.builds.from).not.toHaveProperty('revision')
+      expect(result.builds.to).toMatchObject({ id: 'h3', failingChecks: ['walls'], dimensions: { pass: 1, fail: 1, none: 0 } })
+      expect(result.notes).toEqual(expect.arrayContaining([expect.stringMatching(/as of that build, never how the project stands now/)]))
+    })
+
+    it('takes a kept build against the last one, and a revision of this run that only the history holds', async () => {
+      const result: Row = data(await diffTool(kept2(ENTRIES, [[7, AFTER]]), 'box', { from: 'h2' }))
+      expect([result.from, result.to]).toEqual(['h2', 7])
+      const old: Row = data(await diffTool(kept2(ENTRIES, [[7, AFTER]]), 'box', { from: 1 }))
+      expect([old.from, old.builds.from.id, old.builds.from.revision]).toEqual([1, 'h4', 1])
+    })
+
+    it('compares the first build of a run with the newest kept build of other sources', async () => {
+      const fresh = { ...kept2(ENTRIES, [[1, AFTER]]), identity: () => ({ sources: 'src-h4' }) }
+      const result: Row = data(await diffTool(fresh, 'box', {}))
+      expect([result.from, result.to]).toEqual(['h3', 1])
+    })
+
+    it('refuses an id not kept, naming the ones that are, and a revision nowhere', async () => {
+      const deps = kept2(ENTRIES, [[3, BEFORE], [4, AFTER]])
+      expect(await diffTool(deps, 'box', { from: 'h9' })).toEqual(refused('h9 is not kept: the history keeps h2, h3, h4 (the history tool lists them)'))
+      expect(await diffTool(deps, 'box', { from: 9 })).toEqual(refused('revision 9 is not kept: revisions 3 and 4 are; the history keeps h2, h3, h4 (the history tool lists them)'))
+    })
+  })
+})
+
+describe('history', () => {
+  type Row = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
+  const entry = (id: string, more: Partial<HistoryEntry> = {}): HistoryEntry => ({ id, at: '2026-11-04T10:00:00.000Z', run: 'old', revision: 1, sources: `src-${id}`, model: 'box.py', files: ['box/box.py'], parts: 3, seconds: 1, line: 'tub changed', ...more })
+  const withHistory = (entries: HistoryEntry[]): Fake => ({ ...fake(), history: async () => ({ run: 'now', entries }) })
+
+  it('is a read-only tool with an id and a limit', () => {
+    expect(Object.keys(TOOLS.history.inputSchema)).toEqual(['id', 'limit'])
+    expect(TOOLS.history.annotations.readOnlyHint).toBe(true)
+  })
+
+  it('lists the kept builds newest first, with the revision of those made in this run, and what each had then', async () => {
+    const result = data(await historyTool(withHistory([entry('h1'), entry('h2', { run: 'now', revision: 2, starred: true, failing: ['walls'], line: 'lid changed' }), entry('h3', { run: 'now', revision: 3, dimensions: { pass: 2, fail: 0, none: 1 } })]), 'box', {})) as Row
+    expect(result).toMatchObject({ object: 'box', kept: 3, shown: 3 })
+    expect(result.builds.map((b: Row) => b.id)).toEqual(['h3', 'h2', 'h1'])
+    expect(result.builds[0]).toMatchObject({ revision: 3, dimensions: { pass: 2, fail: 0, none: 1 } })
+    expect(result.builds[1]).toMatchObject({ revision: 2, starred: true, failingChecks: ['walls'], changed: 'lid changed' })
+    expect(result.builds[2]).toMatchObject({ earlierRun: true })
+    expect(result.builds[2]).not.toHaveProperty('revision')
+    expect(result.notes[0]).toMatch(/as of that build/)
+  })
+
+  it('limits the list, and refuses a limit that is none', async () => {
+    const deps = withHistory(['h1', 'h2', 'h3', 'h4'].map((id) => entry(id)))
+    expect((data(await historyTool(deps, 'box', { limit: 2 })) as Row).builds.map((b: Row) => b.id)).toEqual(['h4', 'h3'])
+    expect(text(await historyTool(deps, 'box', { limit: 0 }))).toMatch(/^limit is a whole number from 1 to 100/)
+  })
+
+  it('gives one build with the paths of its copies, and says torno restores nothing', async () => {
+    const result = data(await historyTool(withHistory([entry('h1', { files: ['box/box.py', 'common/util.py'] })]), 'box', { id: 'H1' })) as Row
+    expect(result.id).toBe('h1')
+    expect(result.copies).toEqual([
+      { file: 'box/box.py', path: '/ws/box/.torno/history/h1/source/box/box.py' },
+      { file: 'common/util.py', path: '/ws/box/.torno/history/h1/source/common/util.py' }
+    ])
+    expect(result.notes.join(' ')).toMatch(/never restores a file/)
+  })
+
+  it('says so when a build is not kept, or the project keeps none', async () => {
+    expect(text(await historyTool(withHistory([entry('h2'), entry('h5')]), 'box', { id: 'h3' }))).toMatch(/is not kept: h2 to h5 are/)
+    expect(text(await historyTool(withHistory([]), 'box', { id: 'h1' }))).toMatch(/holds no build yet/)
+    expect((data(await historyTool(withHistory([]), 'box', {})) as Row).kept).toBe(0)
+    expect(await historyTool(fake(), 'box', {})).toEqual(refused('the history of this project cannot be read now'))
   })
 })
 
@@ -1044,5 +1180,137 @@ describe('try_fillet', () => {
   it('says where a part torno moved for display is, as the other tools of one part do', async () => {
     const said = data(await tryFilletTool(spread(() => FAILS), 'box', { part: 'lid', edges: ['lid/E4'], radius: 3, layout: 'print' }))
     expect(said).toMatchObject({ arranged: [45, 0, 0], note: MOVED })
+  })
+})
+
+describe('try_params', () => {
+  const param = (name: string, def: unknown, more: Partial<Param> = {}): Param => ({ name, type: typeof def === 'boolean' ? 'bool' : 'float', default: def, value: def, literal: true, doc: null, editable: typeof def === 'boolean' ? 'bool' : 'float', ...more })
+  const WITH_PARAMS: Scene = { ...SCENE, params: [param('wall', 2), param('lid', true), param('ribs', 3, { type: 'int', editable: 'int' }), param('shape', 'round', { type: 'Literal', editable: 'choice', choices: ['round', 'square'] }), param('inner', 36, { literal: false, editable: null })] }
+  const trialScene: Scene = { ...WITH_PARAMS, seconds: 0.4, parts: [part('assembly', 'tub', { bbox: { min: [-20, -15, -3], max: [20, 15, 9] }, volume: 7000 }), part('assembly', 'lid'), part('print', 'tub'), part('print', 'lid')], overrides: { applied: { wall: 2.4 }, dropped: [] } }
+  const OK_TRIAL: TrialResult = { ok: true, scene: trialScene, answers: [{ ok: true, result: { kind: 'bbox', size: [40, 30, 12], min: [-20, -15, -3], max: [20, 15, 9], exact: true, how: 'box' } }, { ok: false, error: { kind: 'bad_ref', message: 'no part nope' } }] }
+
+  function trying(result: TrialResult | Error = OK_TRIAL) {
+    const tried: Array<{ set: object; queries: object[] }> = []
+    const deps = fake(() => ({}), {
+      scene: () => ({ revision: 4, scene: WITH_PARAMS }),
+      trial: async (_id, set, queries) => {
+        tried.push({ set, queries })
+        if (result instanceof Error) throw result
+        return result
+      }
+    })
+    return { deps, tried }
+  }
+
+  it('asks the kernel for a trial of whole parts, and says what it gave, of the trial and not of a build', async () => {
+    const { deps, tried } = trying()
+    const result = await tryParamsTool(deps, 'box', { set: { wall: 2.4 }, measure: [{ kind: 'bbox', a: 'tub' }, { kind: 'bbox', a: 'nope' }] })
+    expect(tried).toEqual([{ set: { wall: 2.4 }, queries: [{ name: 'measure', args: { kind: 'bbox', layout: 'assembly', a: { ref: 'assembly:tub' } } }, { name: 'measure', args: { kind: 'bbox', layout: 'assembly', a: { ref: 'assembly:nope' } } }] }])
+    expect(deps.queries).toEqual([])
+    const said = data(result)
+    expect(said).toMatchObject({ trial: true, of: 4, set: { wall: 2.4 }, applied: { wall: 2.4 }, built: true })
+    expect(said.reading).toMatch(/^Tried wall 2.4 \(file 2\) on the model of r4 and thrown away, nothing changed \(these are of the trial, not of any build\): /)
+    expect(said.reading).toContain('tub')
+    expect(said.reading).toContain('nope: not answered: no part nope')
+    expect(JSON.stringify(said.diff)).toContain('tub')
+  })
+
+  it('takes checks of whole parts, the printing ones of the print layout', async () => {
+    const { deps, tried } = trying({ ok: true, scene: trialScene, answers: [{ ok: true, result: { kind: 'clearance', value: 0.3, exact: true } }, { ok: true, result: { kind: 'thin', min: 0.8, found: [] } }] })
+    await tryParamsTool(deps, 'box', { set: { wall: 2.4 }, check: [{ kind: 'clearance', a: 'tub', b: 'lid' }, { kind: 'thin', a: 'tub', min: 0.8 }] })
+    expect(tried[0].queries).toEqual([
+      { name: 'check', args: { kind: 'clearance', layout: 'assembly', a: 'tub', b: 'lid' } },
+      { name: 'check', args: { kind: 'thin', layout: 'print', a: 'tub', min: 0.8 } }
+    ])
+  })
+
+  it.each([
+    [{}, 'try_params needs set'],
+    [{ set: { gone: 1 } }, "gone is not a field of the model's Params; those that can be tried: wall, lid, ribs, shape"],
+    [{ set: { wall: 'thick' } }, 'wall is a float: give a number, not "thick"; those that can be tried'],
+    [{ set: { ribs: 2.5 } }, 'ribs is an int: give a whole number, not 2.5'],
+    [{ set: { lid: 1 } }, 'lid is a bool: give true or false, not 1'],
+    [{ set: { shape: 'hexagon' } }, 'shape is one of ["round","square"], not "hexagon"'],
+    [{ set: { inner: 3 } }, 'inner cannot be tried'],
+    [{ set: { wall: 3 }, measure: [{ kind: 'bbox', a: 'tub/F3' }] }, 'a trial measures whole parts by name'],
+    [{ set: { wall: 3 }, measure: [{ kind: 'bbox', a: 'M3' }] }, 'a trial measures whole parts by name'],
+    [{ set: { wall: 3 }, measure: [{ kind: 'radius', a: 'tub' }] }, 'a trial measures a whole part: kind is bbox'],
+    [{ set: { wall: 3 }, measure: [{ kind: 'distance', a: 'tub' }] }, 'distance is between two parts: give b'],
+    [{ set: { wall: 3 }, check: [{ kind: 'clearance', a: 'tub' }] }, 'clearance is of two parts: give b'],
+    [{ set: { wall: 3 }, check: [{ kind: 'overlap', a: 'tub/E1', b: 'lid' }] }, 'a trial checks whole parts by name']
+  ])('refuses %j, saying what it takes', async (args, why) => {
+    const { deps, tried } = trying()
+    const result = await tryParamsTool(deps, 'box', args as never)
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain(why)
+    expect(tried).toEqual([])
+  })
+
+  it('says the model did not build with the values, with its error, and what the kernel refuses (no room) as that', async () => {
+    const failed = await tryParamsTool(trying({ ok: false, error: { kind: 'exception', message: 'wall too thick', traceback: 'File "box.py", line 9\nValueError: wall too thick' } }).deps, 'box', { set: { wall: 99 } })
+    expect(failed.isError).toBe(true)
+    expect(text(failed)).toContain('Tried wall 99 (file 2) on the model of r4 and thrown away, nothing changed: it did not build: wall too thick')
+    expect(text(failed)).toContain('ValueError: wall too thick')
+    const crowded = await tryParamsTool(trying({ ok: false, error: { kind: 'no_room', message: 'there is not memory' } }).deps, 'box', { set: { wall: 3 } })
+    expect(text(crowded)).toContain('could not be tried (no_room): there is not memory')
+    const lost = await tryParamsTool(trying(new KernelError('no_build', 'box is not open')).deps, 'box', { set: { wall: 3 } })
+    expect(lost.isError).toBe(true)
+  })
+
+  it('is not available to a session whose kernel cannot try', async () => {
+    const result = await tryParamsTool(fake(), 'box', { set: { wall: 3 } })
+    expect(text(result)).toBe('this session cannot try other Params')
+  })
+})
+
+describe('the print profile of a project', () => {
+  const profile: Profile = { printer: printerOf({ name: 'Bambu X1C', bed: [256, 256, 250], nozzle: 0.4 })!, material: STARTER_MATERIALS[1] }
+  const withProfile = (says?: Parameters<typeof fake>[0]): Fake => fake(says, { profile: () => profile })
+  const BY = 'by your profile (Bambu X1C, PETG): the person\'s numbers, not measured'
+
+  it('gives check bed, thin and overhang their defaults, and the reading says whose they are', async () => {
+    const bed = withProfile(() => ({ layout: 'print', bed: [256, 256, 250], size: [120, 80, 40], fits: true, over: [0, 0, 0], exact: true }))
+    const result = data(await checkTool(bed, 'box', { kind: 'bed' }))
+    expect(bed.queries[0].args).toEqual({ kind: 'bed', layout: 'print', size: [256, 256, 250] })
+    expect(result.reading).toBe(`print layout fits a bed of 256 × 256 × 250 mm: it is 120 × 80 × 40 mm; bed 256 × 256 × 250 mm ${BY}`)
+    expect(result.profile).toBe('Bambu X1C, PETG')
+    const thin = withProfile(() => ({ part: 'tub', min: 0.8, faces: [], count: 0, exact: false }))
+    expect(data(await checkTool(thin, 'box', { kind: 'thin', a: 'tub' })).reading).toContain(`least wall 0.8 mm ${BY}`)
+    expect(thin.queries[0].args).toMatchObject({ min: 0.8 })
+    const over = withProfile(() => ({ angle: 40, faces: [], count: 0, area: 0, exact: true }))
+    await checkTool(over, 'box', { kind: 'overhang', a: 'tub' })
+    expect(over.queries[0].args).toMatchObject({ angle: 45 })
+  })
+  it('leaves a value the call gives alone', async () => {
+    const bed = withProfile(() => ({ layout: 'print', bed: [100, 100, 100], size: [120, 80, 40], fits: false, over: [20, 0, 0], exact: true }))
+    const result = data(await checkTool(bed, 'box', { kind: 'bed', size: [100, 100, 100] }))
+    expect(bed.queries[0].args).toMatchObject({ size: [100, 100, 100] })
+    expect(result.reading).not.toContain('by your profile')
+    expect(result.profile).toBeUndefined()
+  })
+  it('takes the density of the material for mass', async () => {
+    const mass = withProfile(() => ({ kind: 'mass', value: 12.7, unit: 'g', how: 'volume × density', exact: true, volume: 10000 }))
+    const result = data(await measureTool(mass, 'box', { kind: 'mass', a: 'tub' }))
+    expect(mass.queries[0].args).toMatchObject({ density: 1.27 })
+    expect(result.reading).toContain(`density 1.27 g/cm³ ${BY}`)
+    await measureTool(mass, 'box', { kind: 'mass', a: 'tub', density: 2.7 })
+    expect(mass.queries[1].args).toMatchObject({ density: 2.7 })
+  })
+  it('judges a clearance against the band of a fit, and says it is not a claim that it prints', async () => {
+    const gap = (distance: number, overlapping = false) => withProfile(() => ({ distance, points: [], how: 'minimum', overlapping, exact: true }))
+    const sliding = async (d: number, o?: boolean) => data(await checkTool(gap(d, o), 'box', { kind: 'clearance', a: 'lid', b: 'tub', fit: 'sliding' }))
+    const good = await sliding(0.35)
+    expect(good.reading).toContain('passes within the sliding fit')
+    expect(good.reading).toContain('0.3 to 0.4 mm per side')
+    expect(good.reading).toContain('not a claim that it prints')
+    expect(good.fit).toMatchObject({ verdict: 'within' })
+    expect((await sliding(0.1)).reading).toContain('FAILS 0.2 mm under the sliding fit')
+    expect((await sliding(0.7)).fit).toMatchObject({ verdict: 'looser' })
+    expect((await sliding(0, true)).reading).toContain('FAILS the sliding fit: the parts overlap')
+  })
+  it('refuses a fit without a material, or on another kind', async () => {
+    expect(await checkTool(fake(), 'box', { kind: 'clearance', a: 'lid', b: 'tub', fit: 'sliding' })).toMatchObject({ isError: true })
+    expect(await checkTool(withProfile(), 'box', { kind: 'clearance', a: 'lid', b: 'tub', fit: 'snug' })).toMatchObject({ isError: true })
+    expect(await checkTool(withProfile(), 'box', { kind: 'mesh', a: 'tub', fit: 'sliding' })).toMatchObject({ isError: true })
   })
 })

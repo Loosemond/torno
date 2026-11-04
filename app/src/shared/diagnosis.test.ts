@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { probe } from '../test/diagnosisFixtures'
-import { type FilletDiagnosis, diagnosisText, sizeText } from './diagnosis'
+import { flushCut, probe } from '../test/diagnosisFixtures'
+import { type BooleanDiagnosis, type FilletDiagnosis, diagnosisText, sizeText } from './diagnosis'
 
 describe('diagnosisText', () => {
   it('says the probe as the issue does: each alone works, the pairs, the radius bisected', () => {
@@ -73,5 +73,47 @@ describe('diagnosisText', () => {
     const text = diagnosisText(told)
     expect(text).toContain('1 pair of adjacent edges fails (plate/E4-plate/E9: 4 mm apart, two R6 need more)')
     expect(text).toContain('Edges (in the frame of the project):\nplate/E4: line, 20 mm, along X')
+  })
+})
+
+describe('diagnosisText of a boolean', () => {
+  it('says a tool that ends flush with the face it cuts, and the faces', () => {
+    const text = diagnosisText(flushCut())
+    expect(text.split('\n')[0]).toBe(
+      'Why: cut failed: face F5 of tool lies on face F5 of base, facing the same way, over 16 mm²: a tool that ends flush with the face it cuts, not past it.'
+    )
+    expect(text).toContain('Operands (local: faces numbered by their place in the operand, from 0; in the frame of the operand):')
+    expect(text).toContain('tool: solid, valid, 6 faces, box (-2, -2, 0) to (2, 2, 5)')
+    expect(text).toContain('base F5 and tool F5: plane, facing the same way, at z = 5, 16 mm² shared')
+  })
+
+  it('says an operand that is not a solid, is empty or is not valid', () => {
+    const operand = (name: string, type: string, extra: object = {}) => ({ name, type, ...extra })
+    const told = (operands: BooleanDiagnosis['operands'], causes: BooleanDiagnosis['causes']): BooleanDiagnosis => ({ ...flushCut(), operands, pairs: [], causes })
+    expect(diagnosisText(told([operand('base', 'solid', { solids: 1, valid: true }), operand('tool', 'face', { solids: 0, valid: true })], ['not-solid'])).split('\n')[0]).toBe(
+      'Why: cut failed: tool is a face, not a solid (a boolean needs solids).'
+    )
+    expect(diagnosisText(told([operand('tool', 'empty')], ['empty-operand'])).split('\n')[0]).toBe('Why: cut failed: tool is empty.')
+    expect(diagnosisText(told([operand('tool', 'solid', { solids: 1, valid: false, faults: ['crosses itself'] })], ['invalid-operand'])).split('\n')[0]).toBe(
+      'Why: cut failed: tool is not a valid solid (it crosses itself).'
+    )
+  })
+
+  it('says shapes that do not meet, and ones that only touch', () => {
+    const apart: BooleanDiagnosis = { ...flushCut(), pairs: [{ base: 'base', tool: 'tool', apart: 20, apartExact: false, touching: false }], causes: ['apart'] }
+    expect(diagnosisText(apart).split('\n')[0]).toBe('Why: cut failed: tool is ≈ 20 mm from base: they do not meet.')
+    const touch: BooleanDiagnosis = { ...flushCut(), pairs: [{ ...flushCut().pairs[0]!, coincident: [], inside: { tool: 0, base: 0, sampledOnTool: 20, sampledOnBase: 20 } }], causes: ['touching'] }
+    expect(diagnosisText(touch).split('\n')[0]).toContain('tool and base touch, and no point sampled on either lies inside the other')
+  })
+
+  it('says when it found no cause, and when it was cut short', () => {
+    const none: BooleanDiagnosis = { ...flushCut(), pairs: [], causes: [], complete: false }
+    expect(diagnosisText(none)).toMatch(/^Why: cut failed: no cause was found in its operands\. Cut short at 5 s: only what was found in time is told\./)
+  })
+
+  it('keeps to its limit, the lines cut from the end and counted', () => {
+    const text = diagnosisText(flushCut(), 330)
+    expect(text.length).toBeLessThanOrEqual(330)
+    expect(text).toMatch(/and \d+ more lines?$/)
   })
 })

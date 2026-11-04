@@ -1,8 +1,10 @@
 import { existsSync, realpathSync, rmSync } from 'node:fs'
+import { ablations, evalTuning } from './ablations'
 import { readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { app, BrowserWindow, ipcMain, Menu, nativeTheme } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme } from 'electron'
+import { type Door, openDoor, projectFor } from './door'
 import type { Described } from '../shared/geometry'
 import type { SavedView } from '../shared/views'
 import { writeFileAtomic } from './atomic'
@@ -14,7 +16,7 @@ import { type Config, configOf, listed, recentWith, recentWithout } from './rece
 import { startHttp } from './http'
 import { buildContextFor, contextFor, tellsInstructions } from './context'
 import { listReferences } from './sessions/reference'
-import { buildState, closeWorkspace, findObject, keptScenes, lastScene, letGoForTest, marksChecks, openObjectId, openWorkspace, openWorkspaceInfo, openedObjects, placedMark, queryObject, recheckAlignments, registerIpc } from './ipc'
+import { buildIdentity, buildState, closeWorkspace, findObject, historyOf, historySceneOf, keepDimensions, keptScenes, lastScene, letGoForTest, marksChecks, openObjectId, openWorkspace, openWorkspaceInfo, openedObjects, placedMark, queryObject, recheckAlignments, registerIpc, trialObject } from './ipc'
 import { cannotStart, environmentCommand } from './kernel/client'
 import { ReadyKeeper } from './readiness'
 import { NoAnswer, latestView, requestHighlight, requestLook, requestSaveView, requestSectionDrawing, requestShow } from './look'
@@ -22,10 +24,12 @@ import { addDimensionTold } from './marks/measure'
 import type { NearestAnchor } from './marks/reanchor'
 import { maskReadsOf, maskStampOf, meshesOf } from './marks/regions'
 import { MarkStore } from './marks/store'
+import { Asks } from './asks'
 import { mountMcp } from './mcp/server'
 import { DEFAULT_SIZE } from './mcp/schemas'
 import { onNotOwn } from './own'
 import { agentPluginDir, kernelDir, kernelRun, ownEnvironment, windowIcon } from './paths'
+import { Expectations, withExpectation } from './mcp/expectTools'
 import type { ToolDeps } from './mcp/tools'
 import { saveView } from './mcp/views'
 import { systemPrompt } from './prompt'
@@ -46,6 +50,7 @@ import { valueAgainstExpected } from '../shared/dimension'
 import { HOOK_DEADLINE_MS, InstructionList } from './instructions'
 import { Trust } from './trust'
 import { KnownModels } from './sessions/models'
+import { UserProfiles, projectProfile } from './profile'
 
 // Environment switches:
 //   TORNO_TEST=1            the window is created hidden and never shown (tests, headless checks)
@@ -225,6 +230,8 @@ function createWindow(): BrowserWindow {
   win.on('closed', () => {
     if (unanswered) clearTimeout(unanswered)
     ipcMain.off('window:closeAnswer', onAnswer)
+    // Nobody is left to answer what is open.
+    asks.end()
     app.off('before-quit', onQuit)
   })
 
@@ -257,6 +264,12 @@ function createWindow(): BrowserWindow {
 }
 
 let sessions: Sessions | null = null
+
+/** The questions of the agents that wait for the person (`ask`): the window is told the list, and a session shows `needs_input` while one is open. */
+const asks = new Asks(
+  (list) => BrowserWindow.getAllWindows()[0]?.webContents.send('asks:changed', list),
+  (objectId) => sessions?.holdAsk(objectId) ?? (() => {})
+)
 
 /** The marks of the objects of the open workspace, whose folders are those of the last scan. */
 // A region is held against the mesh its scan has whenever the marks are listed (`meshesOf`).
@@ -330,12 +343,27 @@ const referencesOf = (id: string): string[] => {
 let redactAddresses = (text: string): string => text
 
 /** What the MCP tools are made from: the open workspace and the window. */
+const expectations = new Expectations()
+// What an eval run takes away (`app/evals`): nothing unless TORNO_TEST=1 and TORNO_EVAL=1.
+const off = ablations()
+const tuning = evalTuning()
+
 const toolDeps: ToolDeps = {
+  ...(off.has('look') ? { off: new Set(['look']) } : {}),
+  ...(tuning.lookSize ? { lookSize: tuning.lookSize } : {}),
+  expectations,
   redact: (text) => redactAddresses(text),
   object: findObject,
+  profile: (id) => {
+    const obj = findObject(id)
+    return obj ? projectProfile(obj.dir) : undefined
+  },
   build: buildState,
   scene: lastScene,
   scenes: keptScenes,
+  identity: buildIdentity,
+  history: historyOf,
+  historyScene: historySceneOf,
   // A view reported for an object stays on record after the window has moved on to another.
   view: (id) => (openObjectId() === id ? latestView(id) : undefined),
   openObjectId,
@@ -354,7 +382,7 @@ const toolDeps: ToolDeps = {
   addDimension: (objectId, mark) => addDimensionTold({ marks, query: queryObject, scene: lastScene }, objectId, placedMark({ ...mark, author: 'agent' }, objectId), 'sent'),
   // Whoever changes a mark through the tools is the agent.
   updateMark: (objectId, id, patch) => marks.update(objectId, id, patch, 'agent'),
-  describe: (objectId, layout, ref) => queryObject<Described>(objectId, 'describe', { ref: `${layout}:${ref}` }),
+  describe: (objectId, layout, ref, options) => queryObject<Described>(objectId, 'describe', { ref: `${layout}:${ref}`, ...(options?.selector ? { selector: true } : {}) }),
   async nearest(objectId, layout, anchors) {
     const reply = await queryObject<{ anchors?: NearestAnchor[] }>(objectId, 'nearest', { layout, anchors })
     if (!Array.isArray(reply?.anchors) || reply.anchors.length !== anchors.length) throw new Error('the kernel did not answer for each point')
@@ -363,10 +391,13 @@ const toolDeps: ToolDeps = {
   show(_objectId, req) {
     return theWindow().then((win) => requestShow(win, req))
   },
+  ask: (objectId, req, signal) => asks.ask(objectId, req, signal),
+  asking: (objectId) => asks.has(objectId),
   highlight(objectId, layout, refs, note) {
     return theWindow().then((win) => requestHighlight(win, { objectId, layout, refs, ...(note ? { note } : {}) }))
   },
   query: queryObject,
+  trial: trialObject,
   scans: (objectId) => listedScans(objectId),
   scanPaths: (objectId, id) => scans.paths(objectId, id),
   scansBusy: (objectId) => scans.working(objectId),
@@ -389,10 +420,10 @@ const instructionFiles = new InstructionList()
 /** Each build's verdicts on the dimensions, in memory: the digest of an edit's build, and the Stop, compare two. */
 const verdicts = new Verdicts()
 /** What the answer to an edit is made from: the tools' deps, and the verdicts of the builds it compares. */
-const editDeps = { ...toolDeps, verdicts: (id: string, revision: number | undefined) => verdicts.of(id, revision) }
+const editDeps = { ...toolDeps, ...(off.has('digest') ? { digest: false } : {}), verdicts: (id: string, revision: number | undefined) => verdicts.of(id, revision) }
 
 /** `<object>/.torno/state.md` of every open object: what an agent without the tools reads instead. */
-const stateFiles = new StateFiles({ object: findObject, build: buildState, scene: lastScene, scenes: keptScenes, marks: (objectId) => marks.list(objectId), scans: (objectId) => scans.list(objectId), views: savedViews })
+const stateFiles = new StateFiles({ object: findObject, build: buildState, scene: lastScene, scenes: keptScenes, marks: (objectId) => marks.list(objectId), scans: (objectId) => scans.list(objectId), views: savedViews, profile: toolDeps.profile })
 marks.on('changed', ({ objectId }) => stateFiles.changed(objectId))
 // What the marks say of the last build, whenever they change: its verdicts from then on.
 marks.on('changed', ({ objectId, marks: all }) => verdicts.record(objectId, lastScene(objectId)?.revision, all))
@@ -409,14 +440,14 @@ scans.on('changed', ({ objectId }) => marks.scansChanged(objectId))
  * person's. `marksChecks` says whether the marks of an object have been
  * checked against its build since something was done to them. `scans` is the
  * store of the scans; `pickFile` is what "Import scan" is answered with, and
- * `filePicks` counts how often it was asked; `pickPhotos` (a list of paths) and `photoPicks` are the same for the photo dialog of a new object; `pickSave` is what the save dialog of
+ * `filePicks` counts how often it was asked; `pickPhotos` (a list of paths) and `photoPicks` are the same for the photo dialog of a new object, `pickStep` and `stepPicks` for its bought-part (STEP) dialog; `pickSave` is what the save dialog of
  * an export is answered with (the path to write, or null), `savePicks` counts
  * how often it was asked and `saveOffered` is the path it would have opened on; `replace` answers the question asked before an export replaces a file the dialog did not ask about, and `replaceAsked` counts it; `openedFiles` are the files an export would have had the system open (a 3MF, when asked); `revealedFiles` are the instruction files the session pane's rows would have had shown in the file manager. `letGo` has an object's status
  * say that the kernel let its build go, which no test's kernel does. `opened`
  * are the objects opened in this run: those that are watched and built. `mcpFor` gives the address of an
  * object's MCP server and a token that opens it, to send in `X-Torno-Session`.
  */
-const testHooks = { requestLook, latestView, marks, marksChecks, opened: openedObjects, letGo: letGoForTest, mcpFor: (_id: string): { url: string; token: string } => ({ url: '', token: '' }), pickFolder: null as string | null, picks: 0, scans, pickFile: null as string | null, filePicks: 0, pickPhotos: [] as string[], photoPicks: 0, pickSave: null as string | null, savePicks: 0, saveOffered: null as string | null, replace: false, replaceAsked: 0, openedFiles: [] as string[], revealedFiles: [] as string[] }
+const testHooks = { requestLook, latestView, marks, marksChecks, opened: openedObjects, letGo: letGoForTest, mcpFor: (_id: string): { url: string; token: string } => ({ url: '', token: '' }), pickFolder: null as string | null, picks: 0, scans, pickFile: null as string | null, filePicks: 0, pickPhotos: [] as string[], photoPicks: 0, pickStep: null as string | null, stepPicks: 0, pickSave: null as string | null, savePicks: 0, saveOffered: null as string | null, replace: false, replaceAsked: 0, openedFiles: [] as string[], revealedFiles: [] as string[] }
 
 /** The folder a second launch was given while there was no window to offer it to, or none that had loaded. */
 let requested: string | null = null
@@ -447,7 +478,7 @@ app.on('second-instance', (_event, _argv, _cwd, data) => {
 
 void app.whenReady().then(async () => {
   if (!isFirst) return
-  // A start from the Finder or the Dock has launchd's PATH, without `uv` or `claude`: ask the login shell (macOS only).
+  // A start from the Finder or the Dock has launchd's PATH, without `uv` or `claude`: ask the login shell (macOS and Linux; a desktop entry's PATH is the session's).
   await applyLoginPath()
   // In development the Dock shows Electron's icon; a packaged app takes its own from its bundle.
   if (process.platform === 'darwin' && !app.isPackaged) app.dock?.setIcon(windowIcon())
@@ -459,7 +490,7 @@ void app.whenReady().then(async () => {
   // The files an agent is given by path (its MCP server's, which holds no secret): what a torno that crashed left is of no use.
   const configDir = join(app.getPath('userData'), 'agent')
   rmSync(configDir, { recursive: true, force: true })
-  const adapter = claudeAdapter(process.env.TORNO_AGENT_CMD, agentPluginDir())
+  const adapter = claudeAdapter(process.env.TORNO_AGENT_CMD, off.has('skills') ? undefined : agentPluginDir(), { reviewer: !off.has('reviewer') })
   sessions = new Sessions({
     http,
     configDir,
@@ -467,6 +498,8 @@ void app.whenReady().then(async () => {
     trust: new Trust(configPath ? join(dirname(configPath), 'trusted.json') : null),
     // Claude Code, given torno's skills. TORNO_AGENT_CMD is run in place of `claude`.
     adapter,
+    ...(off.has('stop') ? { holdStops: false } : {}),
+    ...(tuning.holds ? { mostHolds: tuning.holds } : {}),
     // How the session is shown: the object's choice, in its `.torno/agent.json` (a chat unless it says terminal).
     viewFor: async (obj) => (await readChoice(obj.dir)).view,
     // The viewport as the person has it, for a prompt that attaches the view: of the object the session is of.
@@ -487,11 +520,13 @@ void app.whenReady().then(async () => {
     },
     // An edit of the model is answered with the build it started, and a Stop held back once over a build the turn left failed or unseen.
     build: buildState,
-    buildContextFor: async (id, toolName) => buildContextFor(editDeps, id, await marks.list(id).catch(() => []), { toolName }),
+    // What the agent said the edit should change (`expect`) is told once, with the build it was held against.
+    buildContextFor: async (id, toolName) => withExpectation(expectations, toolDeps, id, buildContextFor(editDeps, id, await marks.list(id).catch(() => []), { toolName })),
     // A hard defect the turn's builds brought is held against its Stop, once; and an edit's dimensions are of its build.
     scene: lastScene,
     settled: (id, revision, until) => verdicts.settled(id, revision, until),
     // A Bash is a change of the model when the newest source is newer after it: only a build that follows a change is the turn's.
+    identity: buildIdentity,
     sourcesSaved: async (dir) => {
       const [own, common] = sourceFolders(dir)
       const [a, b] = await Promise.all([newestPython(own), newestPython(common)])
@@ -512,6 +547,8 @@ void app.whenReady().then(async () => {
   // A session that asks while the window is not in use draws the eye to it, once for each ask (`Attention`).
   const attention = new Attention()
   sessions.on('status', (m) => {
+    // A question lasts as long as the turn: a client that stops waiting does not always hang up, so the end of the turn ends it.
+    if (m.status === 'exited' || m.status === 'idle') asks.end(m.objectId)
     const win = BrowserWindow.getAllWindows()[0]
     if (!win || win.isDestroyed() || !attention.moved(m.sessionId, m.status, win.isFocused())) return
     // A hidden test window is not flashed: the rule is what is tested (`attention.test.ts`).
@@ -522,6 +559,8 @@ void app.whenReady().then(async () => {
   registerIpc({
     // The models the last chat offered, for the page of a new object: kept beside the recent folders, or for this run alone.
     knownModels: new KnownModels(configPath ? join(dirname(configPath), 'models.json') : null),
+    userProfiles: new UserProfiles(configPath ? join(dirname(configPath), 'profiles.json') : null),
+    onProfile: (objectId) => stateFiles.changed(objectId),
     // What torno needs, found before it fails. The CLI is looked for on the PATH under test and never run: a person's login is not a test's.
     ready: new ReadyKeeper({
       probe: adapter.probe,
@@ -537,6 +576,7 @@ void app.whenReady().then(async () => {
     forget: async (root) => listed((await changeConfig((config) => ({ ...config, recent: recentWithout(config.recent, root) }))).recent),
     example: exampleFrom === null ? undefined : exampleFolder,
     sessions,
+    asks,
     marks,
     onBuild: (state) => {
       stateFiles.changed(state.objectId)
@@ -547,11 +587,13 @@ void app.whenReady().then(async () => {
       void marks
         .list(objectId)
         .then((all) => verdicts.checkedOn(objectId, revision, all))
-        .catch(() => verdicts.checkedOn(objectId, revision)),
+        .catch(() => verdicts.checkedOn(objectId, revision))
+        .then(() => keepDimensions(objectId, revision, verdicts.of(objectId, revision))),
     // The saved views are named in the state file.
     onSceneFile: (objectId) => stateFiles.changed(objectId),
     // What was waiting to be written was of objects of the workspace that is left.
     onWorkspaceClosed: () => {
+      asks.end()
       instructionFiles.forget()
       stateFiles.forget()
       verdicts.forget()
@@ -579,6 +621,13 @@ void app.whenReady().then(async () => {
       ? async () => {
           testHooks.photoPicks += 1
           return testHooks.pickPhotos
+        }
+      : undefined,
+    // Nor the dialog for a vendor STEP file.
+    pickStep: isTest
+      ? async () => {
+          testHooks.stepPicks += 1
+          return testHooks.pickStep
         }
       : undefined,
     // Nor a save dialog.
@@ -610,6 +659,35 @@ void app.whenReady().then(async () => {
   // Under test only: an object's MCP address and a token that opens it, as a session of that object has one.
   if (isTest) testHooks.mcpFor = (id) => ({ url: mcpUrlFor(id), token: http.grant([new URL(mcpUrlFor(id)).pathname]) })
   if (isTest) Object.assign(globalThis, { __tornoMain: testHooks })
+  // The second door (#54, a spike): off unless asked for. An agent torno did not start reaches one project's tools
+  // through a socket only this user may open, once the person allows it in the window.
+  if (process.env.TORNO_OUTSIDE_AGENTS === '1') {
+    void openDoor({
+      http,
+      objectFor: (folder) => {
+        const found = projectFor(openWorkspaceInfo()?.objects ?? [], folder)
+        return found ? { id: found.id, name: found.name } : undefined
+      },
+      approve: async ({ name, client, pid }) => {
+        const win = BrowserWindow.getAllWindows()[0]
+        if (!win || win.isDestroyed()) return false
+        const { response } = await dialog.showMessageBox(win, {
+          type: 'question',
+          buttons: ['Allow for this run', 'Deny'],
+          defaultId: 1,
+          cancelId: 1,
+          message: `An agent outside torno wants to use the tools of ${name}`,
+          detail: `It says it was started by ${client}${pid === null ? '' : ` (process ${pid})`}. Allow it only if you started it yourself. It may use the tools until it disconnects or torno quits.`
+        })
+        return response === 0
+      }
+    })
+      .then((door: Door) => {
+        app.on('will-quit', () => void door.close())
+        if (isDebug) console.error(`[torno] door for outside agents: ${door.path}`)
+      })
+      .catch((e: Error) => console.error(`torno: the door for outside agents is not open: ${e.message}`))
+  }
   // An address holds no secret: a request needs the token of a session as well.
   if (isDebug) console.error(`[torno] MCP server of a project: ${mcpUrlFor('<project id>')}`)
   // What a torno that crashed left in the temporary folder: only copies of the example its own marker names.

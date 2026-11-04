@@ -11,11 +11,13 @@ import { chatActions, connectChat, useChat } from '../state/chat'
 import { onboarding, useOnboard } from '../state/onboard'
 import { actions, store, useStore } from '../state/store'
 import { ChatPane } from './chat/ChatPane'
+import { StartChat } from './chat/StartChat'
 import { DraftPaneLive } from './onboard/DraftPane'
 import { clearDrafts, holdDraft } from './chat/Composer'
 import { effortsOf } from '../../shared/chat'
 import { EffortMenu } from './chat/EffortMenu'
 import { ModelMenu } from './chat/ModelMenu'
+import { ModeMenu } from './chat/ModeMenu'
 import { Confirm } from './Confirm'
 import { numbered } from './numbered'
 import { edgeGround } from './termGround'
@@ -271,6 +273,8 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
   const [trusting, setTrusting] = useState<{ question: string; resume: boolean } | null>(null)
   /** The instruction files Claude Code reads for the object (paths and sizes), as main last listed them. */
   const [reads, setReads] = useState<{ objectId: string; files: InstructionFile[] }>({ objectId: '', files: [] })
+  /** What was written in the empty pane and waits for the session it starts (through the trust question too): sent to it, or left in its box. */
+  const pending = useRef<{ text: string; send: boolean } | null>(null)
   const host = useRef<HTMLDivElement>(null)
   const reveal = useRef(onReveal)
   reveal.current = onReveal
@@ -401,6 +405,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
     setSwitching(null)
     offered.current = false
     setTrusting(null)
+    pending.current = null
     setChoice({ view: 'chat' })
     if (!objectId) return
     const mine = terminals.get(objectId)
@@ -509,6 +514,20 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
         holdDraft(started.sessionId, fix)
         actions.setFixRequest(null)
       }
+      // What was written in the empty pane: sent to the session this started (the person's act was the send), or left
+      // in its box, or typed at a terminal's prompt once it is ready (`fixRequest`), never sent there.
+      const waiting = pending.current
+      pending.current = null
+      if (waiting !== null) {
+        if (started.view !== 'chat') actions.setFixRequest(waiting.text)
+        else if (!waiting.send) holdDraft(started.sessionId, waiting.text)
+        else {
+          window.torno.chat.send(started.sessionId, { text: waiting.text }).catch((e: unknown) => {
+            holdDraft(started.sessionId, waiting.text)
+            setProblem(`The prompt was not sent: ${reason(e)}`)
+          })
+        }
+      }
       focusWanted.current = true
     } catch (e) {
       const said = reason(e)
@@ -517,10 +536,17 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
       else {
         setProblem(said)
         actions.setFixRequest(null)
+        pending.current = null
       }
     } finally {
       setStarting(false)
     }
+  }
+
+  /** The empty pane: with a prompt, a session started on it (sent, or only kept in the box); the trust question is asked as ever, the prompt kept meanwhile. */
+  function startWith(resume: boolean, text: string, send: boolean): void {
+    pending.current = text === '' ? null : { text, send }
+    void start(resume)
   }
 
   /** "Start the chat": the folder is remembered as one the person let the chat start in, and the start is made again. */
@@ -741,6 +767,7 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
           {chatting && chatOf && chatOf.models.length > 0 ? (
             <>
               <ModelMenu sessionId={session.sessionId} model={model} models={chatOf.models} live={!ended} />
+              <ModeMenu sessionId={session.sessionId} mode={chatOf.meta.permissionMode} live={!ended} />
               <EffortMenu sessionId={session.sessionId} effort={chatOf.meta.effort} efforts={effortsOf(chatOf.models, model)} live={!ended} />
             </>
           ) : (
@@ -850,7 +877,10 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
         ) : !objectId ? (
           <p className="panel-note">Claude Code works here, one session per project. Make or open a project to start.</p>
         ) : (
-          !session && (
+          !session &&
+          (choice.view === 'chat' ? (
+            <StartChat key={objectId} objectId={objectId} objectName={objectName ?? objectId} dir={objectDir} resumable={resumable} starting={starting} onStart={startWith} />
+          ) : (
             <div className="session-empty">
               <div className="session-actions">
                 <button type="button" className="button button-primary" disabled={starting} onClick={() => void start(false)}>
@@ -862,11 +892,9 @@ export function SessionPane({ onReveal }: { onReveal: () => void }) {
                   </button>
                 )}
               </div>
-              <p>
-                {AGENT_LABEL} runs here, in the folder of {objectName}, and works on it with you{view === 'chat' ? ', in a chat' : ''}.
-              </p>
+              <p>{AGENT_LABEL} runs here, in the folder of {objectName}, and works on it with you.</p>
             </div>
-          )
+          ))
         )}
         {problem !== null && objectId && (
           <p className="session-problem selectable" role="alert">

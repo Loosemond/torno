@@ -1,6 +1,7 @@
-import type { CreateRequest, OnboardDraft, Onboarded } from '../../../shared/bridge'
+import type { CreateRequest, OnboardDraft, Onboarded, PromptPreviewDraft } from '../../../shared/bridge'
 import type { AgentChoice } from '../../../shared/chat'
 import type { Draft, Held } from '../../state/onboard'
+import { stepFiles } from '../../../shared/objectName'
 import { extensionOf } from './images'
 
 /** What an IPC call failed with, without Electron's wrapping. */
@@ -33,6 +34,31 @@ export type Outcome =
   /** Made and open; `problem` is why the first prompt was not sent, and then it is held for the composer. */
   | { kind: 'done'; objectId: string; problem?: string; /** False when the window could not show the object (another was chosen meanwhile). */ shown?: false }
 
+/** What `create` will name the photos and the doodles of the draft: photo-<n> with the extension of the file, doodle-<n>.png. */
+export function referenceFiles(draft: Draft): OnboardDraft['items'] {
+  return [
+    ...draft.photos.map((p, n) => ({ file: `reference/photo-${n + 1}${extensionOf(p.path)}`, note: p.note, image: p.image })),
+    ...draft.doodles.map((d, n) => ({ file: `reference/doodle-${n + 1}.png`, note: d.note, image: d.png }))
+  ]
+}
+
+/** What `create` will name the vendor STEP files of the draft: their own names (`stepFiles`). */
+export function stepReferences(draft: Draft): OnboardDraft['steps'] {
+  const files = stepFiles(draft.steps.map((s) => s.path))
+  return draft.steps.map((s, n) => ({ file: files[n], note: s.note }))
+}
+
+/** The draft as `objects.previewPrompt` takes it: no picture, only whether there is one. */
+export function previewDraft(draft: Draft): PromptPreviewDraft {
+  return {
+    description: draft.description.trim(),
+    items: referenceFiles(draft).map((i) => ({ file: i.file, note: i.note, picture: (i.image?.byteLength ?? 0) > 0 })),
+    steps: stepReferences(draft),
+    scans: draft.scans.map((s) => ({ path: s.path, note: s.note })),
+    objects: draft.objects.map((o) => ({ id: o.id, note: o.note }))
+  }
+}
+
 let running = false
 
 /** The message of `objects:create` for an object that is on the disk whatever else went wrong. */
@@ -53,14 +79,12 @@ export async function makeObject(draft: Draft, deps: MakeDeps, choice: AgentChoi
       description,
       photos: draft.photos.map((p) => ({ path: p.path, note: p.note })),
       doodles: draft.doodles.map((d) => ({ png: d.png, note: d.note })),
+      steps: draft.steps.map((s) => ({ path: s.path, note: s.note })),
       scans: draft.scans.map((s) => ({ path: s.path, note: s.note })),
       objects: draft.objects.map((o) => ({ id: o.id, note: o.note }))
     }
     // What `onboard` names is what `create` wrote: photo-<n> with the extension of the file, doodle-<n>.png.
-    const items: OnboardDraft['items'] = [
-      ...draft.photos.map((p, n) => ({ file: `reference/photo-${n + 1}${extensionOf(p.path)}`, note: p.note, image: p.image })),
-      ...draft.doodles.map((d, n) => ({ file: `reference/doodle-${n + 1}.png`, note: d.note, image: d.png }))
-    ]
+    const items = referenceFiles(draft)
     let objectId: string
     try {
       objectId = (await deps.create(request)).objectId
@@ -89,7 +113,7 @@ export async function makeObject(draft: Draft, deps: MakeDeps, choice: AgentChoi
     await deps.open(objectId).catch(() => void (shown = false))
     let told: Onboarded
     try {
-      told = await deps.onboard(objectId, { description, items, scans: request.scans, objects: request.objects, ...(choice.model || choice.effort ? { choice } : {}) })
+      told = await deps.onboard(objectId, { description, items, steps: stepReferences(draft), scans: request.scans, objects: request.objects, ...(choice.model || choice.effort ? { choice } : {}) })
     } catch (e) {
       // Nothing is known of the text: the object is made and open, and the reason is said where the chat would be.
       const message = reason(e)

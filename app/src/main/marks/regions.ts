@@ -13,7 +13,7 @@ import { Refusal } from '../refusal'
 // mark records which that is, and of another it is orphaned and says so.
 
 export interface RegionDeps {
-  marks: Pick<MarkStore, 'add' | 'list' | 'remove' | 'orphanRegions' | 'restateRegions' | 'repaintRegion' | 'report'>
+  marks: Pick<MarkStore, 'add' | 'list' | 'remove' | 'restore' | 'orphanRegions' | 'restateRegions' | 'repaintRegion' | 'report'>
   scans: Pick<ScanStore, 'list' | 'mesh' | 'mask' | 'masks' | 'writeMask' | 'removeMask' | 'problem' | 'convert'>
 }
 
@@ -128,11 +128,30 @@ export async function repaintRegion(deps: RegionDeps, objectId: string, id: stri
   }
 }
 
-/** Removes a mark, and with a region the mask that held its triangles. */
+/**
+ * Removes a mark, and with a region the mask that held its triangles. The store keeps the mark, and the
+ * triangles read first, so that `restoreMark` can put it back.
+ */
 export async function removeMark(deps: RegionDeps, objectId: string, id: string): Promise<void> {
   const mark = (await deps.marks.list(objectId)).find((one) => one.id === id)
-  await deps.marks.remove(objectId, id)
+  let bits: Uint8Array | undefined
+  if (mark?.kind === 'region') {
+    try {
+      const scan = (await deps.scans.list(objectId)).find((one) => one.id === mark.scan)
+      if (scan) bits = Uint8Array.from(maskBits(await deps.scans.mask(objectId, mark.scan, maskStem(mark)), scan.imported.triangles))
+    } catch {
+      // No triangles to keep: the region comes back without them, and says so.
+    }
+  }
+  await deps.marks.remove(objectId, id, bits)
   if (mark?.kind === 'region') await deps.scans.removeMask(objectId, mark.scan, maskStem(mark)).catch((e) => console.error(`cannot delete the triangles of ${mark.id}: ${messageOf(e)}`))
+}
+
+/** Puts back the mark removed last (`MarkStore.restore`), with a region's triangles written before it. */
+export function restoreMark(deps: RegionDeps, objectId: string, id: string): Promise<Mark> {
+  return deps.marks.restore(objectId, id, async (mark, bits) => {
+    if (mark.kind === 'region' && bits) await deps.scans.writeMask(objectId, mark.scan, maskStem(mark), bits)
+  })
 }
 
 /**

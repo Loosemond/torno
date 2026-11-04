@@ -10,6 +10,11 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/luisg0nc/torno/actions/workflows/ci.yml"><img src="https://github.com/luisg0nc/torno/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0 licence"></a>
+</p>
+
+<p align="center">
   <a href="#getting-started">Getting started</a> ·
   <a href="docs/manual.md">Manual</a> ·
   <a href="#how-it-works">How it works</a> ·
@@ -62,7 +67,7 @@ the Python file, and torno shows it.
   deviation against it. torno always marks scan numbers as approximate.
 - **Start from what you have.** A new project can start from a description, photos, doodles, scans and other
   projects in the workspace. Claude gets all of it with its first prompt.
-- **Export.** A single HTML file anyone can open in a browser without installing anything, or STEP, STL and 3MF.
+- **Export.** A single HTML file anyone can open in a browser without installing anything, or STEP, STL and 3MF, a PNG of the view, and an SVG or PDF drawing of a section at true scale. [See one](https://torno.luisg.me/): a bracket with two marks, in your browser.
 - **Local.** torno itself uploads nothing. The agent is your own `claude`, under your own login, and torno
   leaves its settings alone. In your folders, torno writes only under `<project>/.torno/`.
 
@@ -78,6 +83,15 @@ the Python file, and torno shows it.
     <td align="center">Section</td>
   </tr>
 </table>
+
+## What goes well, and what does not
+
+It goes well with prismatic parts that have sizes you measured: brackets, enclosures, holders, a lid and a box,
+hole patterns. It needs more from you for a part that must fit a place you can only scan, and for an assembly of
+more than three or four parts that touch. It does not go well with organic shapes described in words alone, gears
+and threads written by hand, or sizes read from a photo. Whatever the part, give a measured number, a scan or a
+dimension mark in place of a description. The [manual](docs/manual.md#what-goes-well-and-what-does-not) has the
+lists.
 
 ## How it works
 
@@ -127,13 +141,13 @@ server on `127.0.0.1`. See [Projects and builds](docs/manual.md#projects-and-bui
 
 ### Requirements
 
-- Linux or macOS
+- Linux or macOS (not Windows: the launcher, the terminal view and the login-shell `PATH` are for Unix; WSL2 is untried)
 - Node.js 22.12 or later, and pnpm 10
 - [uv](https://docs.astral.sh/uv/) (it fetches Python 3.11 or 3.12 if you have neither)
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`) on your `PATH`, logged in
 
 torno checks all of this on its first screen, under "Ready to work", and says what's missing. The first build
-sets up torno's own Python environment with build123d (about 900 MB, once). If your workspace has its own
+sets up torno's own Python environment with build123d and bd_warehouse (about 900 MB, once). If your workspace has its own
 `pyproject.toml`, torno uses that environment instead and never changes it. Run `uv sync` there once yourself.
 More in [Requirements](docs/manual.md#requirements).
 
@@ -153,17 +167,39 @@ scripts/torno               # the workspace you opened last, or the first screen
 ```
 
 The launcher rebuilds the app when the sources change, so `git pull` and run it again. On the first screen,
-**Open the example** opens a few small projects in a temporary copy, so you can try everything without touching
+**Open the example** opens a small project, an enclosure with its brief and a few marks, in a temporary copy, so you can try everything without touching
 your own files.
 
-On Linux, `scripts/torno --install-desktop` adds torno to your application launcher. On macOS,
-`pnpm dist:mac` builds `torno.app` in `app/dist/` (signed ad hoc, not notarized). More in
+On Linux, `scripts/torno --install-desktop` adds torno to your application launcher, or `pnpm dist:linux` builds an
+AppImage and a tar.gz in `app/dist/`. On macOS, `pnpm dist:mac` builds `torno.app` in `app/dist/` (signed ad hoc, not
+notarized). More in
 [Run](docs/manual.md#run).
 
 ### Your first five minutes
 
-The manual has a [walk-through](docs/manual.md#five-minutes-with-torno) that takes you through building,
-turning, exploding, pinning, measuring, cutting and asking the agent, on the test models.
+Press **Open the example** on the first screen. It is an enclosure for a sensor board, with a lid that rattles. The
+manual has a [walk-through](docs/manual.md#five-minutes-with-torno) on it: turning, pinning, measuring, cutting and
+asking the agent to fix the fit. It works the same from a packaged app.
+
+## Working with Claude Code in torno
+
+A few habits that save time.
+
+- **Point, don't describe.** Pin the face and write the note. The agent gets the face's ref and your words, not
+  "the left side near the top".
+- **Give measured sizes.** Put what you have measured in the brief or the first prompt. A size the agent guesses is
+  the usual reason a part does not fit.
+- **Make a dimension a standing test.** Measure the wall or the gap, type the value it should have, and it says
+  *passes* or *fails* after every build, whoever made the change.
+- **Ask for two or three rough blockouts before details.** Compare the shapes first. Fillets and holes can wait.
+- **Ask for measured sizes back.** "What is the wall under the lid?" is answered from the B-rep, exactly. Say so
+  when you want the number and not a look.
+- **Run `/mcp__torno__review` before you call it done.** The agent goes through every open mark and every unmet
+  dimension against the current build.
+- **One project, a few parts.** Split a big assembly into projects. Use [saved views](docs/manual.md#explode-and-saved-views)
+  to come back to the same angle.
+
+The [manual](docs/manual.md#the-agent) says what the agent is given and told.
 
 ## Documentation
 
@@ -180,7 +216,7 @@ turning, exploding, pinning, measuring, cutting and asking the agent, on the tes
 
 Issues and pull requests are welcome. torno is young, so for anything bigger than a fix, please open an issue
 first to talk it over. [CONTRIBUTING.md](CONTRIBUTING.md) covers setting up, where things are, the rules the code
-holds to, and the tests.
+holds to, and the tests. Questions and parts you made go in [Discussions](https://github.com/luisg0nc/torno/discussions). To report a security problem, see [SECURITY.md](SECURITY.md).
 
 ## License
 

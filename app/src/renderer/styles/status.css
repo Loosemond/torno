@@ -2,6 +2,7 @@
 
 .status {
   position: absolute;
+  z-index: 2;
   left: 0;
   right: 0;
   bottom: 0;
@@ -67,10 +68,27 @@
   font-weight: 500;
 }
 
+.status-landed {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .status-letgo {
   min-width: 0;
   overflow: hidden;
   color: var(--warn);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* What the sources stand at in the version history: quiet, and cut before anything else in the line is. */
+.status-git {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -193,4 +211,146 @@
   font: 400 var(--text-small) / 1.55 var(--font-mono);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* The button that opens the builds kept of the project, in the status line. */
+.status-history {
+  padding: 0 var(--space-1);
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.status-history[aria-expanded='true'] {
+  color: var(--ink);
+}
+
+/* The history sheet is the error sheet's shape, with the title in ink: nothing failed. */
+.sheet[data-sheet='history'] .sheet-title {
+  color: var(--ink);
+}
+
+.history-note {
+  padding: 0 var(--space-4);
+  color: var(--muted);
+}
+
+.history-strip {
+  display: flex;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0 var(--space-4) var(--space-2);
+  overflow-x: auto;
+  list-style: none;
+}
+
+.history-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 176px;
+  padding: var(--space-1);
+  border: var(--divider);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--text-small);
+  text-align: left;
+}
+
+.history-card[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+}
+
+.history-thumb {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  background: var(--panel);
+}
+
+.history-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.history-nothumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--muted);
+}
+
+.history-when {
+  color: var(--muted);
+}
+
+.history-line {
+  overflow-wrap: anywhere;
+}
+
+.history-mark {
+  color: var(--warn);
+}
+
+.history-detail {
+  padding: 0 var(--space-4);
+}
+
+.history-detail p {
+  max-width: 90ch;
+  margin: 0 0 var(--space-1);
+}
+
+.history-warn {
+  color: var(--warn);
+}
+
+.history-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-2) 0;
+}
+
+.history-said {
+  color: var(--muted);
+}
+
+.history-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  padding-bottom: var(--space-1);
+}
+
+.history-file {
+  font-family: var(--font-mono);
+}
+
+.history-source .sheet-pre {
+  max-height: 40vh;
+  padding: var(--space-2);
+  overflow: auto;
+  background: var(--surface);
+}
+
+.status-history {
+  border: 0;
+  background: transparent;
+}
+
+/* An earlier build is drawn over the current one: said in the line, with the way to put it away. */
+.status-compare {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--ink);
+  font-weight: 500;
 }

@@ -6,7 +6,7 @@ export interface Anchor {
   point: Vec3
   normal?: Vec3
   part?: string            // part name; absent for a point in empty space
-  ref?: string             // `lid` | `lid/F12` | `lid/E3`, refreshed after each build
+  ref?: string             // `lid` | `lid/F12` | `lid/E3`, refreshed after each build; never `lid/@top` (a tag is kept in `tag`)
   descriptor?: string      // from the kernel: "plane, normal +Z, z = 20, 1180 mm²"
   /**
    * How far its part had been spread for display (`Part.arranged`) on the build
@@ -22,6 +22,13 @@ export interface Anchor {
   edge?: string
   /** The two faces that meet at `edge`: `['lid/F12', 'lid/F40']`. */
   between?: [string, string]
+  /**
+   * The tag the model gives the face or edge `ref` names (`top` of `lid/@top`; `tags(p, parts)`), when it names that
+   * one and no other. Set by main when the mark is placed and refreshed by every check: while the build still has
+   * the tag, the anchor follows it (`ref` is what the tag names now) before the nearest-point rule is asked. Never
+   * taken from the window or from a tool.
+   */
+  tag?: string
 }
 export type MarkStatus = 'draft' | 'sent' | 'resolved'
 export type AnchorState = 'ok' | 'drifted' | 'orphaned'
@@ -87,6 +94,11 @@ export type MeasureKind = 'distance' | 'angle' | 'radius' | 'diameter' | 'thickn
  * it is "pinned": it stays in the list, and is measured again on every build
  * (`measuredRevision` says on which its value was taken).
  */
+/** What the kernel said of a dimension on one build of this run: its value, or none when it had none there. */
+export interface DimensionSample {
+  revision: number
+  value?: number
+}
 export interface DimensionMark extends MarkBase {
   kind: 'dimension'
   measure: MeasureKind
@@ -100,6 +112,12 @@ export interface DimensionMark extends MarkBase {
   tolerance?: number        // default 0.05 mm, 0.1°
   verdict?: 'pass' | 'fail' // present when expected is set and value is known
   points?: [Vec3, Vec3]     // the two points the value was taken between, for drawing the dimension line
+  /**
+   * What it measured on each of the last builds of this run, oldest first (`withSample`). Main's alone, and only in
+   * its memory: it is told to the window with the marks and never written to marks.json, for revisions count from 1
+   * in every run. No caller supplies it, and the verdict of each sample is worked out from the expectation as it now is.
+   */
+  history?: DimensionSample[]
 }
 /**
  * A part of a scan the person painted, and named with its note: "wiring loom, can be pushed aside". Its

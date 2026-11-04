@@ -6,7 +6,7 @@ import type { Part, Scene } from '../../shared/scene'
 import type { SceneFile } from '../../shared/scenefile'
 import { KernelError } from '../kernel/client'
 import { ONE_OBJECT } from './build'
-import { type FileCheck, type MadeFile, type ModelDeps, FAILED_CHECK, NEW_BUILD, NOT_SOLID, NO_PARTS, ONE_PART, checkModelFile, makeModelFile, modelArgs } from './model'
+import { type FileCheck, type MadeFile, type ModelDeps, FAILED_CHECK, NEW_BUILD, NOT_SOLID, NO_PARTS, ONE_PART, REFERENCE_IN_MESH, checkModelFile, makeModelFile, modelArgs } from './model'
 import { writeExport } from './save'
 
 const root = mkdtempSync(join(tmpdir(), 'torno-export-model-'))
@@ -19,7 +19,7 @@ const part = (layout: string, name: string, extra: Partial<Part> = {}): Part =>
 const SCENE: Scene = {
   model: 'hollow.py',
   layouts: ['assembly', 'print'],
-  parts: [part('assembly', 'tub'), part('assembly', 'lid'), part('assembly', 'label', { solids: 0, volume: 0 }), part('print', 'tub'), part('print', 'lid', { arranged: [60, 0, 0] })],
+  parts: [part('assembly', 'tub'), part('assembly', 'lid'), part('assembly', 'label', { solids: 0, volume: 0 }), part('assembly', '608', { role: 'reference' }), part('print', 'tub'), part('print', 'lid', { arranged: [60, 0, 0] })],
   groups: [{ name: 'box', parts: ['tub', 'lid'] }],
   seconds: 0.1,
   output: ''
@@ -67,6 +67,15 @@ describe('the arguments of a file of the model', () => {
     const { args } = await modelArgs(deps().d, { objects: ['hollow'], marks: false, scans: [], format: 'step' })
     expect(args).toMatchObject({ format: 'step', layout: 'assembly', parts: ['tub', 'lid', 'label'] })
     expect(args).not.toHaveProperty('tolerance')
+  })
+
+  it('leaves a bought part out of a file unless a STEP is asked to hold it, and out of a mesh always', async () => {
+    const asked = { objects: ['hollow'], marks: false, scans: [] }
+    // The default parts of a STEP are those that are made: the 608 is a reference.
+    expect((await modelArgs(deps().d, { ...asked, format: 'step', layout: 'assembly' })).args.parts).toEqual(['tub', 'lid', 'label'])
+    expect((await modelArgs(deps().d, { ...asked, format: 'step', layout: 'assembly', parts: ['tub', '608'] })).args.parts).toEqual(['tub', '608'])
+    await expect(modelArgs(deps().d, { ...asked, format: '3mf', layout: 'assembly', parts: ['tub', '608'] })).rejects.toThrow(REFERENCE_IN_MESH)
+    await expect(modelArgs(deps().d, { ...asked, format: 'stl', layout: 'assembly', parts: ['608'] })).rejects.toThrow(REFERENCE_IN_MESH)
   })
 
   it('takes a group for its parts, and what the sheet asks of the tolerance', async () => {

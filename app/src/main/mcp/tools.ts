@@ -1,8 +1,10 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { LOOK_OFF } from '../ablations'
 import { z } from 'zod'
 import type { BuildState } from '../../shared/build'
 import { diagnosisText } from '../../shared/diagnosis'
 import type { Described } from '../../shared/geometry'
+import type { BuildIdentity } from '../../shared/git'
 import type { Mark, MarkPatch, NewMark } from '../../shared/marks'
 import type { ScanInfo } from '../../shared/scans'
 import type { Scene } from '../../shared/scene'
@@ -21,6 +23,8 @@ import {
   planeOf
 } from '../../shared/view'
 import type { SavedView } from '../../shared/views'
+import type { HistoryEntry } from '../../shared/history'
+import type { TrialResult } from '../kernel/client'
 import type { ObjectInfo } from '../../shared/workspace'
 import { describeMark, markData, sizes } from '../marks/describe'
 import { number } from '../../shared/format'
@@ -28,23 +32,40 @@ import { groupsIn } from '../../shared/groups'
 import type { Unmeasured } from '../marks/measure'
 import { movedForDisplay } from '../marks/spread'
 import type { AskedAnchor, NearestAnchor } from '../marks/reanchor'
+import { type ExpectArgs, type Expectations, expectTool } from './expectTools'
 import { onlyKeysWrong, unknownKeys } from './keys'
+import { askTool } from './askTool'
+import type { AskAnswer, AskEnd, AskRequest } from '../../shared/ask'
 import { addMarkTool, checkRef, highlightTool, resolveMarkTool } from './markTools'
-import { type DiffToolArgs, type MeasureToolArgs, type SectionToolArgs, type TryFilletToolArgs, checkTool, diffTool, measureTool, sectionTool, tryFilletTool } from './readTools'
+import { type FeaturesToolArgs, featuresTool } from './featureTools'
+import { type DiffToolArgs, type HistoryToolArgs, type MeasureToolArgs, type SectionToolArgs, type TryFilletToolArgs, type TryParamsToolArgs, checkTool, diffTool, historyTool, measureTool, sectionTool, tryFilletTool, tryParamsTool } from './readTools'
 import { type ScanClashArgs, type ScanDeviationArgs, type ScansArgs, scanClashTool, scanDeviationTool, scansTool } from './scanTools'
-import { type AddMarkArgs, type DescribeArgs, type HighlightArgs, type LookArgs, type MarksArgs, type ResolveMarkArgs, type SaveViewArgs, type ShowArgs, DEFAULT_SIZE, MAX_SIZE, MIN_SIZE, NO_PLANE, TOOLS, refusedKeys } from './schemas'
-import { lookTool, saveViewTool, sceneTool, showTool } from './viewTools'
+import { type AddMarkArgs, type AskArgs, type DescribeArgs, type HighlightArgs, type LookArgs, type MarksArgs, type ResolveMarkArgs, type SaveViewArgs, type ShowArgs, DEFAULT_SIZE, MAX_SIZE, MIN_SIZE, NO_PLANE, TOOLS, refusedKeys } from './schemas'
+import { type SceneArgs, lookTool, saveViewTool, sceneTool, showTool } from './viewTools'
+import type { Profile } from '../../shared/profile'
 
 /** What the tools need of torno. All of it is about objects of the open workspace, by id. */
 export interface ToolDeps {
+  /** The tools an eval run takes away (`main/ablations.ts`): each answers that it is off. Absent in every other run. */
+  off?: ReadonlySet<string>
+  /** The size of a `look` that names none, from an eval run (`evalTuning`); DEFAULT_SIZE otherwise. */
+  lookSize?: number
   /** Takes out of what the model printed what must not be told (the tokens of the sessions). */
   redact?(text: string): string
   object(objectId: string): ObjectInfo | undefined
+  /** The printer and material the project is made for (`.torno/profile.json`): the person's numbers, which `check` and `measure` take as defaults. None when it has none. */
+  profile?(objectId: string): Profile | undefined
   build(objectId: string): BuildState | undefined
   /** The last successful build. */
   scene(objectId: string): { revision: number; scene: Scene } | undefined
   /** The last two successful builds, the older first (`diff`). Without it, only the last is known. */
   scenes?(objectId: string): Array<{ revision: number; scene: Scene }>
+  /** What the build of this run with this revision was made from (`main/buildlog.ts`); undefined when it is not known. `diff` tells it. */
+  identity?(objectId: string, revision: number): BuildIdentity | undefined
+  /** The builds kept in the project's history (`.torno/history/`, oldest first) and the run of this torno; null when there is no history. `diff` and `history` read it. */
+  history?(objectId: string): Promise<{ run: string; entries: HistoryEntry[] } | null>
+  /** The scene a kept build left, without its meshes (`diff` compares it); null when it is gone. */
+  historyScene?(objectId: string, historyId: string): Promise<Scene | null>
   /** The camera, layout and visible parts of an object as the window last showed it. */
   view(objectId: string): ViewState | undefined
   /** The object the window shows now: the only one it can make a picture of. */
@@ -68,7 +89,7 @@ export interface ToolDeps {
   /** Changes a mark. Rejects with a text that names the marks there are when there is none of that id. */
   updateMark(objectId: string, id: string, patch: MarkPatch): Promise<Mark>
   /** What the kernel says of a part, a face or an edge of the last successful build, in a layout. Rejects with a text. */
-  describe(objectId: string, layout: string, ref: string): Promise<Described>
+  describe(objectId: string, layout: string, ref: string, options?: { selector?: boolean }): Promise<Described>
   /**
    * For each anchor, the point of its part's surface nearest to it, and the face that is on; for one that
    * names an `edge` of its part, also how far its point is from that edge. Rejects with a text.
@@ -79,10 +100,26 @@ export interface ToolDeps {
   /** Tints refs of the layout on screen in the agent's colour, with a note beside them. Rejects with a text. */
   highlight(objectId: string, layout: string, refs: string[], note?: string): Promise<HighlightResult>
   /**
+   * Puts a question to the person in the window and waits for what ends it: their answer, or the signal (which the
+   * tool fires at its time limit and when the client gives the call up). Main shows the session as `needs_input`
+   * meanwhile.
+   */
+  ask?(objectId: string, req: AskRequest, signal: AbortSignal): Promise<AskAnswer | AskEnd>
+  /** Whether a question of an object waits for an answer now: there is one at a time. */
+  asking?(objectId: string): boolean
+  /** The time `ask` waits and how often it tells its client it is alive; the tests shorten them. */
+  askLimits?: { limitMs: number; progressMs: number }
+  /**
    * Asks the kernel about the last successful build of an object: an exact measurement, what a plane cuts, a check
    * of two parts or of a mesh. Refs go with the layout in front. Rejects with a `KernelError`, whose kind says why.
    */
-  query<T = unknown>(objectId: string, name: 'measure' | 'section' | 'check' | 'scan_clash' | 'scan_deviation' | 'scan_section' | 'try_fillet', args: object): Promise<T>
+  query<T = unknown>(objectId: string, name: 'measure' | 'section' | 'check' | 'scan_clash' | 'scan_deviation' | 'scan_section' | 'try_fillet' | 'features', args: object): Promise<T>
+  /**
+   * Builds the model of an object with other values of its `Params` (over the person's own) in a worker the kernel
+   * throws away, and answers `queries` there (`name` and `args` as `query` takes them). Nothing is kept or changed.
+   * Absent where the kernel cannot (a fake); the tool then says so. Rejects with a `KernelError`.
+   */
+  trial?(objectId: string, set: Record<string, number | boolean | string>, queries: Array<{ name: string; args: object }>): Promise<TrialResult>
   /** The scans of an object, as main keeps them. Rejects with a text. */
   scans(objectId: string): Promise<ScanInfo[]>
   /** Where a scan's mesh and a region's mask are on the disk, for the kernel: of the scans as `scans` last read them, so it is asked at once after. */
@@ -95,9 +132,17 @@ export interface ToolDeps {
   views(objectId: string): Promise<SavedView[]>
   /** Has the window keep a view the agent proposes, of the object it has open: it is the agent's, and proposed, whatever the request. Rejects with a text. */
   saveView(objectId: string, req: SaveViewRequest): Promise<SaveViewResult>
+  /** What the agent expects of its next edit (`expect`), held in memory. Without it the tool says it is not available. */
+  expectations?: Expectations
 }
 
 type Block = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }
+/** What a tool that waits needs of the call it is run for: its cancellation, and a way to tell the client it is alive. */
+export interface ToolExtra {
+  signal?: AbortSignal
+  progress?(progress: number, message: string): Promise<void>
+}
+
 export interface ToolResult {
   [key: string]: unknown
   content: Block[]
@@ -108,6 +153,10 @@ export const TRACEBACK_LINES = 30
 
 export const SPREAD_NOTE =
   'The parts of the print layout overlapped as the model placed them, so they were spread along X for display; arranged is how far each was moved.'
+
+/** Said by `scene` of a build that has references: what they are for, and what they are left out of. */
+export const REFERENCE_NOTE =
+  'Parts with role reference are bought parts (a bearing, a screw, a vendor STEP): drawn and measured, and a clearance, overlap or interference check may name them, but they are not printed, not counted by bed, have no mass and are not in a mesh export.'
 
 const PLANE_KEYS = ['axis', 'at', 'origin', 'normal']
 
@@ -127,19 +176,31 @@ export function planeArg(value: unknown): SectionPlane | ToolResult {
  * key would change what is done (`refusedKeys`).
  */
 export function registerTools(server: McpServer, deps: ToolDeps, objectId: string): void {
-  const tool = <A>(name: keyof typeof TOOLS, run: (args: A) => ToolResult | Promise<ToolResult>): void => {
+  const tool = <A>(name: keyof typeof TOOLS, run: (args: A, extra: ToolExtra) => ToolResult | Promise<ToolResult>): void => {
     const of = TOOLS[name]
     server.registerTool(
       name,
       { title: of.title, description: of.description, annotations: of.annotations, ...('meta' in of ? { _meta: of.meta } : {}), inputSchema: z.looseObject('inputSchema' in of ? of.inputSchema : {}) },
-      async (args: unknown) => refusedKeys(name, args) ?? run(args as A)
+      async (args: unknown, extra) =>
+        deps.off?.has(name)
+          ? failure(name === 'look' ? LOOK_OFF : `${name} is turned off in this eval run.`)
+          : (refusedKeys(name, args) ??
+            run(args as A, {
+              signal: extra.signal,
+              // Only a client that sent a progress token is told: without one there is nothing to tie the notice to.
+              progress: async (progress, message) => {
+                const token = extra._meta?.progressToken
+                if (token !== undefined) await extra.sendNotification({ method: 'notifications/progress', params: { progressToken: token, progress, message } })
+              }
+            }))
     )
   }
-  tool('scene', async () => sceneTool(deps, objectId, await deps.marks(objectId).catch(() => undefined), await deps.scans(objectId).catch(() => undefined), await deps.views(objectId).catch(() => undefined)))
+  tool<SceneArgs>('scene', async (args) => sceneTool(deps, objectId, await deps.marks(objectId).catch(() => undefined), await deps.scans(objectId).catch(() => undefined), await deps.views(objectId).catch(() => undefined), args))
   tool<LookArgs>('look', (args) => lookTool(deps, objectId, args))
   tool<MarksArgs>('marks', (args) => marksTool(deps, objectId, args))
   tool<DescribeArgs>('describe', (args) => describeTool(deps, objectId, args))
   tool<HighlightArgs>('highlight', (args) => highlightTool(deps, objectId, args))
+  tool<AskArgs>('ask', (args, extra) => askTool(deps, objectId, args, extra))
   tool<ShowArgs>('show', (args) => showTool(deps, objectId, args))
   tool<SaveViewArgs>('save_view', (args) => saveViewTool(deps, objectId, args))
   tool<AddMarkArgs>('add_mark', (args) => addMarkTool(deps, objectId, args))
@@ -148,7 +209,11 @@ export function registerTools(server: McpServer, deps: ToolDeps, objectId: strin
   tool<SectionToolArgs>('section', (args) => sectionTool(deps, objectId, args))
   tool<Parameters<typeof checkTool>[2]>('check', (args) => checkTool(deps, objectId, args))
   tool<DiffToolArgs>('diff', (args) => diffTool(deps, objectId, args))
+  tool<HistoryToolArgs>('history', (args) => historyTool(deps, objectId, args))
+  tool<ExpectArgs>('expect', (args) => expectTool(deps, objectId, args))
   tool<TryFilletToolArgs>('try_fillet', (args) => tryFilletTool(deps, objectId, args))
+  tool<FeaturesToolArgs>('features', (args) => featuresTool(deps, objectId, args))
+  tool<TryParamsToolArgs>('try_params', (args) => tryParamsTool(deps, objectId, args))
   tool<ScansArgs>('scans', (args) => scansTool(deps, objectId, args))
   tool<ScanClashArgs>('scan_clash', (args) => scanClashTool(deps, objectId, args))
   tool<ScanDeviationArgs>('scan_deviation', (args) => scanDeviationTool(deps, objectId, args))
@@ -255,17 +320,49 @@ export function ofBuild(deps: ToolDeps, objectId: string): { revision: number | 
   return { revision, ...(why ? { stale: `${why}, so this is still what is known of r${revision}: refs and descriptors may not hold for the model as it now is` } : {}) }
 }
 
+const MARKS_LIMIT = 50
+const MARKS_MAX = 200
+const markNumber = (id: string): number => Number(id.slice(1))
+
+/** A stroke without its points, which run to 400 and some 10 KB: how many, the first, the last and the box they lie in, all in full. */
+function strokeSummarised(data: object): object {
+  const { points, points2d, ...rest } = data as { kind?: string; points?: number[][]; points2d?: number[][] }
+  const all = points ?? points2d
+  if ((rest as { kind?: string }).kind !== 'stroke' || !all || all.length === 0) return data
+  const min = all[0].map((_, i) => Math.min(...all.map((p) => p[i])))
+  const max = all[0].map((_, i) => Math.max(...all.map((p) => p[i])))
+  return { ...rest, pointsSummary: { space: points ? 'surface' : 'plane', count: all.length, first: all[0], last: all[all.length - 1], bbox: { min, max } } }
+}
+
 export async function marksTool(deps: ToolDeps, objectId: string, args: MarksArgs): Promise<ToolResult> {
   const marks = await marksOf(deps, objectId)
   if ('content' in marks) return marks
-  const wanted = args.status
+  const wanted = args.status ?? (args.ids ? undefined : 'open')
   const build = ofBuild(deps, objectId)
-  const listed = marks.filter((m) => wanted === undefined || (wanted === 'open' ? m.status !== 'resolved' : m.status === wanted))
+  const named = args.ids && new Set(args.ids)
+  const matching = marks.filter((m) => (named ? named.has(m.id) : wanted === undefined || (wanted === 'open' ? m.status !== 'resolved' : m.status === wanted)))
+  const missing = args.ids?.filter((id) => !marks.some((m) => m.id === id))
+  const from = args.next === undefined ? 0 : matching.findIndex((m) => markNumber(m.id) >= markNumber(args.next!))
+  const limit = Math.min(Math.max(Number.isFinite(args.limit) ? Math.floor(args.limit!) : MARKS_LIMIT, 1), MARKS_MAX)
+  const rest = from < 0 ? [] : matching.slice(from)
+  const listed = rest.slice(0, limit)
+  const omitted = matching.length - listed.length - (from < 0 ? matching.length : from)
   const scans = await scansFor(deps, objectId, listed)
   const wrong = noSuchLayout(deps, objectId, args.layout)
   if (wrong) return wrong
   const layout = regionLayout(deps, objectId, args.layout)
-  return json({ ...build, marks: listed.map((m) => withLine(m, build.revision ?? undefined, scans, layout, deps.scene(objectId)?.scene)) })
+  const strokes = !named && listed.some((m) => m.kind === 'stroke')
+  return json({
+    ...build,
+    marks: listed.map((m) => {
+      const told = withLine(m, build.revision ?? undefined, scans, layout, deps.scene(objectId)?.scene)
+      return named ? told : strokeSummarised(told)
+    }),
+    ...(wanted === 'open' && !named ? { listed: 'open marks; resolved ones with status resolved, or by ids' } : {}),
+    ...(missing && missing.length > 0 ? { missing } : {}),
+    ...(omitted > 0 ? { truncated: true, omitted, next: rest[listed.length].id } : {}),
+    ...(strokes ? { strokesSummarised: 'a stroke holds a summary of its points; name it in ids for all of them' } : {})
+  })
 }
 
 /**
@@ -299,12 +396,29 @@ export async function describeTool(deps: ToolDeps, objectId: string, args: Descr
   const checked = checkRef(found.scene, layout, args.ref)
   if (typeof checked === 'string') return failure(checked)
   try {
-    const described = await deps.describe(objectId, layout, args.ref)
+    // A face or an edge also gets a selector that picks it now; a part has none.
+    const described = await deps.describe(objectId, layout, args.ref, checked.target === 'part' ? undefined : { selector: true })
     // As of the answer: a build may have ended while the kernel was asked. Its centre and its box are where the part is shown.
-    return json({ layout, ...ofBuild(deps, objectId), ...described, ...movedForDisplay(checked.part, layout, described) })
+    return json({ layout, ...ofBuild(deps, objectId), ...described, ...movedForDisplay(checked.part, layout, described), ...selectorFrame(found.scene, layout, checked.part, described) })
   } catch (e) {
     return failure(messageOf(e))
   }
+}
+
+/** Whether a part stands where its own function builds it: not moved, not turned. */
+const asBuilt = (part: Scene['parts'][number]): boolean => !part.loc || (part.loc.t.every((c) => Math.abs(c) < 1e-9) && Math.abs(Math.abs(part.loc.q[3]) - 1) < 1e-9)
+
+/**
+ * The frame a selector is in, said with it (`selectorFrame`): a selector is of the part as it stands in the layout
+ * asked, so a direction or an extreme in it is in that layout's frame. Where the layout moves or turns the part from
+ * where its own function builds it, the layouts that leave it as built are named, for the selector of the part as built.
+ */
+export function selectorFrame(scene: Scene, layout: string, part: Scene['parts'][number], described: Described): { selectorFrame?: string } {
+  if (described.kind === 'part' || !described.selector) return {}
+  if (asBuilt(part)) return { selectorFrame: `In the frame of layout ${layout}, where ${part.name} stands as its own function builds it.` }
+  const as = scene.parts.filter((p) => p.name === part.name && p.layout !== layout && asBuilt(p)).map((p) => p.layout)
+  const where = as.length > 0 ? ` Layouts that leave it as built: ${as.join(', ')}; describe the face or edge there for a selector in the frame its function builds in (its number may differ).` : ' No layout leaves it as built.'
+  return { selectorFrame: `In the frame of layout ${layout}, where ${part.name} is moved or turned from where its own function builds it: the directions and extremes of the selector (Axis.Z, sort_by(Axis.X)) hold there, not in the model's own frame.${where}` }
 }
 
 /**
@@ -333,8 +447,8 @@ export function onScreen(deps: ToolDeps, objectId: string): { obj: ObjectInfo; r
   return found
 }
 
-export function clampSize(size: number | undefined): number {
-  if (size === undefined || !Number.isFinite(size)) return DEFAULT_SIZE
+export function clampSize(size: number | undefined, fallback: number = DEFAULT_SIZE): number {
+  if (size === undefined || !Number.isFinite(size)) return fallback
   return Math.round(Math.min(Math.max(size, MIN_SIZE), MAX_SIZE))
 }
 

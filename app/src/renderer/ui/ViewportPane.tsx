@@ -3,11 +3,12 @@ import { MeshAsks } from './scanMeshes'
 import { useEffect, useRef, useState } from 'react'
 import { apply } from '../../shared/align'
 import { EXPLODED_TOOLS, explodeOf } from '../../shared/explode'
+import { fadeIn } from '../../shared/build'
 import { measuredValue } from '../../shared/dimension'
 import type { Vec3 } from '../../shared/marks'
 import type { Scene } from '../../shared/scene'
 import { type LookRequest, type LookResult, type SectionPlane, type ViewState, MAX_SELECTION_REPORTED, NOT_A_PLANE, sectionOf } from '../../shared/view'
-import { agentStore, connectAgent, picture, setPictures } from '../state/agent'
+import { agentStore, connectAgent, picture, setPictures, type PersonPicture } from '../state/agent'
 import { describe, describeWhole, descriptorOf } from '../state/descriptors'
 import { newCut } from '../../shared/cut'
 import { partsNamed } from '../../shared/groups'
@@ -34,6 +35,7 @@ import { NARROW_BELOW } from '../viewport/overlay'
 import { meshOf } from '../viewport/scans'
 import { Viewport } from '../viewport/Viewport'
 import { AgentLine } from './AgentLine'
+import { QuestionCard } from './QuestionCard'
 import { AlignBar } from './AlignBar'
 import { goToRow } from './BuildStatus'
 import { hoverMark } from './markHover'
@@ -58,7 +60,7 @@ const NO_SCENE: Scene = { model: '', layouts: [], parts: [], seconds: 0, output:
  * all read in the turn the picture is drawn in: a build that lands while the
  * PNG is being made does not change what the picture is said to be of.
  */
-async function look(viewport: Viewport, req: LookRequest): Promise<LookResult> {
+async function look(viewport: Viewport, req: LookRequest, person?: PersonPicture): Promise<LookResult> {
   let drawn: { objectId: string; revision: number; stale: boolean } | undefined
   let section: SectionPlane | 'current' | null = 'current'
   if (req.section === null) section = null
@@ -81,7 +83,7 @@ async function look(viewport: Viewport, req: LookRequest): Promise<LookResult> {
       keys = parts.filter((part) => named.includes(part.name)).map((part) => part.key)
     }
     drawn = { objectId: s.objectId, revision: s.revision, stale: s.build?.stale ?? false }
-    return { view: req.view ?? 'current', layout, visibleKeys: keys, size: req.size, marks: req.marks ?? true, section, scans: req.scans, explode, ...(req.scanColour ? { scanColour: req.scanColour } : {}), ...(req.frame ? { frame: req.frame } : {}), ...(req.focus ? { focus: req.focus } : {}), ...(typeof req.viewName === 'string' ? { viewName: req.viewName } : {}) }
+    return { view: req.view ?? 'current', layout, visibleKeys: keys, size: req.size, marks: req.marks ?? true, section, scans: req.scans, explode, ...(req.scanColour ? { scanColour: req.scanColour } : {}), ...(req.frame ? { frame: req.frame } : {}), ...(req.focus ? { focus: req.focus } : {}), ...(typeof req.viewName === 'string' ? { viewName: req.viewName } : {}), ...(person ? { person } : {}) }
   })
   return { ...picture, ...drawn! }
 }
@@ -142,6 +144,8 @@ function connect(viewport: Viewport, readout: Readout): () => void {
   // The scans of the open object: which there are comes through the store, their meshes straight from main to the
   // viewport, each asked for once by its scan's id. Main alone knows where a mesh is kept.
   const asks = new MeshAsks()
+  // A scan to bring into view as soon as it is drawn: one just imported has its mesh still on the way.
+  let framing: string | null = null
   const applyScans = (s: TornoState) => {
     viewport.setScans(s.scans, s.scene ? s.revision : 0)
     // Every scan, each time: the viewport remembers how one is looked at by id, and ids repeat between objects.
@@ -165,6 +169,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
         .then((blob) => {
           if (!current()) return // of a scan that is gone, or of a mesh that was replaced meanwhile
           viewport.setScanMesh(id, blob)
+          if (framing === id && viewport.frameScan(id)) framing = null
           report()
         })
         .catch((e: unknown) => {
@@ -182,6 +187,16 @@ function connect(viewport: Viewport, readout: Readout): () => void {
   const underTest = new URLSearchParams(location.search).has('test')
   // The pictures on the cards of the page of objects: one of every build that lands, of whichever object. The
   // one subscription to the builds is this one, which hands each on: the meshes cross from main once.
+  // The parts fade for a build that takes a while (`fadeIn`), not at each save; the pick lock does not wait.
+  let fadeTimer: ReturnType<typeof setTimeout> | undefined
+  const fade = (s: TornoState): void => {
+    clearTimeout(fadeTimer)
+    fadeTimer = undefined
+    const wait = s.scene === null ? null : fadeIn(s.build, Date.now(), viewport.faded())
+    if (wait === null || wait === 0) return viewport.setStale(wait === 0)
+    viewport.setStale(false)
+    fadeTimer = setTimeout(() => fade(store.getState()), wait)
+  }
   const thumbs = connectThumbs(viewport)
   const offScene = window.torno.object.onScene((m) => {
     thumbs.landed(m)
@@ -194,7 +209,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     viewport.setLayout(s.layout)
     // Before the first view is fitted: it frames the parts where they are drawn.
     viewport.setExplode(explodeNow(s))
-    viewport.setStale(s.build?.stale ?? false)
+    fade(s)
     if (first) viewport.setView('iso')
     report()
   })
@@ -261,6 +276,19 @@ function connect(viewport: Viewport, readout: Readout): () => void {
       goToRow(id)
       // A mark of the person's not yet sent: its note opens beside it, to be written.
       if (mark.author === 'user' && mark.status === 'draft') actions.openNote({ objectId: s.objectId, layout: s.layout, id })
+    },
+    // A tool that takes presses has the drag that starts on a chip once it passes the click threshold.
+    tool: {
+      takes: (e) => {
+        if (!tool || tool.id === 'select' || e.alt) return false
+        const c = context()
+        return c.stale === null && !c.exploded
+      },
+      holdCamera: () => viewport.holdCamera(true),
+      releaseCamera: () => viewport.holdCamera(false),
+      send: (e) => {
+        if (tool) routePointer(tool, e, context())
+      }
     }
   })
   const putDown = () => {
@@ -303,6 +331,10 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     e.preventDefault()
   }
   window.addEventListener('keydown', onKey)
+  // The ghosts of what a build changed are put away by any key or click: the person has seen enough, or is on to something else.
+  const endGhosts = (): void => viewport.endGhosts()
+  window.addEventListener('keydown', endGhosts, true)
+  viewport.canvas.addEventListener('pointerdown', endGhosts, true)
 
   /** The build on show, as the dimensions' values are held against it: none until there is a scene. */
   const shown = (s: ReturnType<typeof store.getState>): number => (s.scene ? s.revision : 0)
@@ -314,12 +346,26 @@ function connect(viewport: Viewport, readout: Readout): () => void {
   // The gizmo on the active mark while it is a shape, and the keys that say what it does.
   const offShape = connectShapeEdit(viewport)
 
+  const showEarlier = (objectId: string | null, id: string | null): void => {
+    if (id === null || objectId === null) return viewport.clearEarlier()
+    window.torno.history.ghost(objectId, id).then(
+      (ghost) => {
+        const now = store.getState()
+        if (now.compare !== id || now.objectId !== objectId) return
+        if (!ghost || !viewport.setEarlier(ghost.scene, ghost.blob)) actions.compareWith(null)
+      },
+      () => actions.compareWith(null)
+    )
+  }
   const offStore = store.subscribe((s, prev) => {
     // A mark that can no longer be put somewhere else here (it is gone, resolved, or of another layout or object) is left be.
     if (toolStore.getState().replacing && replacingIn(s) === null) endReplace()
     if (s.selection !== prev.selection) viewport.setSelection(s.selection)
     const apart = explodeNow(s)
     const wasApart = explodeNow(prev)
+    // A kept build drawn over this one (the history sheet): asked of main for its meshes; put away by anything that would cut or move it.
+    if (s.compare !== prev.compare) showEarlier(s.objectId, s.compare)
+    else if (s.compare !== null && (s.layout !== prev.layout || s.section !== null || apart !== null)) actions.compareWith(null)
     // Together before a cut is made, by order and not by what a frame happens to see: a section is never drawn across parts that are apart.
     if (apart === null && wasApart !== null && s.section !== null) viewport.setExplode(null)
     // The cut is of the object: another object has its own, or none.
@@ -341,11 +387,12 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     if (apart !== null && wasApart === null) putDown()
     if (s.objectId !== prev.objectId || (prev.scene && !s.scene)) {
       viewport.setScene(NO_SCENE, new ArrayBuffer(0))
+      clearTimeout(fadeTimer)
       viewport.setStale(false)
       return
     }
     if (s.scene !== prev.scene) return // the scene handler above brings the viewport in line
-    if (s.build !== prev.build) viewport.setStale((s.build?.stale ?? false) && s.scene !== null)
+    if (s.build !== prev.build) fade(s)
     if (s.layout !== prev.layout) viewport.setLayout(s.layout)
     if (s.layers !== prev.layers) applyLayers(s)
     // After the layout, whose parts it is of. Over a moment when it is all that changed (a key, the agent, the
@@ -356,7 +403,8 @@ function connect(viewport: Viewport, readout: Readout): () => void {
     // After the layout: a mark of another layout is gone to once that layout is shown.
     if (s.markFocus !== prev.markFocus && s.activeMark) viewport.focusMark(s.activeMark)
     else if (s.markReveal !== prev.markReveal && s.activeMark) viewport.revealMark(s.activeMark)
-    if (s.scanFramed !== prev.scanFramed && s.scanFramed) viewport.frameScan(s.scanFramed.id)
+    if (s.scanFramed !== prev.scanFramed && s.scanFramed) framing = viewport.frameScan(s.scanFramed.id) ? null : s.scanFramed.id
+    if (s.partFramed !== prev.partFramed && s.partFramed) viewport.framePart(s.partFramed.name)
   })
 
   // After the store's own subscription above: by then the viewport has the scans as they now are.
@@ -376,7 +424,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
   const offAgent = connectAgent(viewport)
 
   // Main's requests for a picture are answered by the app (`connectLook`), with this viewport while it is there.
-  setPictures((request) => look(viewport, request))
+  setPictures((request, person) => look(viewport, request, person))
 
   // What a drawing on the view asks of it: the camera, what the screen shows (while that holds, a point of the
   // picture is the same point of the canvas: the picture has the canvas's camera and aspect), and what is under points.
@@ -436,6 +484,10 @@ function connect(viewport: Viewport, readout: Readout): () => void {
       },
       project,
       exploded: () => viewport.exploded(),
+      faded: () => viewport.faded(),
+      ghosts: () => viewport.ghostKeys(),
+      earlier: () => viewport.earlierKeys(),
+      holdGhosts: (held) => viewport.holdGhosts(held),
       // What a pointer move costs: the same call, at points spread over the canvas in a grid.
       timePicks: (count = 200, opts) => timed(count, (x, y) => viewport.pick(x, y, opts) !== null),
       underAt: (fx, fy) => viewHost()?.under([[fx, fy]])[0] ?? null,
@@ -482,6 +534,7 @@ function connect(viewport: Viewport, readout: Readout): () => void {
         return { count, meanMs: (performance.now() - started) / Math.max(count, 1), worstMs: worst, bytes }
       },
       regions: () => viewport.regionState(),
+      draft: () => viewport.draftState(),
       hoveredMark: () => viewport.hoveredMark(),
       highlighted: () => viewport.highlighted(),
       chipAt: (fx, fy) => {
@@ -497,8 +550,11 @@ function connect(viewport: Viewport, readout: Readout): () => void {
   }
 
   return () => {
+    clearTimeout(fadeTimer)
     putDown()
     window.removeEventListener('keydown', onKey)
+    window.removeEventListener('keydown', endGhosts, true)
+    viewport.canvas.removeEventListener('pointerdown', endGhosts, true)
     offTool()
     offScene()
     offStore()
@@ -615,6 +671,7 @@ export function ViewportPane() {
           <AlignBar />
           <RegionBar />
           <AgentLine />
+          <QuestionCard where="view" />
           <ToolHint />
           <NotePopover viewport={viewport} />
         </>

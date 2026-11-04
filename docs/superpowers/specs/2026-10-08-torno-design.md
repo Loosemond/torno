@@ -32,6 +32,8 @@ One session, 19 hours, about 28 human messages:
 
 Direct modelling, parametric sliders, slicer integration, multi-user collaboration, cloud sync, Windows and macOS packaging, a custom chat UI (the session layer leaves room for one).
 
+*Note, 2026-11-04: "parametric sliders" are no longer out of scope in one form (#55, the roadmap's decision). torno still writes nothing of the model: a field of `Params` whose default is a literal number, flag or `Literal` can be tried in the window, kept as an override in `.torno/params.json` that the file always wins over, and the agent bakes a value in by editing the model. The agent can ask what another value would give with `try_params`, which changes nothing. Direct modelling stays out.*
+
 *Note, 2026-10-18: macOS has had a package since this change: `pnpm dist:mac` makes `torno.app`, signed ad hoc and not notarized (README, "Run"). Windows packaging is still out of scope.*
 
 ## 2. Concepts
@@ -118,6 +120,8 @@ So today's objects load unchanged. `airbox.py` has only `printable`, so it shows
 
 A small helper package, `torno`, is importable from models: `torno.Scene`, `torno.reference(shape)`, `torno.tag(face_or_edge, "name")`. Tagged geometry gets a named ref (`lid/mount_face`) that survives topology changes. The helper is optional.
 
+*Note, 2026-11-04 (updated when #65 shipped): none of this is built, except that named faces and edges now exist as `tags(p, parts)`. The loader does not look for `torno_scene()`, and there is no `torno` package, `torno.reference` or `torno.tag`. `torno_scene()` is struck. Named faces and edges are the plain `tags(p, parts)` function, like `groups(p)`, per #65 (`torno.tag` is struck). Reference bodies are to come per #57. Until then, the `torno` helper in this section and the `torno.tag` in Geometry identity are a plan, not a feature.*
+
 ### Process model
 
 Measured on this machine: importing build123d takes 2 to 4 s, the helmet stand builds and tessellates in about 1 s, and `airbox.py` takes about 30 s. So:
@@ -156,7 +160,7 @@ A face ref is the part name plus the face's index in OCC explorer order (`lid/F1
 - Marks are anchored to a **point in the model frame**, with the ref recorded as a hint.
 - After each build, each anchor is re-projected to the nearest surface of the same part. The ref is updated; if the surface moved more than a tolerance, the mark is flagged `drifted`; if the part is gone, `orphaned`.
 - Everything sent to the agent carries a descriptor beside the ref: "planar face, normal +Z, z = 20, 1180 mm²".
-- `torno.tag` gives permanent names where the author wants them.
+- The model gives permanent names where its author wants them, with an optional `tags(p, parts)` (built; it replaces `torno.tag`): a tag is a ref `lid/@top`, and a mark on a face or an edge that has one is found again by it before the nearest-point rule.
 
 ## 5. Marks
 
@@ -176,7 +180,7 @@ Common fields: `id`, `kind`, `author` (`user` or `agent`), `note`, `anchors` (po
 
 Strokes drawn on a locked orthographic view are stored as 2D polylines in millimetres on a named plane (for example "plane XZ at y = 40"). That is the form in which a hand-drawn profile is directly usable by build123d.
 
-The agent can create marks too (`add_mark`), to ask "do you mean this face?" or to show where a change was made, and resolves the user's marks when it has acted on them. The panel lists marks by what is to be done with them (to send, with the agent, to review, resolved); what the agent resolved waits under "To review" as one summary, with Review and OK all, until the person acknowledges it.
+The agent can create marks too (`add_mark`), to ask "do you mean this face?" or to show where a change was made, and resolves the user's marks when it has acted on them. The panel lists marks by what is to be done with them (to send, from the agent, to review, with the agent, resolved); what the agent resolved waits under "To review" as one summary, with Review and OK all, until the person acknowledges it.
 
 **Pinned dimensions** are dimension marks that stay. They are re-measured on every build. With an expected value and tolerance they show pass or fail. This is the ruler that verifies.
 
@@ -211,6 +215,8 @@ Session status (idle, working, needs input) comes from HTTP hooks: `UserPromptSu
 *2026-10-16:* in the chat a prompt can also carry a drawing on the view: the agent's picture of the view with the person's ink, and a caption naming what the ink lies over by ref (`2026-10-16-torno-draw-on-view-design.md`).
 
 *2026-10-16:* the chat's log (`.torno/chat/`) stays text only. A picture of the first prompt of a new object records its path in `reference/` (`reference/doodle-1.png`), and a resumed chat shows it from that file again; every other picture whose data is gone says what it was. The first prompt of a new conversation is told, in one line, the files of `reference/`, to read when they matter; none is attached (`2026-10-16-torno-chat-pictures.md`, #22).
+
+*2026-11-04:* a spike of a second door, for an agent torno did not start (#54, steps 1 and 2; off unless torno is started with `TORNO_OUTSIDE_AGENTS=1`). Torno opens one Unix socket, `door.sock` in `$XDG_RUNTIME_DIR/torno/` (else `$TMPDIR/torno-<uid>/`): the folder `0700`, refused when it is a link or another user's, the socket `0600`; no TCP port and no file holds a secret (`main/door.ts`). `scripts/torno-mcp.mjs [folder]` is a stdio MCP server the person adds to their own agent: it connects, says in one line which folder it is for and what started it (the parent's name and pid, its own word only), and passes JSON-RPC lines both ways. Main maps the folder to a project of the open workspace (none: every request is refused, saying to open it) and asks the person in the window, each connection anew ("Allow for this run" / "Deny"; a native question on the window for the spike, a card in the session pane if kept). Until then nothing is answered. Allowed, main grants that connection a token of its own for that project's MCP path alone (`HttpRouter.grant`), which never leaves main: each line is posted to the MCP server with it, and it is revoked when the connection closes. Without torno the bridge answers every request saying how to start it. `door.itest.ts` drives it with the MCP SDK's client over stdio, never a real CLI. What the outside agent lacks is the issue's list: no hooks (no context with a prompt, no build result after an edit, no Stop gate), no chat, no permission cards, no `sent` marks, no `news`. **Recommendation:** keep Claude Code started by torno first-class; whether to keep the door (steps 3 to 5: the socket on by default, `scripts/torno mcp`, `news` and its `sent` rule, the plugin's `.mcp.json`, a README section) waits for the owner, after trying it by hand with Claude Code outside torno, Codex, Gemini CLI and opencode (the manual's last section lists what to try).
 
 ### MCP tools
 

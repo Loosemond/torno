@@ -46,6 +46,14 @@ export interface ScanDraft extends Item {
   size?: number
 }
 
+/** A vendor's STEP file of a bought part: `path` is where it is on the disk (main copies it from there into `reference/`). */
+export interface StepDraft extends Item {
+  path: string
+  file: string
+  /** In bytes, when the window knows it (a dropped file). */
+  size?: number
+}
+
 export interface ObjectRef extends Item {
   id: string
 }
@@ -55,11 +63,12 @@ export interface Draft {
   description: string
   photos: PhotoDraft[]
   doodles: DoodleDraft[]
+  steps: StepDraft[]
   scans: ScanDraft[]
   objects: ObjectRef[]
 }
 
-export type Kind = 'photos' | 'doodles' | 'scans' | 'objects'
+export type Kind = 'photos' | 'doodles' | 'steps' | 'scans' | 'objects'
 
 /** A first prompt that was not sent, kept for the object until a chat can hold it. */
 export interface Held {
@@ -78,7 +87,7 @@ interface OnboardState {
   choice: AgentChoice
 }
 
-const empty = (): Draft => ({ name: '', description: '', photos: [], doodles: [], scans: [], objects: [] })
+const empty = (): Draft => ({ name: '', description: '', photos: [], doodles: [], steps: [], scans: [], objects: [] })
 
 export const onboard = createStore<OnboardState>(() => ({ draft: empty(), from: 'objects', held: {}, choice: {} }))
 
@@ -88,28 +97,7 @@ export function useOnboard<T>(selector: (s: OnboardState) => T): T {
 
 /** Whether the person has put anything into the draft: a close or a discard would lose it. */
 export function draftHas(draft: Draft): boolean {
-  return draft.name.trim() !== '' || draft.description.trim() !== '' || draft.photos.length + draft.doodles.length + draft.scans.length + draft.objects.length > 0
-}
-
-/** What Claude Code will start with, as the session pane says it while the draft is made. */
-export interface DraftSummary {
-  name: string | null
-  described: boolean
-  given: Array<[number, string]>
-}
-
-export function draftSummary(d: Draft): DraftSummary {
-  const words: Array<[Kind, string, string]> = [
-    ['photos', 'photo', 'photos'],
-    ['doodles', 'doodle', 'doodles'],
-    ['scans', 'scan', 'scans'],
-    ['objects', 'project', 'projects']
-  ]
-  return {
-    name: d.name.trim() || null,
-    described: d.description.trim() !== '',
-    given: words.filter(([k]) => d[k].length > 0).map(([k, one, many]): [number, string] => [d[k].length, d[k].length === 1 ? one : many])
-  }
+  return draft.name.trim() !== '' || draft.description.trim() !== '' || draft.photos.length + draft.doodles.length + draft.steps.length + draft.scans.length + draft.objects.length > 0
 }
 
 let counter = 0
@@ -173,6 +161,13 @@ export const onboarding = {
     if (!old) return revoke(item.url)
     revoke(old.url)
     change((d) => ({ ...d, doodles: d.doodles.map((x) => (x.uid === uid ? { ...item, uid, note: x.note } : x)) }))
+  },
+
+  addStep(item: Omit<StepDraft, 'uid' | 'note'>): boolean {
+    const now = onboard.getState().draft.steps
+    if (now.length >= MOST_REFERENCES.steps || now.some((s) => s.path === item.path)) return false
+    change((d) => ({ ...d, steps: [...d.steps, { ...item, uid: newKey(), note: '' }] }))
+    return true
   },
 
   addScan(item: Omit<ScanDraft, 'uid' | 'note'>): boolean {

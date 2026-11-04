@@ -2,9 +2,11 @@ import { existsSync } from 'node:fs'
 import { dirname, join, relative, sep } from 'node:path'
 import { watch as chokidarWatch } from 'chokidar'
 import { type BuildError, type BuildState, REBUILD_KEY } from '../shared/build'
+import { keepNotes } from '../shared/modelChecks'
+import { isBoolean } from '../shared/diagnosis'
 import type { Scene } from '../shared/scene'
 import type { ObjectInfo } from '../shared/workspace'
-import { type BuildResult, type KernelClient, KernelError } from './kernel/client'
+import { type BuildResult, type KernelClient, KernelError, type TrialResult } from './kernel/client'
 import { FOLDER } from './own'
 import { realPathOrNearest } from './sessions/inside'
 
@@ -25,7 +27,7 @@ export type OnChange = (paths: string[]) => void
  * `node_modules`, `.venv` and `.git`, at any depth. The folder need not exist
  * yet. Returns a function that stops the watch.
  */
-export function watchFolder(dir: string, onChange: OnChange): () => void {
+export function watchFolder(dir: string, onChange: OnChange, debounceMs: number = DEBOUNCE_MS): () => void {
   let timer: NodeJS.Timeout | undefined
   let changed = new Set<string>()
   const realDir = realPathOrNearest(dir)
@@ -49,7 +51,7 @@ export function watchFolder(dir: string, onChange: OnChange): () => void {
       const paths = [...changed]
       changed = new Set()
       onChange(paths)
-    }, DEBOUNCE_MS)
+    }, debounceMs)
   })
   // A watch that fails (the folder became unreadable) just reports nothing more.
   watcher.on('error', () => {})
@@ -81,6 +83,12 @@ export const NOT_HELD = 'the kernel no longer holds this build'
  */
 export class NotBuilding extends KernelError {}
 
+/** The person's overrides of `Params`, as `paramsfile.ts` keeps them. */
+export interface OverridesPort {
+  values: (dir: string) => Record<string, number | boolean | string>
+  reconcile: (dir: string, scene: Scene) => Promise<{ stale: boolean }>
+}
+
 type SceneMessage = { objectId: string; revision: number; scene: Scene; blob: Buffer }
 type LastGood = { revision: number; scene: Scene; blob: Buffer }
 
@@ -101,6 +109,8 @@ interface Entry {
    */
   restoring: boolean
   unwatch: Array<() => void>
+  /** The folders watched for the files the last good build imported from beside the project (`Scene.uses`), and the files. */
+  usesWatch?: { files: Set<string>; folders: string; unwatch: Array<() => void> }
   /**
    * What the last build of these sources failed with: until a source changes, or the person asks for a
    * build, building them again would fail alike, and no query starts one (see `query`).
@@ -130,6 +140,7 @@ export class Builds {
   private readonly now: () => number
   private readonly exists: (path: string) => boolean
   private readonly timeout: number | undefined
+  private readonly overrides: OverridesPort | undefined
   private readonly entries = new Map<string, Entry>()
   private readonly buildListeners: Array<(s: BuildState) => void> = []
   private readonly sceneListeners: Array<(m: SceneMessage) => void> = []
@@ -144,12 +155,19 @@ export class Builds {
     exists?: (path: string) => boolean
     /** Seconds a build may take; the kernel's default when left out. */
     timeout?: number
+    /**
+     * The person's overrides of `Params` (see `paramsfile.ts`): `values` are what the next build of the folder
+     * carries; `reconcile` holds a good build's scene against them, lets go of those that cannot stand, and says
+     * whether the build is of one that was (so that another follows).
+     */
+    overrides?: OverridesPort
   }) {
     this.kernel = deps.kernel
     this.watch = deps.watch
     this.now = deps.now ?? Date.now
     this.exists = deps.exists ?? existsSync
     this.timeout = deps.timeout
+    this.overrides = deps.overrides
     this.kernel.onExit(() => this.kernelStopped())
   }
 
@@ -250,6 +268,7 @@ export class Builds {
     this.entries.delete(objectId)
     this.displaced.delete(objectId)
     for (const unwatch of entry.unwatch) unwatch()
+    for (const unwatch of entry.usesWatch?.unwatch ?? []) unwatch()
     this.settleRebuilt(entry, new KernelError('no_build', `${objectId} was closed, so there is nothing to ask about`))
     this.abandon(objectId)
   }
@@ -341,6 +360,20 @@ export class Builds {
     return this.query<T>(objectId, 'describe', { ref: `${layout}:${ref}` }, { restore: false })
   }
 
+  /**
+   * What the model of an object gives with other values of its `Params` (`set`, over the person's own), and the
+   * answers to `queries`, from a worker the kernel throws away. Nothing of the live build, the window or any file
+   * changes. Rejects, saying why, when the object is not open or the kernel has no trial.
+   */
+  async trial(objectId: string, set: Record<string, number | boolean | string>, queries: Array<{ name: string; args: object }>): Promise<TrialResult> {
+    const entry = this.entries.get(objectId)
+    if (!entry) throw new KernelError('no_build', `${objectId} is not open, so there is nothing to try`)
+    if (entry.obj.model === null) throw new KernelError('no_model', entry.obj.problem ?? `no model file in ${entry.obj.dir}`)
+    if (!this.kernel.trial) throw new KernelError('bad_request', 'this kernel does not try other Params')
+    const overrides = { ...(this.overrides?.values(entry.obj.dir) ?? {}), ...set }
+    return this.kernel.trial(entry.obj.dir, entry.obj.model, overrides, queries, this.timeout === undefined ? {} : { timeout: this.timeout })
+  }
+
   /** Resolves when the next build of an object succeeds, starting one if none is on its way; rejects with its error. */
   private builtAgain(entry: Entry): Promise<void> {
     if (!entry.rebuilt) {
@@ -412,8 +445,21 @@ export class Builds {
         this.set(other, { ...other.state })
       }
     }
-    const opts = { ...(this.timeout === undefined ? {} : { timeout: this.timeout }), onStarted }
-    void this.kernel.build(obj.dir, obj.model, opts).then((result) => this.withRefs(entry, result)).then((result) => {
+    const overrides = this.overrides?.values(obj.dir) ?? {}
+    const opts = { ...(this.timeout === undefined ? {} : { timeout: this.timeout }), ...(Object.keys(overrides).length > 0 ? { overrides } : {}), onStarted }
+    void this.kernel
+      .build(obj.dir, obj.model, opts)
+      .then((result) => this.withRefs(entry, result))
+      // The person's overrides against what the build found: those that cannot stand are let go of, and the build is then made again.
+      .then((result) =>
+        this.overrides && result.ok
+          ? this.overrides.reconcile(obj.dir, result.scene).then(
+              (held) => ({ result, stale: held.stale }),
+              () => ({ result, stale: false })
+            )
+          : { result, stale: false }
+      )
+      .then(({ result, stale: overridden }) => {
       const current = this.entries.get(id) === entry && entry.attempt === attempt
       if (current && this.running === id) this.running = null
       if (current) {
@@ -432,7 +478,7 @@ export class Builds {
         else if (displaced) this.displaced.add(id)
         else this.failed(entry, result.error)
         // A listener may have closed the object, or started it again, by now.
-        if (again && !displaced && this.entries.get(id) === entry && entry.attempt === attempt) this.start(entry, true)
+        if ((again || overridden) && !displaced && this.entries.get(id) === entry && entry.attempt === attempt) this.start(entry, true)
       }
       // Otherwise a newer build of this object replaced this one, or the object
       // was closed: whatever the result says, it is not shown.
@@ -448,7 +494,9 @@ export class Builds {
    * edge two parts share is either's, and the agent is never handed the wrong part's. Waited for `MATCH_MS` at most; whatever goes wrong leaves it as it was.
    */
   private async withRefs(entry: Entry, result: BuildResult): Promise<BuildResult> {
-    const diagnosis = !result.ok ? result.error.diagnosis : undefined
+    const told = !result.ok ? result.error.diagnosis : undefined
+    // A boolean's operands are not edges of any build: only a fillet's or a chamfer's are looked for.
+    const diagnosis = told && !isBoolean(told) ? told : undefined
     const good = entry.lastGood
     if (result.ok || !diagnosis || diagnosis.edges.length === 0 || !good || entry.letGo) return result
     const edges = diagnosis.edges.map(({ type, start, end, length, samples }) => ({ type, start, end, length, samples }))
@@ -478,12 +526,37 @@ export class Builds {
   private succeeded(entry: Entry, scene: Scene, blob: Buffer): void {
     const id = entry.obj.id
     const revision = entry.state.revision + 1
+    // The checks the model declares, against the build before: one removed or made easier to pass is noted, and stays noted while it is.
+    if (entry.lastGood) scene.checkNotes = keepNotes(entry.lastGood.scene.checkNotes ?? [], entry.lastGood.scene.checks, scene.checks, revision)
     if (entry.lastGood) entry.previousGood = { revision: entry.lastGood.revision, scene: entry.lastGood.scene }
     entry.lastGood = { revision, scene, blob }
     entry.failure = undefined
     entry.letGo = false
+    this.watchUses(entry, scene.uses ?? [])
     this.set(entry, { objectId: id, status: 'ok', revision, seconds: scene.seconds, stale: false })
     for (const cb of this.sceneListeners) cb({ objectId: id, revision, scene, blob })
+  }
+
+  /**
+   * Watch the files the model imported from outside its own folder (another project's, as the worker found
+   * them in the last good build): a save of one builds this project again, as a save in `common/` does. Their
+   * folders are watched, and only a change to those files counts. The folders of the project and of `common/`
+   * are watched already.
+   */
+  private watchUses(entry: Entry, uses: string[]): void {
+    const root = dirname(entry.obj.dir)
+    const files = new Set(uses.map((file) => join(root, file)))
+    const folders = [...new Set([...files].map((file) => dirname(file)))].filter((dir) => dir !== entry.obj.dir && dir !== join(root, 'common')).sort()
+    const key = folders.join('\n')
+    if (entry.usesWatch?.folders === key) {
+      entry.usesWatch.files = files
+      return
+    }
+    for (const unwatch of entry.usesWatch?.unwatch ?? []) unwatch()
+    const watch = { files, folders: key, unwatch: [] as Array<() => void> }
+    entry.usesWatch = watch
+    const id = entry.obj.id
+    for (const dir of folders) watch.unwatch.push(this.watch(dir, (paths) => (paths.length === 0 || paths.some((path) => watch.files.has(path))) && this.changed(id, paths)))
   }
 
   private failed(entry: Entry, error: BuildError): void {

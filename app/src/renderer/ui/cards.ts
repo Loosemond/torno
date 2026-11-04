@@ -14,15 +14,37 @@ export type Standing = 'ok' | 'failed' | 'building' | 'idle'
  * How the object's build stands: in this run (`standing`: it is then said in ink, with the status line's dot
  * before it), or that it was not opened in it; why it cannot be built in place of all of it.
  */
-export function buildLine(card: ObjectCard): Said & { standing?: Standing } {
+export function buildLine(card: ObjectCard, now: number = Date.now()): Said & { standing?: Standing; title?: string } {
   if (card.problem !== undefined) return { text: card.problem }
   const build = card.opened ? card.build : undefined
-  if (!build) return { text: 'Not opened in this run' }
+  // Not built in this run: say what the files say, when the model was last saved; the plain fact is the tooltip.
+  if (!build) return card.sourcesMtimeMs === undefined ? { text: 'Not opened in this run' } : { text: `Model saved ${ago(now - card.sourcesMtimeMs)}`, title: 'Not opened in this run' }
   if (build.status === 'building') return { text: 'Building…', standing: 'building' }
   if (build.status === 'failed') return { text: build.error ? `Failed: ${build.error}` : 'Failed', tone: 'fail', standing: 'failed' }
   // Let go: the kernel holds no build of it now, whatever the last one was.
   if (build.letGo === 'memory') return { text: 'Let go to make room: built again when opened', standing: 'idle' }
   return build.status === 'ok' ? { text: `Built, r${build.revision}`, standing: 'ok' } : { text: 'Not built yet', standing: 'idle' }
+}
+
+/** How long ago, in the one unit that fits: `just now`, `5 min ago`, `3 h ago`, `12 days ago`, `4 months ago`, `2 years ago`. */
+export function ago(ms: number): string {
+  const min = Math.floor(ms / 60_000)
+  if (min < 1) return 'just now'
+  if (min < 60) return `${min} min ago`
+  const hours = Math.floor(min / 60)
+  if (hours < 24) return `${hours} h ago`
+  const days = Math.floor(hours / 24)
+  if (days < 60) return `${days} ${days === 1 ? 'day' : 'days'} ago`
+  const months = Math.floor(days / 30)
+  if (months < 24) return `${months} months ago`
+  return `${Math.floor(days / 365)} years ago`
+}
+
+/** `recent` puts the project whose model was saved last first; those with no saved model, and ties, keep the list's order. */
+export type Order = 'name' | 'recent'
+export function ordered(cards: ObjectCard[], order: Order): ObjectCard[] {
+  if (order === 'name') return cards
+  return cards.map((card, i) => ({ card, i })).sort((a, b) => (b.card.sourcesMtimeMs ?? -Infinity) - (a.card.sourcesMtimeMs ?? -Infinity) || a.i - b.i).map((x) => x.card)
 }
 
 const DAY = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false })

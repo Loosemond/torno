@@ -4,19 +4,21 @@ import { letGoText } from '../../shared/build'
 import { diagnosisText } from '../../shared/diagnosis'
 import { type ExplodeState, EXPLODED_NOTE, NOT_EXPLODED_AND_CUT, explodeArg, explodeText, isExploded, nothingApart, nothingApartText } from '../../shared/explode'
 import type { ScanInfo } from '../../shared/scans'
+import { noteText } from '../../shared/modelChecks'
 import type { Scene } from '../../shared/scene'
 import { type Camera, type LookRequest, type LookResult, type SaveViewRequest, type SaveViewResult, type SectionPlane, type ShowRequest, type ShowResult, type ViewName, axisForm, planeText } from '../../shared/view'
 import { type SavedView, MAX_PROPOSALS, VIEW_NOT_BOTH, cleanViewName, findView, viewGone, viewNameRefusal, viewSummary } from '../../shared/views'
 import { number } from '../../shared/format'
 import { FOCUS_NOT_EXPLODED } from '../../shared/focus'
 import { groupOf, groupsIn, groupVisibility, partsNamed } from '../../shared/groups'
+import { tagRefs } from '../../shared/tags'
 import { alignmentSaid } from '../scans/said'
 import { type Focused, MARGIN_NEEDS_FOCUS, NO_SAVED_FRAME, focusOf, hiddenText, marginShare, notDrawn } from './focus'
 import { unknownKeys } from './keys'
 import { NO_LOOK_SCANS, NO_SCAN_OPACITY, NO_SHOW_SCANS, isScanOpacity, scanColourFor, scanIds } from './scanTools'
 import { type CameraArg, type LookArgs, type SaveViewArgs, type ShowArgs, CAMERA_KEYS, FOV, VIEW_NAMES, explodeHelp } from './schemas'
 import { modelOutput } from '../context'
-import { type ToolDeps, type ToolResult, SPREAD_NOTE, TRACEBACK_LINES, built, clampSize, failure, lastLines, layoutFor, messageOf, notOpen, onScreen, planeArg, tidy } from './tools'
+import { type ToolDeps, type ToolResult, REFERENCE_NOTE, SPREAD_NOTE, TRACEBACK_LINES, built, clampSize, failure, lastLines, layoutFor, messageOf, notOpen, onScreen, planeArg, tidy } from './tools'
 
 // The tools of the view: `scene`, which says what the object is and what the user sees of it, `look`, a picture
 // from the window, `show`, which changes what the window shows for now, and `save_view`, which leaves the user a
@@ -59,7 +61,13 @@ export const cameraKeys = (view: unknown): string | null => {
  * of the object, when its scene file could be read: each is listed with
  * whose it is and what it holds.
  */
-export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mark[], scans?: readonly ScanInfo[], views?: readonly SavedView[]): ToolResult {
+type ScenePart = Scene['parts'][number]
+export interface SceneArgs { layout?: string }
+/** The most parts `scene` lists in full, and the most characters their list may take (Claude Code saves a result over 50,000 to a file). */
+const SCENE_PARTS = 200
+const SCENE_CHARS = 30_000
+
+export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mark[], scans?: readonly ScanInfo[], views?: readonly SavedView[], args: SceneArgs = {}): ToolResult {
   const found = built(deps, objectId)
   if ('content' in found) {
     // The first build failed: nothing was built, and what the model printed is all there is besides the error.
@@ -67,6 +75,8 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
     return printed ? { ...found, content: [...found.content, { type: 'text', text: `output of the model${printed.cut ? ' (earlier output cut)' : ''}:\n${printed.text}` }] } : found
   }
   const { obj, build, scene, revision } = found
+  const asked = args.layout
+  if (asked !== undefined && !scene.layouts.includes(asked)) return failure(`no layout '${asked}'; layouts: ${scene.layouts.join(', ') || 'none'}`)
   const checks = (marks ?? []).filter((m): m is DimensionMark => m.kind === 'dimension' && m.status !== 'resolved').map((m) => standingOf(m, revision)).filter((stands) => stands !== 'measured')
   const count = (...of: DimensionStanding[]): number => checks.filter((stands) => of.includes(stands)).length
 
@@ -90,6 +100,7 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
   const letGo = letGoText(build)
   if (letGo) notes.push(letGo)
   if (scene.parts.some((p) => p.arranged)) notes.push(SPREAD_NOTE)
+  if (scene.parts.some((p) => p.role === 'reference')) notes.push(REFERENCE_NOTE)
   const scanLayout = view && scene.layouts.includes(view.layout) ? view.layout : scene.layouts[0]
   if (scans && scans.length > 0) notes.push(`How each scan is aligned is said for layout ${scanLayout}, in a word (aligned, rough, in doubt, not checked, not aligned): call scans for the whole of it.`)
   // The parts are drawn apart on their screen: said, so that nothing told here is taken for where they are drawn.
@@ -106,6 +117,57 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
     parts: group.parts,
     ...(shown ? { visible: groupVisibility(group.parts, Object.fromEntries(group.parts.map((name) => [name, { visible: shown.has(name) }]))) } : {})
   }))
+  // The parts of one layout are listed: the one asked for, else the one on screen, else the first; the others are counted.
+  const partsLayout = asked ?? (view && scene.layouts.includes(view.layout) ? view.layout : scene.layouts[0])
+  const inLayout = scene.parts.filter((p) => p.layout === partsLayout)
+  const elsewhere: Record<string, number> = {}
+  for (const p of scene.parts) if (p.layout !== partsLayout) elsewhere[p.layout] = (elsewhere[p.layout] ?? 0) + 1
+
+  const full = (p: ScenePart): object => ({
+    name: p.name,
+    layout: p.layout,
+    ...(groupOf(scene, p.name) ? { group: groupOf(scene, p.name)!.name } : {}),
+    ...(p.role === 'reference' ? { role: 'reference' } : {}),
+    // A part with no namesake in the layout shown has not been seen to be switched off.
+    ...(shown && hideable ? { visible: shown.has(p.name) || !hideable.has(p.name) } : {}),
+    size: p.bbox.max.map((max, i) => round(max - p.bbox.min[i])),
+    // Exact only where the kernel says so: nothing is claimed of a part it said nothing of.
+    sizeExact: p.bboxExact === true,
+    bbox: { min: p.bbox.min.map(round), max: p.bbox.max.map(round) },
+    volume: round(p.volume),
+    volumeExact: p.volumeExact === true,
+    faces: p.faceCount,
+    edges: p.edgeCount,
+    valid: p.valid,
+    ...(p.reversed && p.reversed.length > 0 ? { reversed: p.reversed } : {}),
+    ...(p.solids !== undefined ? { solids: p.solids } : {}),
+    ...((p.openShells ?? 0) > 0 ? { openShells: p.openShells } : {}),
+    // What the mesh encloses only where it is a warning: never a number to rely on.
+    ...(p.meshDisagrees === true && p.meshVolume !== undefined ? { meshVolume: round(p.meshVolume), meshDisagrees: true } : {}),
+    ...(p.arranged ? { arranged: p.arranged.map(round) } : {}),
+    // The names the model gives its faces and edges (`part/@tag`), with the refs they are now.
+    ...(p.tags && Object.keys(p.tags).length > 0 ? { tags: Object.fromEntries(Object.keys(p.tags).map((tag) => [tag, tagRefs(p, tag)])) } : {})
+  })
+  // Past SCENE_PARTS parts, or when the full list would not fit, each part is its name, size and group: describe gives the rest.
+  const compact = (p: ScenePart): object => ({
+    name: p.name,
+    layout: p.layout,
+    ...(groupOf(scene, p.name) ? { group: groupOf(scene, p.name)!.name } : {}),
+    ...(p.role === 'reference' ? { role: 'reference' } : {}),
+    size: p.bbox.max.map((max, i) => round(max - p.bbox.min[i])),
+    sizeExact: p.bboxExact === true,
+    ...(p.reversed && p.reversed.length > 0 ? { reversed: p.reversed } : {}),
+    ...((p.openShells ?? 0) > 0 ? { openShells: p.openShells } : {}),
+    ...(p.meshDisagrees === true ? { meshDisagrees: true } : {}),
+    ...(p.tags && Object.keys(p.tags).length > 0 ? { tags: Object.keys(p.tags) } : {})
+  })
+  const fits = (list: readonly object[]): boolean => JSON.stringify(list).length <= SCENE_CHARS
+  const detailed = inLayout.length > SCENE_PARTS ? null : inLayout.map(full)
+  const listing: { parts: object[]; extra: object } = detailed && fits(detailed)
+    ? { parts: detailed, extra: {} }
+    : { parts: inLayout.map(compact), extra: { partsTruncated: true, partsOmitted: 'volume, face and edge counts, solids and their warnings, the box; call describe with a part name for them' } }
+  Object.assign(listing.extra, { partsLayout: partsLayout ?? null }, Object.keys(elsewhere).length > 0 ? { partsInOtherLayouts: elsewhere, partsNote: 'The parts of the other layouts are counted here, not listed: call scene with layout to list them.' } : {})
+  const expected = deps.expectations?.last(objectId)
   const result = {
     object: obj.id,
     model: scene.model,
@@ -120,31 +182,15 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
     ...(printed ? { output: printed.text, ...(printed.cut ? { outputCut: true } : {}) } : {}),
     layout: view?.layout ?? null,
     layouts: scene.layouts,
+    // The files the model imported from outside its folder (another project's, common/): a save in one builds this project again.
+    ...(scene.uses && scene.uses.length > 0 ? { uses: scene.uses } : {}),
     // The model's Params as the kernel read them from the source: read only, the model file is the user's.
     params: scene.params ?? [],
+    // The person's overrides of those Params this build was made with (value differs from default), and those let go of.
+    ...(scene.overrides && (Object.keys(scene.overrides.applied).length > 0 || scene.overrides.dropped.length > 0) ? { paramsTried: scene.overrides } : {}),
     ...(groups.length > 0 ? { groups } : {}),
-    parts: scene.parts.map((p) => ({
-      name: p.name,
-      layout: p.layout,
-      ...(groupOf(scene, p.name) ? { group: groupOf(scene, p.name)!.name } : {}),
-      // A part with no namesake in the layout shown has not been seen to be switched off.
-      ...(shown && hideable ? { visible: shown.has(p.name) || !hideable.has(p.name) } : {}),
-      size: p.bbox.max.map((max, i) => round(max - p.bbox.min[i])),
-      // Exact only where the kernel says so: nothing is claimed of a part it said nothing of.
-      sizeExact: p.bboxExact === true,
-      bbox: { min: p.bbox.min.map(round), max: p.bbox.max.map(round) },
-      volume: round(p.volume),
-      volumeExact: p.volumeExact === true,
-      faces: p.faceCount,
-      edges: p.edgeCount,
-      valid: p.valid,
-      ...(p.reversed && p.reversed.length > 0 ? { reversed: p.reversed } : {}),
-      ...(p.solids !== undefined ? { solids: p.solids } : {}),
-      ...((p.openShells ?? 0) > 0 ? { openShells: p.openShells } : {}),
-      // What the mesh encloses only where it is a warning: never a number to rely on.
-      ...(p.meshDisagrees === true && p.meshVolume !== undefined ? { meshVolume: round(p.meshVolume), meshDisagrees: true } : {}),
-      ...(p.arranged ? { arranged: p.arranged.map(round) } : {})
-    })),
+    parts: listing.parts,
+    ...(listing.extra),
     camera: view
       ? { ...view.camera, position: view.camera.position.map(round), target: view.camera.target.map(round), up: view.camera.up.map(round) }
       : null,
@@ -152,8 +198,15 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
     section: view?.section ? sectionData(view.section) : null,
     // How their screen draws the parts apart, if it does. For display only: every part above is where it was built.
     explode,
+    // What the agent expected of an edit and how the build after it stood: told once with the edit, kept here.
+    ...(expected ? { expect: { revision: expected.revision, met: expected.met, notMet: expected.missed, ...(expected.note ? { note: expected.note } : {}) } } : {}),
     // Of the last build that worked (`build.revision`): call marks for which, and why.
     ...(checks.length > 0 ? { dimensions: { pass: count('pass'), fail: count('fail'), notMeasured: count('unmeasured', 'unmeasurable') } } : {}),
+    // The checks the model declares in checks(p), as the kernel measured them on this build: a pass is what was measured, never "verified".
+    ...(scene.checks && scene.checks.length > 0 ? { checks: scene.checks.map(({ declared: _declared, ...c }) => c) } : {}),
+    // The printer and material the person chose for the project: their numbers, which check and measure default to.
+    ...(deps.profile?.(objectId) ? { printProfile: deps.profile(objectId) } : {}),
+    ...(scene.checkNotes && scene.checkNotes.length > 0 ? { checksEasier: scene.checkNotes.map(noteText) } : {}),
     // How each alignment stands, not a bare yes: one that is rough, in doubt or was never checked against this build is not "aligned: true".
     ...(scans && scans.length > 0 ? { scans: scans.map((scan) => scanStanding(scan, scanLayout, revision)) } : {}),
     // The views saved by name: look and show take a name. One that is proposed is the agent's own, not yet kept by the user.
@@ -200,7 +253,7 @@ export async function lookTool(deps: ToolDeps, objectId: string, given: LookArgs
   if (wrong !== null) return failure(wrong)
   const view = cameraOf(args.view)
   if (view === null) return failure('position and target are the same')
-  const request: LookRequest = { view, size: clampSize(args.size) }
+  const request: LookRequest = { view, size: clampSize(args.size, deps.lookSize) }
   if (named) request.viewName = named.view.name
   if (args.layout !== undefined) request.layout = args.layout
   if (args.parts !== undefined) {

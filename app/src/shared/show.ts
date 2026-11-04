@@ -1,4 +1,5 @@
 import type { SessionStatus } from './bridge'
+import type { GitState } from './git'
 
 /**
  * What the page of objects says of one object of the workspace. Everything here is read: from what main already
@@ -14,6 +15,8 @@ export interface ObjectCard {
   problemAt?: string
   /** Opened in this run: it has a build state, and its marks are checked against it. */
   opened: boolean
+  /** Of an object opened in this run: the files its last good build imported from outside its folder (another project's, `common/`), paths from the workspace. Absent for none. */
+  uses?: string[]
   build?: { status: 'idle' | 'building' | 'ok' | 'failed'; revision: number; stale: boolean; letGo?: 'memory'; error?: string }
   /**
    * The picture on file: when it was made, of which layout, and whether the model file is newer than it (or
@@ -21,6 +24,8 @@ export interface ObjectCard {
    * `apart`, and how many parts of the layout it leaves out (`hidden`). Null for none.
    */
   thumb: { at: string; layout: string; behind: boolean; cut?: true; apart?: true; hidden?: number } | null
+  /** When the newest source of its model was saved (ms since the epoch), read from the files; absent when it has none. */
+  sourcesMtimeMs?: number
   /** Null when the marks file could not be read. */
   marks: { open: number; drafts: number } | null
   /** Of the last build of this run; null for an object not built in it (a verdict of no build of this run is none). */
@@ -32,6 +37,8 @@ export interface ObjectCard {
   lastRun?: { dimensions: number; failed: number }
   /** Where its session stands. */
   session: SessionStatus | null
+  /** What git says of its sources (`gitState`); absent where there is no git or no repository. */
+  git?: GitState
 }
 
 /** What a picture is of besides its layout, as the window says it of one it drew. */

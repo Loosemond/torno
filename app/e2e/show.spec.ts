@@ -69,7 +69,9 @@ test('the page of objects shows a card each, builds nothing, and opens one with 
   expect((await state()).page).toBe('objects')
   await expect(page.locator('.card')).toHaveCount((await state()).workspace!.objects.length)
   await expect(page.getByRole('region', { name: /^Projects of torno-e2e-show-/ })).toBeVisible()
-  await expect(card('hollow')).toContainText('Not opened in this run')
+  // Not built in this run: it says when its model was saved, read from the files; the plain fact is the tooltip.
+  await expect(card('hollow')).toContainText(/Model saved .* ago|just now|Not opened in this run/)
+  await expect(page.locator('.show-head')).toBeVisible()
   await expect(card('hollow')).toContainText('No picture yet')
   // With no picture to show, the picture's room is a third as tall as it is wide, and its three lines fit in it.
   const room = (await card('hollow').locator('.card-picture').boundingBox())!
@@ -102,7 +104,7 @@ test('the page of objects shows a card each, builds nothing, and opens one with 
   expect(meta('hollow')).not.toHaveProperty('cut')
   // Git passes over the two: they change with every build.
   // And the state file, which changes with every build and every mark.
-  await expect.poll(() => readFileSync(thumb('hollow', '.gitignore'), 'utf8').split('\n').filter(Boolean).sort()).toEqual(['state.md', 'thumb.json', 'thumb.png'])
+  await expect.poll(() => readFileSync(thumb('hollow', '.gitignore'), 'utf8').split('\n').filter(Boolean).sort()).toEqual(['builds.jsonl', 'history/', 'state.md', 'thumb.json', 'thumb.png'])
   // Nothing of it outside .torno.
   expect(readdirSync(join(root, 'hollow')).sort()).toEqual(['.torno', 'hollow.py'])
   await page.getByRole('button', { name: 'All projects' }).click()

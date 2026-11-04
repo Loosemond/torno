@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { ChatItem } from '../../shared/chat'
 import { onNotOwn } from '../own'
-import { appendItems, readLog, trimLog } from './chatlog'
+import { appendItems, lastConversation, readLog, trimLog } from './chatlog'
 
 const CONVERSATION = '6c9664ef-90c4-4c7f-b6d5-180948ac85ee'
 let dir: string
@@ -64,6 +64,21 @@ describe('the log of a conversation', () => {
     expect(read.map((i) => i.id)).toEqual(['n1', 'n2', 'n3', 'n4', 'n5', 'n6'])
     expect(read[0]).toEqual({ kind: 'note', id: 'n1', text: 'could not use the login', tone: 'warn', action: 'terminal' })
     for (const item of read.slice(1)) expect(item).toEqual({ kind: 'note', id: item.id, text: 'edited', tone: 'warn' })
+  })
+
+  it('keeps the identity of a build only when it is a hash, a commit and a flag (#62)', async () => {
+    const context = { kind: 'context', forUser: 'u1', text: 't', marks: [], revision: 3, buildState: 'ok' }
+    const lines = [
+      { id: 'c1', identity: { sources: '0123456789ab', head: 'a1b2c3d', dirty: true } },
+      { id: 'c2', identity: { sources: 'not a hash at all and longer than twelve' } },
+      { id: 'c3', identity: { sources: '0123456789ab', head: 5 } },
+      { id: 'c4', identity: 'x' }
+    ]
+    await appendItems(dir, CONVERSATION, [{ kind: 'note', id: 'n0', text: 'first', tone: 'quiet' }])
+    writeFileSync(file(), `${lines.map((l) => JSON.stringify({ ...context, ...l })).join('\n')}\n`)
+    const read = await readLog(dir, CONVERSATION)
+    expect((read[0] as { identity?: unknown }).identity).toEqual({ sources: '0123456789ab', head: 'a1b2c3d', dirty: true })
+    for (const item of read.slice(1)) expect('identity' in item).toBe(false)
   })
 
   it('reads nothing of a conversation that has no file', async () => {
@@ -138,5 +153,19 @@ describe('a log that grew (M13)', () => {
     expect(await trimLog(dir, CONVERSATION, 0, 1)).toBe(false)
     expect(readFileSync(elsewhere, 'utf8')).toBe('x\n'.repeat(50))
   })
-})
 
+  it('gives the end of a conversation for the pane with no session: the words and the turns, the last few, and when it was written', async () => {
+    const user = (n: number): ChatItem => ({ kind: 'user', id: `u${n}`, text: `ask ${n}`, images: [], state: 'sent', at: n })
+    const text = (n: number): ChatItem => ({ kind: 'text', id: `a${n}`, text: `answer ${n}`, streaming: false })
+    const tool: ChatItem = { kind: 'tool', id: 't1', toolUseId: 'x', name: 'Bash', torno: false, input: {}, state: 'done', images: [] }
+    await appendItems(dir, CONVERSATION, [user(1), text(1), tool, user(2), text(2), note(1)])
+    const last = await lastConversation(dir, CONVERSATION, 3)
+    expect(last.items.map((i) => i.id)).toEqual(['a1', 'u2', 'a2'])
+    expect(Date.now() - Date.parse(last.at!)).toBeLessThan(60_000)
+  })
+
+  it('says no time and no items for a conversation with no log, and reads nothing through a link', async () => {
+    expect(await lastConversation(dir, CONVERSATION)).toEqual({ items: [], at: null })
+    expect(await lastConversation(dir, '../escape')).toEqual({ items: [], at: null })
+  })
+})

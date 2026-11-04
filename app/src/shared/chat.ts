@@ -4,6 +4,7 @@
 // a change sends the whole item again.
 
 import type { DrawnOver } from './drawing'
+import type { BuildIdentity } from './git'
 import type { BuildDigest } from './sanity'
 
 /** How many items a transcript holds, in main and in the window: the oldest go. */
@@ -23,8 +24,8 @@ export interface ChatImage {
 export type ChatItem =
   /** What the person sent. `queued` until the CLI takes the prompt up (a prompt sent while it works waits). `drawing`: what the ink of the drawing on the view that went with it lies over (refs and counts; the picture is among `images`, and its caption is not in `text`). */
   | { kind: 'user'; id: string; text: string; images: ChatImage[]; state: 'queued' | 'sent' | 'not-sent'; at: number; drawing?: DrawnOver }
-  /** What torno added to that prompt (the context a `UserPromptSubmit` was answered with), shown under it: the marks sent, the build it named and the refs it said were selected, and how many instruction files of Claude Code's it named (`instructions`). Or, under a tool's card (`forUser` is then that card's id), the build an edit of the model started, as its `PostToolUse` was answered, with what that build did to the parts as data (`digest`, `main/sanity.ts`) when it worked. `forTool`: it is under a tool's card, and the window draws it as a build; `seconds`: how long the build took; `error`: the last line of what a failed build said. */
-  | { kind: 'context'; id: string; forUser: string; forTool?: true; text: string; marks: string[]; revision?: number; buildState?: 'ok' | 'failed' | 'building'; seconds?: number; error?: string; selection?: string[]; digest?: BuildDigest; instructions?: number }
+  /** What torno added to that prompt (the context a `UserPromptSubmit` was answered with), shown under it: the marks sent, the build it named and the refs it said were selected, and how many instruction files of Claude Code's it named (`instructions`). Or, under a tool's card (`forUser` is then that card's id), the build an edit of the model started, as its `PostToolUse` was answered, with what that build did to the parts as data (`digest`, `main/sanity.ts`) when it worked. `forTool`: it is under a tool's card, and the window draws it as a build; `identity`: what the build `revision` names was made from (its sources' hash and the commit), as `builds.jsonl` has it, for the run it was made in; `seconds`: how long the build took; `error`: the last line of what a failed build said. */
+  | { kind: 'context'; id: string; forUser: string; forTool?: true; text: string; marks: string[]; revision?: number; buildState?: 'ok' | 'failed' | 'building'; seconds?: number; error?: string; selection?: string[]; digest?: BuildDigest; instructions?: number; identity?: BuildIdentity }
   /** The agent's words, as markdown. */
   | { kind: 'text'; id: string; text: string; streaming: boolean }
   /** The agent thought. This CLI leaves the text of a thought empty. */
@@ -33,16 +34,36 @@ export type ChatItem =
   | { kind: 'tool'; id: string; toolUseId: string; name: string; torno: boolean; input: unknown; state: 'running' | 'done' | 'error' | 'stopped' | 'denied' | 'cancelled'; result?: string; images: ChatImage[]; detail?: unknown; steps?: number; inside?: string[] }
   /** The agent asks the person: to use a tool, or a question. `suggestions`: whether there is a rule to allow for the session. `why` of one that ended by the CLI's cancelling it (the turn was stopped); one that ended with the session has none. */
   | { kind: 'ask'; id: string; requestId: string; toolName: string; input: unknown; suggestions: boolean; description?: string; blockedPath?: string; state: 'open' | 'allowed' | 'denied' | 'ended'; answer?: string; why?: string }
-  /** The end of a turn, with what was pulled from torno in it (`pulledFromTorno`). */
-  | { kind: 'turn'; id: string; ok: boolean; stopped: boolean; seconds: number; pulled: Record<string, number>; error?: string }
+  /** The end of a turn, with what was pulled from torno in it (`pulledFromTorno`) and the tokens it used when the CLI said (`usage`). */
+  | { kind: 'turn'; id: string; ok: boolean; stopped: boolean; seconds: number; pulled: Record<string, number>; usage?: TurnUsage; error?: string }
   /** Something torno says about the conversation: the model changed, torno's tools are not connected, the session ended. `action`: a button beside it, `terminal` to run this object's sessions in Claude Code's own terminal (the chat could not use the login). */
   | { kind: 'note'; id: string; text: string; tone: 'quiet' | 'warn'; action?: 'terminal' }
+
+/** The tokens of one kind of request, as the CLI counts them. */
+export interface TokenCount {
+  input: number
+  output: number
+  cacheRead: number
+  cacheCreation: number
+}
+
+/**
+ * What a turn used, from the `result` that ended it (`usage`, `modelUsage`, `num_turns`): numbers only, kept with the
+ * turn in the chat's log. `models` is the same count for each model, where the CLI split it.
+ */
+export interface TurnUsage extends TokenCount {
+  /** Requests to the model in the turn (`num_turns`). */
+  requests?: number
+  models?: Record<string, TokenCount>
+}
 
 /** What is known of the session as a whole, apart from the items. */
 export interface ChatMeta {
   model?: string
   /** The effort torno started the session with or set since; absent: the person's own default, which the CLI does not say. */
   effort?: Effort
+  /** How the CLI asks about edits (`permissionMode` of its `init`, or set since by `set_permission_mode`); absent until it has said. */
+  permissionMode?: string
   /** Whether the CLI says the MCP server of torno is connected; absent until it has said. */
   tornoConnected?: boolean
   /** The version of Claude Code (`claude_code_version` of its `init`); absent until it has said. */
@@ -72,6 +93,16 @@ export interface ChatModel {
   displayName: string
   /** The efforts the CLI says the model takes, in its order; empty when it takes none; absent when the CLI did not say. */
   efforts?: Effort[]
+}
+
+/** The modes torno offers for a session, in Claude Code's words (`set_permission_mode`). Others the CLI reports are shown as they are, never offered. */
+export const MODES = ['default', 'acceptEdits', 'plan'] as const
+export type Mode = (typeof MODES)[number]
+/** How a mode is named to the person (the menu and the note in the chat). */
+export const MODE_NOTE: Readonly<Record<string, string>> = { default: 'ask first', acceptEdits: 'accept edits', plan: 'plan only' }
+
+export function isMode(v: unknown): v is Mode {
+  return typeof v === 'string' && (MODES as readonly string[]).includes(v)
 }
 
 /** The efforts Claude Code knows (`--effort`, `effortLevel`), least first. */
@@ -136,7 +167,7 @@ export const isTornoTool = (name: string): boolean => name.startsWith(TORNO_TOOL
  * A mark (`M4`), a build (`r12`), a face or an edge of a part (`lid/F12`, `tub_2/E10`). A letter alone, a face
  * number alone and a decimal are none, nor is the name of a part standing alone.
  */
-const REF = /(\bM\d+\b|\br\d+\b|(?<![\w.-])[\w.-]+\/[FE]\d+\b)/
+const REF = /(\bM\d+\b|\br\d+\b|(?<![\w.-])[\w.-]+\/(?:[FE]\d+|@[A-Za-z_]\w*(?:[.-]\w+)*)\b)/
 
 /** A text in pieces: plain text and refs, in order. A piece with a `ref` is one. */
 export function refsIn(text: string): Array<{ text: string; ref?: string }> {
@@ -201,6 +232,7 @@ export function toolLabel(name: string, input: unknown, where?: ChatWhere): stri
     const at = field(input, 'path')
     if (detail && at) return `${name}: ${cut(detail)} in ${shownPath(at, where)}`
   } else if (name === 'Task') detail = field(input, 'description')
+  else if (name === 'TaskCreate') detail = field(input, 'subject')
   return detail ? `${name}: ${cut(detail)}` : name
 }
 

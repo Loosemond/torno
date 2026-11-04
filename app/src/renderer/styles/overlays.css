@@ -102,6 +102,11 @@
   font-weight: 500;
 }
 
+.selection-hint {
+  padding: 0 var(--space-2);
+  color: var(--muted);
+}
+
 .selection-descriptor {
   color: var(--muted);
 }
@@ -162,8 +167,8 @@
 /* A rule to slide along: a hairline with a mark at the middle of the parts, and the plane as a tick across it. */
 .section-slider {
   appearance: none;
-  flex: 0 1 168px;
-  min-width: 72px;
+  flex: 0 1 120px;
+  min-width: 24px;
   height: 26px;
   margin: 0 var(--space-2) 0 var(--space-1);
   background:
@@ -209,13 +214,33 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  width: 84px;
+  width: 100px;
   height: 22px;
   padding: 0 6px;
   border: var(--divider);
   border-radius: 4px;
   background: var(--panel);
   cursor: text;
+}
+
+.section-offset:not([data-along]) {
+  width: 170px;
+}
+
+.section-axis-letter {
+  color: var(--ink);
+}
+
+.section-axis-letter[data-axis='x'] {
+  color: var(--axis-x);
+}
+
+.section-axis-letter[data-axis='y'] {
+  color: var(--axis-y);
+}
+
+.section-axis-letter[data-axis='z'] {
+  color: var(--axis-z);
 }
 
 .section-offset:focus-within {
@@ -253,6 +278,84 @@
   flex: none;
   font-size: 10.5px;
   color: var(--muted);
+}
+
+/* ---- What the agent asks the person to choose (`ask`): a card in the chat above the box, or over the foot of the view ---- */
+
+.ask-question {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: var(--divider);
+  border-left: 2px solid var(--agent-mark);
+  border-radius: var(--radius-control);
+  background: var(--panel);
+  color: var(--ink);
+  font-size: var(--text-small);
+}
+
+.ask-question[data-where='chat'] {
+  margin: 0 var(--space-3) var(--space-2);
+}
+
+.ask-question[data-where='view'] {
+  position: absolute;
+  bottom: max(calc(var(--space-3) + 84px + var(--bar-lift)), var(--strip-top));
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(460px, calc(100% - 2 * var(--stack-side)));
+  box-shadow: var(--palette-shadow);
+}
+
+.ask-text,
+.ask-aside {
+  margin: 0;
+}
+
+.ask-aside {
+  color: var(--muted);
+}
+
+.ask-options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ask-option {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+  height: auto;
+  min-height: 28px;
+  padding: 4px var(--space-2);
+  text-align: left;
+}
+
+.ask-refs {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ask-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.ask-pick {
+  margin-right: auto;
 }
 
 /* ---- What the agent points at: a line where the selection is shown, in the colour of its marks ---- */
@@ -315,7 +418,7 @@
   left: 0;
   width: 288px;
   padding: 6px 6px 7px 9px;
-  border: var(--divider);
+  border: var(--field-border);
   /* The pencil that made the mark, down the edge of its note. */
   border-left: 2px solid var(--user-mark);
   border-radius: 3px var(--radius-palette) var(--radius-palette) 3px;

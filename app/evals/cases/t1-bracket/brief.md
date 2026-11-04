@@ -1,0 +1,1 @@
+An L bracket of 4 mm sheet: a base leg 50 mm long and an upright leg 40 mm tall, both 30 mm wide, joined at a right angle with the outside corner sharp. Two through holes of 6 mm diameter in the base leg and one in the upright, centred across the width. One part named "bracket".

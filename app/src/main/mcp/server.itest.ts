@@ -1,6 +1,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import type { AskAnswer, AskEnd, AskRequest } from '../../shared/ask'
 import type { Mark, NewMark } from '../../shared/marks'
 import type { Part } from '../../shared/scene'
 import type { LookRequest, SaveViewRequest, ShowRequest, ViewState } from '../../shared/view'
@@ -50,6 +51,8 @@ const SIDE: SavedView = { name: 'Hinge side', author: 'user', layout: 'main', ca
 /** What the window last reported of the object, when a test has it report something. */
 let view: ViewState | undefined
 let release: (() => void) | null = null
+/** What answers a question of the agent's, when a test puts one. */
+let answering: ((req: AskRequest, signal: AbortSignal) => Promise<AskAnswer | AskEnd>) | null = null
 const clients: Client[] = []
 
 const deps: ToolDeps = {
@@ -78,6 +81,8 @@ const deps: ToolDeps = {
   nearest: async (_objectId, _layout, anchors) => anchors.map(({ part, point }) => ({ part, found: true, point, normal: [0, 0, 1], ref: `${part}/F5`, distance: 0, descriptor: null })),
   show: async (objectId, req) => (shows.push(req), { caption: `view ${String(req.view)} · layout main`, objectId, revision: 2, stale: false }),
   highlight: async (objectId, layout, refs) => ({ objectId, layout, refs, revision: 2 }),
+  ask: (_objectId, req, signal) => (answering ? answering(req, signal) : Promise.reject(new Error('no question was expected'))),
+  askLimits: { limitMs: 5000, progressMs: 30 },
   query: async <T,>(_objectId: string, name: string): Promise<T> => KERNEL[name] as T,
   sectionDrawing: async () => ({ png: PNG, width: 4, height: 3, colours: 'window', vDown: false }),
   scans: async () => [],
@@ -117,7 +122,7 @@ afterEach(async () => {
 
 afterAll(() => http.close())
 
-const ALL = ['add_mark', 'check', 'describe', 'diff', 'highlight', 'look', 'marks', 'measure', 'resolve_mark', 'save_view', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show', 'try_fillet']
+const ALL = ['add_mark', 'ask', 'check', 'describe', 'diff', 'expect', 'features', 'highlight', 'history', 'look', 'marks', 'measure', 'resolve_mark', 'save_view', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show', 'try_fillet', 'try_params']
 /** The least each tool can be called with. */
 const MINIMAL: Record<string, Record<string, unknown>> = {
   scene: {},
@@ -125,6 +130,7 @@ const MINIMAL: Record<string, Record<string, unknown>> = {
   marks: {},
   describe: { ref: 'base' },
   highlight: { refs: ['base'] },
+  ask: { question: 'Which?', options: [{ label: 'This one', refs: ['base'] }] },
   show: { view: 'top' },
   save_view: { name: 'Wall at the latch' },
   add_mark: { kind: 'pin', note: '', ref: 'base' },
@@ -134,7 +140,9 @@ const MINIMAL: Record<string, Record<string, unknown>> = {
   check: { kind: 'mesh', a: 'base' },
   scans: {},
   scan_clash: { part: 'base' },
-  scan_deviation: { part: 'base' }
+  scan_deviation: { part: 'base' },
+  features: { part: 'base' },
+  history: {}
 }
 
 describe('the MCP server', () => {
@@ -199,7 +207,7 @@ describe('the MCP server', () => {
     const client = await connect('bracket')
     const { tools } = await client.listTools()
     const readOnly = tools.filter((t) => t.annotations?.readOnlyHint === true).map((t) => t.name).sort()
-    expect(readOnly).toEqual(['check', 'describe', 'diff', 'look', 'marks', 'measure', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'try_fillet'])
+    expect(readOnly).toEqual(['check', 'describe', 'diff', 'features', 'history', 'look', 'marks', 'measure', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'try_fillet', 'try_params'])
     for (const tool of tools) {
       expect(tool.title, tool.name).toBeTruthy()
       expect(tool.annotations?.openWorldHint, tool.name).toBe(false)
@@ -374,7 +382,7 @@ describe('the MCP server', () => {
       return (result.content as Content)[0].text!
     }
     for (const [name, args] of Object.entries(MINIMAL)) expect(await said(name, { ...args, colour: 'red' }), name).toMatch(new RegExp(`^${name} takes no "colour"\\. An unknown key is not ignored: nothing was done\\. It takes`))
-    expect(await said('scene', { layout: 'main' })).toBe('scene takes no "layout". An unknown key is not ignored: nothing was done. It takes no arguments.')
+    expect(await said('scene', { layouts: 'main' })).toBe('scene takes no "layouts": did you mean layout? An unknown key is not ignored: nothing was done. It takes: layout.')
     // What a slip would have changed without a word: the region counted after all, the whole part measured, no scan cut, the scans drawn.
     expect(await said('scan_clash', { part: 'base', ignored: ['M7'] })).toBe('scan_clash takes no "ignored": did you mean ignore? An unknown key is not ignored: nothing was done. It takes: part, scan, ignore, margin, layout.')
     expect(await said('scan_deviation', { part: 'base', face: ['base/F5'] })).toContain('takes no "face": did you mean faces?')
@@ -495,6 +503,39 @@ describe('the MCP server', () => {
     expect(fine.status).toBe(200)
     http.revoke(token)
     expect((await fetch(http.url('/mcp/bracket'), { method: 'POST', headers: { ...headers, [SESSION_HEADER]: token }, body: JSON.stringify(init) })).status).toBe(404)
+  })
+
+  // #132: the call stays open while the person decides, and tells its client it is alive meanwhile.
+  it('waits for the answer to ask, sending progress notices, and gives the option chosen', async () => {
+    const client = await connect('bracket')
+    let asked: AskRequest | undefined
+    answering = (req) => {
+      asked = req
+      return new Promise((resolve) => setTimeout(() => resolve({ kind: 'option', index: 0 }), 200))
+    }
+    const progress: Array<{ progress: number; message?: string }> = []
+    const result = await client.callTool({ name: 'ask', arguments: MINIMAL.ask }, undefined, { onprogress: (p) => progress.push(p) })
+    answering = null
+    expect(asked).toMatchObject({ question: 'Which?', pick: false, layout: 'main', options: [{ label: 'This one', refs: ['base'] }] })
+    expect(JSON.parse((result.content as Content)[0].text!)).toMatchObject({ answered: true, kind: 'option', index: 0, label: 'This one', refs: ['base'] })
+    expect(progress.length).toBeGreaterThanOrEqual(2)
+    expect(progress[0]).toMatchObject({ progress: 1, message: 'waiting for the user to answer' })
+  })
+
+  it('ends the question when the client hangs up', async () => {
+    const client = await connect('bracket')
+    let signal: AbortSignal | undefined
+    answering = (_req, given) => {
+      signal = given
+      return new Promise((resolve) => given.addEventListener('abort', () => resolve({ kind: 'ended', why: 'aborted' })))
+    }
+    // A client that cancels one call only tells another request of a server without sessions; hanging up it does see.
+    const call = client.callTool({ name: 'ask', arguments: MINIMAL.ask }).catch((e: Error) => e)
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    await client.close()
+    expect(await call).toBeInstanceOf(Error)
+    await expect.poll(() => signal?.aborted).toBe(true)
+    answering = null
   })
 
   it('serves an object id the workspace does not have, whose tools say so', async () => {

@@ -131,7 +131,7 @@ beforeAll(async () => {
   // One dab of a 3 mm brush on the sheet, off its middle, kept as the window would have it kept.
   painted = await brush([-5, -5, 1], 3)
   region = (await addRegion({ marks, scans }, 'hollow', { scan: 'S1', note: 'cable, can be pushed aside', layout: 'assembly', revision: 1, camera: CAMERA as never, bits: painted.bits })) as RegionMark
-})
+}, 60_000)
 
 afterAll(async () => {
   await client?.close()

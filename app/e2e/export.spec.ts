@@ -162,6 +162,16 @@ test('an object is exported to the path that was chosen, and the file opens by i
   expect((await hooks()).savePicks).toBe(0)
   await sheet().getByRole('button', { name: 'Export', exact: true }).click()
   await expect(page.getByText(`Saved to ${out}`)).toBeVisible()
+  // Two quiet things to do with it, on the path main wrote: the window names none, and under test nothing is shown or opened.
+  const calls = (): Promise<{ revealed: string[]; opened: string[] }> =>
+    app.evaluate(() => {
+      const m = (globalThis as unknown as { __tornoMain: { revealedFiles: string[]; openedFiles: string[] } }).__tornoMain
+      return { revealed: [...m.revealedFiles], opened: [...m.openedFiles] }
+    })
+  await sheet().getByRole('button', { name: 'Show in folder' }).click()
+  await expect.poll(async () => (await calls()).revealed).toEqual([out])
+  await sheet().getByRole('button', { name: 'Open in browser' }).click()
+  await expect.poll(async () => (await calls()).opened).toEqual([out])
   // The dialog would have opened in a folder of torno's own, which git passes over; the file went only where it was asked to.
   expect(await hooks()).toMatchObject({ savePicks: 1, saveOffered: join(root, 'hollow', '.torno', 'exports', 'hollow-r1.html') })
   expect(readFileSync(join(root, 'hollow', '.torno', '.gitignore'), 'utf8').split('\n')).toContain('exports/')
@@ -361,6 +371,124 @@ test('a cancelled dialog writes nothing, and a folder that is not there is said,
   await page.keyboard.press('Escape')
   await expect(sheet()).toHaveCount(0)
   expect((await state()).page).toBe('object')
+})
+
+test("the sheet is grouped by who will open the file, and a picture of the view is saved as large as 4000 px while the agent's stays within 2000", async () => {
+  const pngSize = (file: string): { width: number; height: number } => {
+    const bytes = readFileSync(file)
+    expect([...bytes.subarray(0, 8)]).toEqual([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) }
+  }
+  await open('hollow')
+  const before = (await hooks()).savePicks
+  await page.getByRole('button', { name: 'Export…' }).click()
+  // One group for each reader: a page, the CAD file, a picture and a drawing of a section (the last two are of the open project's view).
+  const formats = sheet().getByRole('group', { name: 'Format' })
+  await expect(formats.getByRole('group', { name: 'A page to look at' }).getByRole('button')).toHaveText(['HTML page'])
+  await expect(formats.getByRole('group', { name: 'The CAD file' }).getByRole('button')).toHaveText(['STEP', 'STL', '3MF'])
+  await expect(formats.getByRole('group', { name: 'A picture' }).getByRole('button')).toHaveText(['PNG'])
+  await expect(formats.getByRole('group', { name: 'A drawing of a section' }).getByRole('button')).toHaveText(['SVG', 'PDF'])
+  await formats.getByRole('button', { name: 'PNG' }).click()
+  await expect(sheet().getByRole('heading', { name: 'Save a picture of the view' })).toBeVisible()
+  await sheet().getByRole('group', { name: 'Long edge, in pixels' }).getByRole('button', { name: '4000' }).click()
+  // Without the marks, the axes and the scale bar.
+  await sheet().getByRole('checkbox', { name: /^Marks/ }).uncheck()
+  await sheet().getByRole('checkbox', { name: /^Axes and scale bar/ }).uncheck()
+  const out = join(outDir, 'view.png')
+  await setSave(out)
+  await sheet().getByRole('button', { name: 'Export', exact: true }).click()
+  await expect(sheet().getByText(`Saved to ${out}`)).toBeVisible()
+  expect((await hooks()).savePicks).toBe(before + 1)
+  const { width, height } = pngSize(out)
+  expect(Math.max(width, height)).toBe(4000)
+  expect((await hooks()).saveOffered).toBe(join(root, 'hollow', '.torno', 'exports', 'hollow-r1.png'))
+  // The folder of what was saved is shown, never a page "opened in a browser".
+  await expect(sheet().getByRole('button', { name: 'Open in browser' })).toHaveCount(0)
+  await expect(sheet().getByRole('button', { name: 'Show in folder' })).toBeVisible()
+  // A name without its ending takes it; a cancelled dialog writes nothing; no file beside it is left.
+  await setSave(join(outDir, 'second'))
+  await sheet().getByRole('button', { name: 'Export', exact: true }).click()
+  await expect(sheet().getByText(`Saved to ${join(outDir, 'second.png')}`)).toBeVisible()
+  await setSave(null)
+  await sheet().getByRole('button', { name: 'Export', exact: true }).click()
+  await expect(sheet().getByText('Nothing was saved')).toBeVisible()
+  expect(readdirSync(outDir).filter((name) => name.endsWith('.png')).sort()).toEqual(['second.png', 'view.png'])
+  expect(readdirSync(outDir).filter((name) => name.endsWith('.tmp'))).toEqual([])
+  // The agent's pictures keep their cap: a size asked beyond 2000 is 2000.
+  const agents = await page.evaluate(async () => {
+    const result = await window.__tornoTest!.look({ size: 4000 })
+    return { width: result.width, height: result.height }
+  })
+  expect(Math.max(agents.width, agents.height)).toBe(2000)
+  await page.keyboard.press('Escape')
+  await expect(sheet()).toHaveCount(0)
+})
+
+test('a drawing of the section on screen is saved as an SVG at true scale and as a PDF, with the dimension that lies in the plane', async () => {
+  await open('hollow')
+  // With nothing cut there is nothing to draw.
+  await page.getByRole('button', { name: 'Export…' }).click()
+  const formats = sheet().getByRole('group', { name: 'Format' })
+  await formats.getByRole('button', { name: 'SVG' }).click()
+  await expect(sheet().getByRole('button', { name: 'Export', exact: true })).toBeDisabled()
+  await expect(sheet().getByText(/There is no section on screen/).first()).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(sheet()).toHaveCount(0)
+  // A plane across Z through the dimension M2 (z = 10).
+  await page.keyboard.press('x')
+  const bar = page.locator('.sectionbar')
+  await bar.getByRole('button', { name: 'Cut across Z' }).click()
+  // Across an axis the field is the plane's coordinate on it.
+  await bar.getByRole('textbox', { name: 'Plane position in millimetres' }).fill('10')
+  await page.keyboard.press('Enter')
+  await expect.poll(async () => (await state()).section?.origin[2]).toBeCloseTo(10, 6)
+  // The plane is told to main with the view before it is drawn from.
+  await expect.poll(async () => app.evaluate(() => (globalThis as unknown as { __tornoMain: { latestView: (id: string) => { section?: { origin: number[] } } | undefined } }).__tornoMain.latestView('hollow')?.section?.origin[2])).toBeCloseTo(10, 6)
+  await page.getByRole('button', { name: 'Export…' }).click()
+  await formats.getByRole('button', { name: 'SVG' }).click()
+  const out = join(outDir, 'section.svg')
+  await setSave(out)
+  await sheet().getByRole('button', { name: 'Export', exact: true }).click()
+  await expect(sheet().getByText(`Saved to ${out}`)).toBeVisible({ timeout: 30_000 })
+  const svg = readFileSync(out, 'utf8')
+  expect(svg).toMatch(/^<\?xml/)
+  // True scale: the sheet is named in millimetres and its units are millimetres.
+  const sized = /width="([\d.]+)mm" height="([\d.]+)mm" viewBox="0 0 ([\d.]+) ([\d.]+)"/.exec(svg)!
+  expect([sized[1], sized[2]]).toEqual([sized[3], sized[4]])
+  // The dimension M2 is 40 mm in the plane, and is drawn 40 mm long.
+  const line = /<g data-dimension="M2"[^>]*>\s*<line x1="([\d.-]+)" y1="([\d.-]+)" x2="([\d.-]+)" y2="([\d.-]+)"/.exec(svg)!
+  expect(Math.hypot(Number(line[3]) - Number(line[1]), Number(line[4]) - Number(line[2]))).toBeCloseTo(40, 3)
+  expect(svg).toContain('M2 40 mm (passes)')
+  expect(svg).toContain('expected 40 ± 0.05')
+  expect(svg).toContain('>hollow<')
+  expect(svg).toContain('>r1<')
+  expect(svg).toContain('1:1')
+  // Nothing of this machine is in it (the one address is the SVG namespace, which a file on its own needs).
+  expect(svg).not.toContain(root)
+  expect(svg).not.toContain(homedir())
+  expect(svg.replace('http://www.w3.org/2000/svg', '')).not.toMatch(/https?:\/\//)
+  expect((await hooks()).saveOffered).toBe(join(root, 'hollow', '.torno', 'exports', 'hollow-section-r1.svg'))
+  // The same drawing as a PDF, printed by a window nobody sees, on a page of its size.
+  await formats.getByRole('button', { name: 'PDF' }).click()
+  const pdf = join(outDir, 'section.pdf')
+  await setSave(pdf)
+  await sheet().getByRole('button', { name: 'Export', exact: true }).click()
+  await expect(sheet().getByText(`Saved to ${pdf}`)).toBeVisible({ timeout: 30_000 })
+  const bytes = readFileSync(pdf)
+  expect(bytes.subarray(0, 5).toString('latin1')).toBe('%PDF-')
+  const box = /\/MediaBox\s*\[\s*0\s+0\s+([\d.]+)\s+([\d.]+)\s*\]/.exec(bytes.toString('latin1'))
+  if (box) {
+    // Points: 72 to the inch. The page is the drawing's size in millimetres, within a point.
+    expect(Math.abs(Number(box[1]) - (Number(sized[1]) * 72) / 25.4)).toBeLessThan(2)
+    expect(Math.abs(Number(box[2]) - (Number(sized[2]) * 72) / 25.4)).toBeLessThan(2)
+  }
+  expect((await hooks()).saveOffered).toBe(join(root, 'hollow', '.torno', 'exports', 'hollow-section-r1.pdf'))
+  expect(readdirSync(outDir).filter((name) => name.endsWith('.tmp'))).toEqual([])
+  await sheet().getByRole('button', { name: 'Done' }).click()
+  await expect(sheet()).toHaveCount(0)
+  // The section is taken away and the Select tool put back in hand, as the next test finds it.
+  await bar.getByRole('button', { name: 'Off' }).click()
+  await page.locator('.tool-button[data-tool="select"]').click()
 })
 
 test('several objects go into one file from the page of objects, each unpacked when it is first shown', async () => {
@@ -609,6 +737,18 @@ test('a browser that gives the page no WebGL is told so in words, and nothing br
 
 // A file of the model: made by the kernel's worker of the last build, written beside the path chosen, read back by
 // that worker and checked, and only then given the name. Never a slicer opened: `openedFiles` stands in for it.
+test('a project left out for want of a build is a link: it is opened, built, and the sheet comes back with it ticked', async () => {
+  await open('hollow')
+  await page.getByRole('button', { name: 'Export…' }).click()
+  await expect(sheet().locator('.export-cannot')).toContainText(/\d+ not built in this run\./)
+  await expect(sheet().getByRole('checkbox', { name: /^plain/ })).toHaveCount(0)
+  await sheet().locator('.export-cannot').getByRole('button', { name: 'plain', exact: true }).click()
+  // The sheet is put away while it builds, and is back with the new one beside the one that was ticked.
+  await expect(sheet().getByRole('checkbox', { name: /^plain/ })).toBeChecked()
+  await expect(sheet().getByRole('checkbox', { name: /^hollow/ })).toBeChecked()
+  await sheet().getByRole('button', { name: 'Cancel' }).click()
+})
+
 test('a 3MF of the bed, a STEP of the whole and an STL of one part are each read back and checked before they take their names', async () => {
   test.setTimeout(180_000)
   await open('bracket')
@@ -634,7 +774,7 @@ test('a 3MF of the bed, a STEP of the whole and an STL of one part are each read
   await expect(sheet().getByText(`Saved to ${plate}`)).toBeVisible({ timeout: 60_000 })
   await expect(sheet()).toContainText(/Checked: 3MF, 2 objects, [\d,]+ triangles, closed, volume within [\d.]+ % of the model\. Checked, not printed\./)
   expect(await hooks()).toMatchObject({ saveOffered: join(root, 'bracket', '.torno', 'exports', 'bracket-r1.3mf') })
-  expect(await opened()).toEqual([plate])
+  expect((await opened()).slice(-1)).toEqual([plate])
   // The file and nothing beside it: no .tmp, no folder.
   expect(mine()).toEqual(['bracket-plate.3mf'])
   expect(readFileSync(plate).subarray(0, 2).toString()).toBe('PK')
@@ -672,7 +812,7 @@ test('a 3MF of the bed, a STEP of the whole and an STL of one part are each read
   expect(bytes.length).toBe(84 + 50 * bytes.readUInt32LE(80))
   expect(mine()).toEqual(['bracket-plate.3mf', 'bracket-post.stl', 'bracket.step'])
   // Only the 3MF that was asked to be opened was.
-  expect(await opened()).toEqual([plate])
+  expect((await opened()).slice(-1)).toEqual([plate])
   expect(readdirSync(join(root, 'bracket', '.torno', 'exports'))).toEqual([])
   await page.keyboard.press('Escape')
   await expect(sheet()).toHaveCount(0)

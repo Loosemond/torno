@@ -97,6 +97,19 @@ test('a new session is a chat, with no terminal; a prompt is answered, and what 
   // What goes with the next prompt, as chips of the marks.
   await expect(chat().locator('.chat-next .ref-chip[data-ref="M1"]')).toBeVisible()
 
+  // Chips of the next useful prompts: an open mark, the print layout bracket has, and a conversation not begun. One fills the box and sends nothing;
+  // they go while the box has text and come back when it is empty.
+  const suggestions = chat().getByRole('group', { name: 'Suggestions' })
+  await expect(suggestions.getByRole('button')).toHaveText(['Review 1 mark', 'Check printability', 'Explain this model'])
+  await suggestions.getByRole('button', { name: 'Review 1 mark' }).click()
+  await expect(composer()).toHaveValue('/mcp__torno__review ')
+  await expect(composer()).toBeFocused()
+  await expect(suggestions).toHaveCount(0)
+  await expect(turns()).toHaveCount(0)
+  await composer().fill('')
+  await expect(suggestions.getByRole('button')).toHaveCount(3)
+  await composer().focus()
+
   await say('say hello there')
   const user = chat().locator('.chat-user').first()
   await expect(user).toContainText('say hello there')
@@ -162,7 +175,8 @@ test('a tool of torno is shown as torno\'s: its line, its picture, what was pull
   await say('tool mcp__torno__look {"view":"iso"}')
   const look = chat().locator('.chat-tool[data-torno]').last()
   await expect(look).toContainText('torno · look (iso)')
-  await expect(look.locator('.chat-tool-state')).toHaveText('done', { timeout: 20_000 })
+  await expect(look).toHaveAttribute('data-state', 'done', { timeout: 20_000 })
+  await expect(look.locator('.chat-tool-state')).toHaveText('')
   await expect(look.locator('.chat-thumb')).toHaveCount(1)
   await expect(turns().last()).toContainText('Pulled from torno: look, 1 picture')
   // The picture opens large over the transcript, and Escape puts it away.
@@ -181,7 +195,8 @@ test('a tool of torno is shown as torno\'s: its line, its picture, what was pull
   const bash = chat().locator('.chat-tool').last()
   await expect(bash).toContainText('Bash: ls -la')
   await expect(bash).not.toHaveAttribute('data-torno', '')
-  await expect(bash.locator('.chat-tool-state')).toHaveText('done')
+  await expect(bash).toHaveAttribute('data-state', 'done')
+  await expect(bash.locator('.chat-tool-state')).toHaveText('')
   await expect(bash.locator('.chat-thumb')).toHaveCount(0)
 })
 
@@ -388,4 +403,141 @@ test('the build an edit started is a build under the edit: that it worked and ho
   await say('edit hollow.py "return WAL, {" "return {"')
   await expect(chat().locator('.chat-build').last()).toContainText('Built r3 · ok', { timeout: 30_000 })
   await expect(failed.getByRole('button', { name: 'Show error' })).toHaveCount(0)
+})
+
+test('a turn ends with what it did to the project, and "See changes" shows the lines it removed and added, and the file as it is', async () => {
+  await expect(composer()).toBeEnabled()
+  const before = await turns().count()
+  await say('edit hollow.py "wall: float = 3" "wall: float = 4"')
+  await expect(turns()).toHaveCount(before + 1, { timeout: 30_000 })
+  const end = turns().last()
+  // The account, from the turn's own items: the file, the build its edit started.
+  await expect(end.locator('.chat-turn-line').first()).toContainText('hollow.py edited')
+  await expect(end.locator('.chat-turn-line').first()).toContainText(/r\d+ → r\d+ ok|r\d+ ok/)
+  await end.getByRole('button', { name: 'See changes' }).click()
+  const sheet = page.getByRole('dialog', { name: 'Changes in this turn' })
+  await expect(sheet).toBeVisible()
+  // Main read the file when the prompt was sent and when the turn ended.
+  await expect(sheet.locator('.diff-row[data-kind="removed"]')).toContainText('wall: float = 3', { timeout: 15_000 })
+  await expect(sheet.locator('.diff-row[data-kind="added"]')).toContainText('wall: float = 4')
+  await sheet.getByRole('button', { name: 'Whole file' }).click()
+  await expect(sheet.locator('.changes-whole')).toContainText('wall: float = 4')
+  await expect(sheet.locator('.changes-whole')).not.toContainText('wall: float = 3')
+  // Escape puts it away and the focus goes back to the button.
+  await page.keyboard.press('Escape')
+  await expect(sheet).toHaveCount(0)
+  await expect(end.getByRole('button', { name: 'See changes' })).toBeFocused()
+  // A turn that edited nothing has no such button.
+  await say('say nothing was changed')
+  await expect(turns()).toHaveCount(before + 2, { timeout: 30_000 })
+  await expect(turns().last().getByRole('button', { name: 'See changes' })).toHaveCount(0)
+})
+
+test('"Undo" is offered on the last turn that edited the model while the session is idle, asks first, and sends a prompt that holds the lines to reverse', async () => {
+  await expect(composer()).toBeEnabled()
+  const before = await turns().count()
+  await say('edit hollow.py "wall: float = 4" "wall: float = 5"')
+  await expect(turns()).toHaveCount(before + 1, { timeout: 30_000 })
+  await expect(turns().last().getByRole('button', { name: 'Undo' })).toBeVisible()
+  // Only the last turn has it: the one before, which edited the model too, does not.
+  await expect(chat().getByRole('button', { name: 'Undo' })).toHaveCount(1)
+  // Not while the session works, and not on a turn that edited nothing.
+  await say('slow 2')
+  await expect(chat().getByRole('button', { name: 'Undo' })).toHaveCount(0)
+  await expect(turns()).toHaveCount(before + 2, { timeout: 30_000 })
+  await expect(chat().getByRole('button', { name: 'Undo' })).toHaveCount(0)
+  // A later edit is the last: it asks first, and "Keep it" puts the question away.
+  await say('edit hollow.py "wall: float = 5" "wall: float = 6"')
+  await expect(turns()).toHaveCount(before + 3, { timeout: 30_000 })
+  const last = turns().last()
+  await last.getByRole('button', { name: 'Undo' }).click()
+  const question = last.getByRole('group', { name: 'Undo this turn' })
+  await expect(question).toContainText('you answer each edit')
+  await question.getByRole('button', { name: 'Keep it' }).click()
+  await expect(question).toHaveCount(0)
+  const users = await chat().locator('.chat-user').count()
+  await last.getByRole('button', { name: 'Undo' }).click()
+  await question.getByRole('button', { name: 'Ask to undo' }).click()
+  // A note says what was asked and that torno writes nothing; then the prompt, with the lines to reverse, as the person's.
+  await expect(chat().locator('.chat-note', { hasText: 'Undo: Claude Code is asked to put hollow.py back' })).toContainText('torno writes nothing')
+  await expect(chat().locator('.chat-user')).toHaveCount(users + 1)
+  const asked = chat().locator('.chat-user').last()
+  await expect(asked).toContainText('Undo your last turn')
+  await expect(asked).toContainText('- wall: float = 6')
+  await expect(asked).toContainText('+ wall: float = 5')
+  await expect(turns()).toHaveCount(before + 4, { timeout: 30_000 })
+  // That turn is no longer the last, and the new one edited nothing.
+  await expect(chat().getByRole('button', { name: 'Undo' })).toHaveCount(0)
+})
+
+test('a card of look can be gone to as the person\'s own view, and a highlight pointed again after a click put it away', async () => {
+  await openListed(page, 'bracket')
+  await expect.poll(async () => (await state()).build, { timeout: 30_000 }).toMatchObject({ status: 'ok' })
+  // Which way the camera looks: from its position to its target.
+  const along = async (): Promise<number[]> => {
+    const c = await page.evaluate(() => window.__tornoTest!.camera())
+    return c.target.map((t, i) => t - c.position[i])
+  }
+  await say('tool mcp__torno__look {"view":"front"}')
+  const look = chat().locator('.chat-tool[data-torno]').last()
+  await expect(look).toHaveAttribute('data-state', 'done', { timeout: 20_000 })
+  const before = await along()
+  await look.getByRole('button', { name: 'See in view' }).click()
+  // The front view looks along +y.
+  await expect.poll(async () => { const [x, y] = await along(); return y > Math.abs(x) * 10 + 1e-6 }, { timeout: 5_000 }).toBe(true)
+  expect(await along()).not.toEqual(before)
+  // The person's own edit, not the agent's `show`: nothing of it is put back.
+  expect((await state()).shownByAgent).toBeNull()
+
+  // A highlight: its refs are chips in the line, and "Point again" lights them once a click has put them away.
+  await say('tool mcp__torno__highlight {"refs":["base/F1"],"note":"here"}')
+  const pointed = chat().locator('.chat-tool[data-torno]').last()
+  await expect(pointed).toHaveAttribute('data-state', 'done', { timeout: 20_000 })
+  await expect(pointed.locator('.ref-chip[data-ref="base/F1"]')).toHaveCount(1)
+  const agentLit = (): Promise<readonly string[]> => page.evaluate(() => window.__tornoTest!.highlighted().agent)
+  await expect.poll(agentLit).toEqual(['base/F1'])
+  const box = (await canvas().boundingBox())!
+  await page.mouse.click(box.x + 4, box.y + 4)
+  await expect.poll(agentLit).toEqual([])
+  await pointed.getByRole('button', { name: 'Point again' }).click()
+  await expect.poll(agentLit).toEqual(['base/F1'])
+})
+
+test('a turn\'s tools fold to one line once it has ended, and the agent\'s list of tasks stands above the box while it works', async () => {
+  await openListed(page, 'bracket')
+  await composer().focus()
+  const script = [
+    'tool TodoWrite {"todos":[{"content":"Look at the part","status":"in_progress","activeForm":"Looking at the part"},{"content":"Report","status":"pending"}]}',
+    'work 2',
+    'tool Read {"file_path":"/ws/a.py"}',
+    'tool Read {"file_path":"/ws/b.py"}',
+    'tool Read {"file_path":"/ws/c.py"}',
+    'tool Read {"file_path":"/ws/d.py"}',
+    'say that is all'
+  ]
+  for (const [n, line] of script.entries()) {
+    await page.keyboard.type(line)
+    if (n < script.length - 1) await page.keyboard.press('Shift+Enter')
+  }
+  await page.keyboard.press('Enter')
+  const turnsBefore = await turns().count()
+  // While it works: the list is above the box, with what is being done.
+  const bar = chat().locator('.chat-tasks-bar')
+  await expect(bar).toContainText('Looking at the part', { timeout: 20_000 })
+  await expect(bar).toContainText('0 of 2 done')
+  // Every line is there while the turn goes on.
+  await expect(chat().locator('.chat-fold')).toHaveCount(0)
+  // Over: the five lines are one, the list is a card in the transcript and no longer above the box.
+  await expect(turns()).toHaveCount(turnsBefore + 1, { timeout: 30_000 })
+  await expect(bar).toHaveCount(0)
+  const fold = chat().locator('.chat-fold').last()
+  await expect(fold.locator('.chat-tool-label')).toHaveText('Bash, Read 4 files')
+  await expect(chat().locator('[data-kind="tasks"]').last()).toContainText('Looking at the part')
+  const lines = chat().locator('.chat-tool:not(.chat-fold-head)')
+  const before = await lines.count()
+  await fold.locator('.chat-tool-line').click()
+  await expect(lines).toHaveCount(before + 5)
+  await expect(fold.locator('.chat-tool[data-state="done"] .chat-tool-state').first()).toHaveText('')
+  await fold.locator('.chat-tool-line').first().click()
+  await expect(lines).toHaveCount(before)
 })

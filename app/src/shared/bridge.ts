@@ -1,5 +1,9 @@
+import type { AskAnswer, OpenAsk } from './ask'
 import type { BuildState } from './build'
-import type { AgentChoice, ChatAnswer, ChatHistory, ChatCommand, ChatItem, ChatMeta, ChatModel, Effort } from './chat'
+import type { TurnChanges } from './changes'
+import type { AgentChoice, ChatAnswer, ChatHistory, ChatCommand, ChatItem, ChatMeta, ChatModel, Effort, Mode } from './chat'
+import type { GitState } from './git'
+import type { HistoryGhost, HistoryList } from './history'
 import type { ExportPlan, ExportRequest, ExportSaved } from './exportdata'
 import type { Described, MeasureProbe, MeasuredOnce } from './geometry'
 import type { InstructionFile } from './instructions'
@@ -12,6 +16,7 @@ import type { HighlightRequest, HighlightResult, LookRequest, LookResult, SaveVi
 import type { RecentFolder, WorkspaceInfo } from './workspace'
 import type { ViewDrawing } from './drawing'
 import type { Ready } from './ready'
+import type { Material, Printer, Profile, Profiles } from './profile'
 
 /** What the onboarding page asks for when the person presses "Create": the new object and everything they gave. */
 export interface CreateRequest {
@@ -21,6 +26,8 @@ export interface CreateRequest {
   photos: Array<{ path: string; note: string }>
   /** PNG bytes of a drawing: `reference/doodle-<n>.png`. */
   doodles: Array<{ png: Uint8Array; note: string }>
+  /** Vendor STEP files of bought parts (`.step`, `.stp`, at most 50 MB): copied into `reference/` under their own names (`stepFiles`). */
+  steps: Array<{ path: string; note: string }>
   /** Not copied: imported into the object after it is made. */
   scans: Array<{ path: string; note: string }>
   /** Other objects of the workspace, by id. */
@@ -36,11 +43,30 @@ export interface OnboardDraft {
   description: string
   /** The photos, then the doodles, as `create` named them: `reference/photo-1.jpg`, `reference/doodle-1.png`. */
   items: Array<{ file: string; note: string; image?: Uint8Array }>
+  /** The vendor STEP files, as `create` named them: `reference/608zz.step`. */
+  steps: Array<{ file: string; note: string }>
   /** The scans to import into the new object, by the path the dialog or the drop gave. */
   scans: Array<{ path: string; note: string }>
   objects: Array<{ id: string; note: string }>
   /** The model and effort to start the session on, for it alone; absent, or what is not one: the person's own default. */
   choice?: AgentChoice
+}
+
+/** A draft as `objects.previewPrompt` takes it: what the prompt says of it, and no picture data (`picture`: the window holds one fit to attach). */
+export interface PromptPreviewDraft {
+  description: string
+  items: Array<{ file: string; note: string; picture: boolean }>
+  steps: Array<{ file: string; note: string }>
+  scans: Array<{ path: string; note: string }>
+  objects: Array<{ id: string; note: string }>
+}
+
+/** The first prompt of a draft as it would be sent. `attached[i]` is the number of the picture of `items[i]` in it, none when it is named only; `pictured` the same for the objects listed in `objects` (those of the draft that exist). */
+export interface PromptPreview {
+  text: string
+  attached: Array<number | null>
+  pictured: Array<number | null>
+  objects: string[]
 }
 
 /** What came of `objects.onboard`. The object is made and open whatever it says. */
@@ -71,6 +97,12 @@ export interface TornoBridge {
     hasExample(): Promise<boolean>
     /** Opens a copy of the example, made in a temporary folder. It is not remembered. */
     openExample(): Promise<WorkspaceInfo>
+    /**
+     * "Keep this as a folder": copies the open example, with whatever was made in it, to a new folder at a path the person
+     * chooses in the save dialog (never one given here), whole or not at all, and opens that folder in its place. Null
+     * when the dialog was cancelled. Rejects, saying why, for a folder that is there already.
+     */
+    keepExample(): Promise<WorkspaceInfo | null>
     onRequested(cb: (root: string) => void): () => void  // a second launch of torno was given this folder to open
     /** The window was asked to close (the window manager's close): it is held until the window answers. */
     onCloseAsked(cb: () => void): () => void
@@ -88,6 +120,13 @@ export interface TornoBridge {
   object: {
     open(id: string): Promise<BuildState>            // starts watching and building
     rebuild(id: string): Promise<void>
+    /**
+     * Try `value` for a field of the model's `Params` in place of the file's default (kept in `.torno/params.json`;
+     * the model is never written) and build again. Rejects, saying why, for a field the model does not offer.
+     */
+    setParam(id: string, name: string, value: number | boolean | string): Promise<void>
+    /** Back to the file's values: one field's override, or all of them; builds again. */
+    resetParams(id: string, name?: string): Promise<void>
     loadSceneFile(id: string): Promise<SceneFile>    // <object>/.torno/scene.json, defaults when there is none
     saveSceneFile(id: string, file: SceneFile): void
     onBuild(cb: (s: BuildState) => void): () => void
@@ -109,6 +148,12 @@ export interface TornoBridge {
     onSaveView(cb: (m: { id: number; request: SaveViewRequest }) => void): () => void
     saveViewReply(id: number, result: SaveViewResult | { error: string }): void
   }
+  /** What the agent asks the person to choose (`ask`): the questions open now, each told again when the list changes, and the answer to one. */
+  asks: {
+    list(): Promise<OpenAsk[]>
+    onChanged(cb: (asks: OpenAsk[]) => void): () => void
+    answer(id: number, answer: AskAnswer): void
+  }
   /** The marks of an object, kept by main in <object>/.torno/marks.json. Calls reject with a plain message. */
   marks: {
     list(objectId: string): Promise<Mark[]>
@@ -122,6 +167,8 @@ export interface TornoBridge {
     /** The person has seen what the agent did with these marks: all are acknowledged in one write, or none, and the rejection says which was not the agent's to acknowledge. */
     acknowledge(objectId: string, ids: string[]): Promise<Mark[]>
     remove(objectId: string, id: string): Promise<void>
+    /** Puts back the mark deleted last, whole and with its number, in one change. Only that one, and once. */
+    restore(objectId: string, id: string): Promise<Mark>
     /** Puts a pin, a pick or an arrow somewhere else on a part: the same mark and note, tied where it was clicked. An arrow keeps its length and direction. */
     replace(objectId: string, id: string, placed: Replacement): Promise<Mark>
     onChanged(cb: (m: { objectId: string; marks: Mark[] }) => void): () => void
@@ -137,6 +184,8 @@ export interface TornoBridge {
     pickPhotos(): Promise<string[]>
     /** The scan dialog (`scans.pick`). */
     pickScan(): Promise<string | null>
+    /** The dialog for a vendor STEP file (`.step`, `.stp`); under test, what `__tornoMain.pickStep` holds. null when cancelled. */
+    pickStep(): Promise<string | null>
     /** Where a file dropped on the window is on the disk (`webUtils.getPathForFile`); '' for one that is nowhere. */
     pathOf(file: File): string
     /** The bytes of an image file the dialog or a drop gave (a plain PNG, JPEG or WebP file of at most 25 MB), to draw it and scale a copy for the prompt. */
@@ -149,6 +198,8 @@ export interface TornoBridge {
      * cannot be started is not a rejection: `sessionId` is null and the prompt comes back to be held.
      */
     onboard(objectId: string, draft: OnboardDraft): Promise<Onboarded>
+    /** The first prompt `onboard` would send for this draft, with the project named `name`; writes and starts nothing. */
+    previewPrompt(name: string, draft: PromptPreviewDraft): Promise<PromptPreview>
     /** Every name in the open workspace's folder (folders and files, hidden ones too), for the page to check a new name against as main does. */
     taken(): Promise<string[]>
   }
@@ -209,12 +260,39 @@ export interface TornoBridge {
     /** Something a card says may have changed. */
     onChanged(cb: () => void): () => void
   }
+  /** The builds kept of an object under its `.torno/history/` (`main/history.ts`). The window reads them and stars them; it never restores anything. */
+  history: {
+    /** Oldest first; null for an object that is not of the open workspace. */
+    list(objectId: string): Promise<HistoryList | null>
+    /** The PNG kept with a build, or null. */
+    thumbnail(objectId: string, id: string): Promise<ArrayBuffer | null>
+    /** The text of one copied source file of a build (`file` is one of its `files`), or null. */
+    source(objectId: string, id: string, file: string): Promise<string | null>
+    /** A build made in this run, with its meshes, to be drawn over the current one for display only; null when its meshes are not held (see `HistoryList.ghosts`). */
+    ghost(objectId: string, id: string): Promise<HistoryGhost | null>
+    /** Stars a build, or takes the star away: a starred build is not let go. False for a build that is not kept. */
+    star(objectId: string, id: string, starred: boolean): Promise<boolean>
+    /** Told, with the object, when its history changed. */
+    onChanged(cb: (objectId: string) => void): () => void
+  }
+  /** What git says of an object's sources, read and never written; null where there is no git, no repository, or no answer in time. */
+  git: {
+    status(objectId: string): Promise<GitState | null>
+  }
   /** One HTML file of an object or of several, that opens by itself, or a STEP, STL or 3MF file of one: see `main/export`. Calls reject with a plain message. */
   export: {
     /** What a file of this request would hold and weigh, with every object of the workspace and whether it can be exported. Writes nothing. */
     plan(req: ExportRequest): Promise<ExportPlan>
     /** Asks where to save (under test: `__tornoMain.pickSave`), writes the file there, and says where; of a file of the model, what its check found. Null when the dialog was cancelled. The path is the dialog's alone: the window never names one. */
     save(req: ExportRequest): Promise<ExportSaved | null>
+    /** Keeps a picture of the view the window drew (a PNG, up to 4000 px on its long edge): asks where to save (under test: `__tornoMain.pickSave`) and writes it there. Null when the dialog was cancelled. The path is the dialog's alone. */
+    savePicture(objectId: string, png: Uint8Array): Promise<ExportSaved | null>
+    /** Keeps a drawing (an SVG, or a PDF made of it, at true scale, with a scale bar and a title block) of the section on screen: main asks the kernel for the outlines, asks where to save and writes it there. Null when the dialog was cancelled. Rejects when there is no section on screen. The path is the dialog's alone. */
+    saveSection(objectId: string, as: 'svg' | 'pdf'): Promise<ExportSaved | null>
+    /** Shows the file this sheet saved last in its folder. It takes no path: main keeps the one it wrote. Rejects when the file is gone. */
+    reveal(): Promise<void>
+    /** Has the system open the file this sheet saved last (a page, in the browser). No path either. */
+    openSaved(): Promise<void>
     /** The export sheet was put away: what main kept ready for it (scans reduced) is let go. */
     done(): void
   }
@@ -251,8 +329,23 @@ export interface TornoBridge {
   chat: {
     /** Everything the window needs to draw a session, whenever it asks; readable also after the session has ended, until another starts in that object. */
     history(sessionId: string): Promise<ChatHistory>
+    /** The end of the conversation an object's next session would resume (its last turns, text only, and when its log was last written; `at` null when it has no log, as one begun in a terminal), or null when there is none. Read from `.torno/chat/`; nothing is made. */
+    lastConversation(objectId: string): Promise<{ items: ChatItem[]; at: string | null } | null>
     /** The bytes of a picture of the person's in the session's object, `reference/photo-1.jpg` (`ChatImage.file`), read again by main: none for a file that is not a plain file of a name torno gives there, or for a session that is not of the open workspace. Also for a session that has ended. */
     reference(sessionId: string, file: string): Promise<{ mediaType: string; bytes: Uint8Array } | null>
+    /**
+     * What a turn changed in the `.py` files directly in the project's folder, by the id of the turn's item: the text of
+     * each file that differs, as it was when the prompt was sent and when the turn ended. Held by main in memory for the
+     * last turns of the session only (never written, never in the chat's log): null for a turn it holds none of, which
+     * is also one that changed no file there, and for a session that is not of the open workspace.
+     */
+    changes(sessionId: string, turnId: string): Promise<TurnChanges | null>
+    /**
+     * "Undo" on the last turn: asks the agent, in a prompt torno writes, to put the model files back as they were before
+     * that turn (the lines to reverse come from `changes`). Torno writes nothing of the model; the agent edits through
+     * its permission cards. Rejects, sending nothing, when the session is not idle, the turn is not the last or main holds nothing of it.
+     */
+    undo(sessionId: string, turnId: string): Promise<void>
     /** An item of the transcript was added or changed. One whose `seq` is not above the `seq` of the history asked for before holds nothing the history does not. */
     onItem(cb: (m: { sessionId: string; item: ChatItem; seq: number }) => void): () => void
     onMeta(cb: (m: { sessionId: string; meta: ChatMeta; seq: number }) => void): () => void
@@ -270,9 +363,22 @@ export interface TornoBridge {
     /** For this session only: the person's settings are not written. */
     setModel(sessionId: string, model: string): Promise<void>
     /** For the session alone too (`apply_flag_settings`): the person's settings are not written. Rejects for an effort the CLI does not take. */
+    setMode(sessionId: string, mode: Mode): Promise<void>
     setEffort(sessionId: string, effort: Effort): Promise<void>
     /** The models a session can be started on before it has said its own: the list the last chat's CLI offered, or Claude Code's aliases. */
     models(): Promise<ChatModel[]>
+  }
+  /** The printer and material a project is made for (`<project>/.torno/profile.json`), and the person's own to choose from (torno's settings). */
+  profile: {
+    /** The person's printers, and their materials after the starter ones. */
+    choices(): Promise<Profiles>
+    /** Keeps a printer (or replaces the one of that name); rejects with why when it is not one. Answers with the choices. */
+    savePrinter(printer: Printer): Promise<Profiles>
+    saveMaterial(material: Material): Promise<Profiles>
+    /** The profile of a project; null when it has none. */
+    get(objectId: string): Promise<Profile | null>
+    /** Names the printer and material a project is made for (copied into it), or, with neither, takes them off. */
+    set(objectId: string, profile: Profile): Promise<Profile | null>
   }
 }
 /** How Claude Code's session is shown: as a chat torno draws, or as the CLI's own terminal. */

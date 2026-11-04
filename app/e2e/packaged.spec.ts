@@ -35,11 +35,16 @@ function listing(root: string): string[] {
     .sort()
 }
 
+// A runner with no GPU (CI, under xvfb) has no WebGL unless Chromium is told to draw in software: without it the
+// window says "The 3D view could not start" and the page's test hooks, which the viewport installs, never exist.
+// `TORNO_E2E_SOFTWARE_GL=1` passes the flags; on a desktop with a GPU it is left unset.
+const software = process.env.TORNO_E2E_SOFTWARE_GL === '1' ? ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : []
+
 // TORNO_TEST=1 makes main create the window with show: false. Never launch without it.
 const launch = (env: Record<string, string> = {}): Promise<ElectronApplication> =>
   electron.launch({
     executablePath: packaged!,
-    args: [],
+    args: software,
     env: { ...process.env, TORNO_TEST: '1', TORNO_CONFIG: join(temp('config'), 'config.json'), TORNO_AGENT_CMD: `node ${fakeAgent}`, ...env }
   })
 
@@ -57,7 +62,7 @@ test('builds an object with the kernel it carries, in an environment outside the
 
     await openListed(page, 'hollow')
     await expect
-      .poll(async () => (await page.evaluate(() => window.__tornoTest!.state())).build?.status, { timeout: 360_000, intervals: [1000] })
+      .poll(async () => (await page.evaluate(() => window.__tornoTest?.state()))?.build?.status, { timeout: 360_000, intervals: [1000] })
       .toBe('ok')
     const state = await page.evaluate(() => window.__tornoTest!.state())
     expect(state.objectId).toBe('hollow')
@@ -82,20 +87,25 @@ test('builds an object with the kernel it carries, in an environment outside the
   expect(listing(installed(packaged!))).toEqual(before)
 })
 
-test('offers the example it carries, with its four objects', async () => {
+test('offers the example it carries, with its project, marks and views', async () => {
   test.setTimeout(420_000)
   const bare = await launch()
   let copy = ''
   try {
     const page = await bare.firstWindow()
-    await expect(page.getByRole('button')).toHaveText(['Open folder', 'Open the example'])
+    // The first screen also says whether torno's Python environment is made ("Make it now"): not what is checked here.
+    await expect(page.locator('button:not(.ready-make)')).toHaveText(['Open folder', 'Open the example'])
     await page.getByRole('button', { name: 'Open the example' }).click()
     await page.waitForSelector('[data-region="left"]')
+    // The hooks are installed when the viewport mounts, a moment after the left column.
+    await expect.poll(() => page.evaluate(() => window.__tornoTest !== undefined)).toBe(true)
     copy = (await page.evaluate(() => window.__tornoTest!.state())).workspace!.root
     // A copy in the temporary folder, never the resources themselves.
     const resources = await bare.evaluate(() => process.resourcesPath)
     expect(copy.startsWith(resources)).toBe(false)
     await expect(page.locator('.object-row')).toHaveText([...EXAMPLE_OBJECTS].sort())
+    // Its marks and its views came with it, from the resources.
+    for (const file of ['marks.json', 'scene.json']) expect(existsSync(join(copy, EXAMPLE_OBJECTS[0], '.torno', file))).toBe(true)
   } finally {
     await bare.close()
   }

@@ -98,6 +98,38 @@ is the detail of this folder, under the headings it has there.
   told `exact: false`. `thin` is never exact: the wall along the inward normal at 5 × 5 points of each face, in
   10 s at most (`THIN_BUDGET`, then `sampling.complete` false). `bed` is the layout's box from the parts' boxes
   (`tess.part_box`), exact only when every one of them is.
+- `features` (`features.py`) finds holes and bosses of a part in the layout asked on the B-rep's own adjacency, with no
+  boolean and no mesh: faces that are cylinders, cones or tori about one axis (the same axis within 1e-5 mm), that
+  meet at an edge or on the plane of a step, form a run, and a run whose every surface goes right round (its faces'
+  parameter ranges add up to a full turn) is a hole where the material is outside it and a boss where it is
+  inside; the side is the sign of the face's outward normal against the radial vector. A run's ends are read from
+  the faces across its boundary edges at the ends: a plane or other face whose outward normal points on along the
+  axis is where it opens (a hole) or where a boss ends, one that points back into it is a floor or a boss's base;
+  a cone that comes to a point is a drill point or a tip. A hole drilled across another is two runs and is joined
+  into one (`crosses`). Diameters, angles and axes are exact; an entry, a depth or a height is the distance
+  between where the axis meets the faces at its ends, exact when each is a plane, a cylinder, a cone, a sphere or a
+  torus (a line met with an analytic surface by `GeomAPI_IntCS`), and otherwise (a mouth on a freeform wall) is
+  taken at the end of the run and told with `exact: false` and `how`. Slot ends and rounded corners (round faces
+  that do not go all the way round) and a cylinder that stands on nothing are counted (`notFeatures`), not told;
+  freeform faces are counted too, since a hole in one is not recognised. A fillet is a cylinder or a torus less than
+  half a turn round (its sweep, the cylinder's angle or the torus's tube angle) whose boundary edges meet faces with
+  no corner (normals alike within 1e-6 at the middle of the edge), at least two of them; blends of one radius and
+  side that touch are one. A chamfer is a plane with all lines for edges, two of them parallel and the longest,
+  across which are two planes it leaves at 5° to 85°, the same way round, whose line of meeting is parallel to
+  them, and whose setback from that line (the distance between parallel lines, so exact) is under half of what is
+  left of each face (a hexagon's sides and a ramp are not); or a cone between a plane across a cylinder's axis and
+  that cylinder (setbacks the radii's difference and the axial distance), unless it is a step of a hole, which is
+  told as a countersink. A pattern (`patterns.py`) is holes (or bosses) alike in diameter, shape, end, depth and
+  direction, taken as one set whole, whose axes (their places across the axis, so wherever along it the hole
+  was measured) lie on a line at equal steps, in a grid (the rows along the way to the nearest of the others from the
+  first, a full rectangle) or at equal angles on a circle (three are a circle only if they fill it; a part of
+  one needs four); a set that is none of these is told as none, and its holes are still told one by one.
+  A line is tested before a grid and a grid before a circle, so four holes at the corners of a square are a 2 × 2
+  grid. Positions are in the frame of the shapes
+  as built, so of an `arranged` part in the displayed frame. It is bounded as `check overhang` is: 10 s
+  (`BUDGET`, then `complete` false and the runs left over are not told as none) and `MAX_FEATURES` (100) of a
+  kind told, the rest counted in `left`. What it found is kept in the worker, under `("features", key)`, until
+  the next build.
 - An angle (`measure.py` `_angle`) is exact between planes, lines and the axes of cylinders, cones, tori and
   circles (`_round_axis`). A face of another type that `GeomLib_IsPlanarSurface` finds flat within 1e-6 mm, or an
   edge whose 129 sampled points are within 1e-6 mm of the line through its ends (`_flat`, `_straight`), is taken
@@ -152,6 +184,15 @@ is the detail of this folder, under the headings it has there.
   busy with those. The busy answer names the time the query it was given up on had (`_Worker.stuck`): 30 s, or
   120 s behind an export.
   A worker leaves through `os._exit`.
+- **A trial is a worker that answers once and leaves** (`trial` request: `dir`, `model`, `overrides`, `queries`,
+  `timeout`; `Supervisor._trial_request`, `worker._answers`). The supervisor forks it as it forks a build, with
+  the overrides, but it never becomes live, holds no build, and a live worker is never retired for it:
+  `_has_room` asks the same memory as `_make_room` (`ROOM_LEAST` and `ROOM_SPARE` more than the folder's live
+  worker holds) and the trial is refused `no_room` when it is not there, `busy` while a build or another trial
+  runs; a build that starts cancels a trial. The worker loads the model, builds the scene, answers each of at most
+  `MOST_TRIAL_QUERIES` queries in its own process (`queries.run` over its shapes: a query that fails fails alone)
+  and writes one frame with the scene (no mesh) and `answers`, then exits. Its refs are of no build and main gives
+  none. It has the build's timeout and its output is captured the same way.
 - **Files of a build are made by its worker and never written by the kernel** (`export.py`). `export` (`format`
   `step`, `stl` or `3mf`, `layout`, `parts`, `tolerance` mm and `angle` degrees for a mesh, `colors`, `name`)
   answers with the file's bytes as the reply's blob (`queries.WithBlob`, sent by `worker._serve`; every other
@@ -219,6 +260,34 @@ is the detail of this folder, under the headings it has there.
   `kind`): the fillet of them all is tried first, and only when it fails is it diagnosed, in `TRIAL_BUDGET` (20 s)
   of the query's 30, its edges named by their refs, ends in the object frame (`frame: "object"`). Every try is a
   new shape thrown away: the worker's shapes are left as they were.
+- **A failed boolean says why** (`booleans.py`, reached through `diagnose.find` and `diagnose.from_exception`). When a
+  build fails inside a boolean of build123d (the innermost `_bool_op` frame of a build123d shape in the traceback, or
+  in that of the exception it was raised from; a `cut`, `fuse`, `intersect` or `split` and the operators and builders
+  over them), the worker that failed takes `args` and `tools` from that frame's locals and looks at them: it runs
+  no boolean, tries nothing in the model and starts no process, on the same budget, clock, `SLACK` rule,
+  `/dev/null` for OCC's prints and note in the captured output as a fillet's (`worker._diagnose`). Each operand is
+  told by its type (`solid`, `face`, `empty`, …), OCC's `BRepCheck_Analyzer` and the `BOPAlgo_ArgumentAnalyzer`'s
+  faults (self-intersection, small edges); for each base and tool that are valid solids, `BRepExtrema`'s distance
+  (`apartExact: false`), how many points sampled on each (its vertices and the middles of its edges, 60 at most)
+  `BRepClass3d_SolidClassifier` finds inside the other solid, and the pairs of faces that are one surface (planes
+  within `NEAR`, 1e-4 mm, with their `gap` and whether they face the `same` or `opposite` ways; cylinders and spheres
+  to `SAME`, 1e-7 mm) and share area (the area of `BRepAlgoAPI_Common` of the two faces only, never of the
+  operands). `causes` is what that comes to; a count of points inside is a sample, never told as proof, and
+  operands past `MOST_OPERANDS` (4) a side are left out and counted (`operandCount`, `complete: false`). The
+  operands have no place in the scene: faces are numbered by their place in the operand (`F3`, from 0) and
+  everything is in the frame of the operand, `frame: "local"`. The error carries it as `diagnosis` beside a
+  fillet's, told apart by `operation` (`cut`, `fuse`, `intersect`, `split`); main sets no `sameAs` on it. A boolean that
+  succeeds but gives an empty or wrong result raises nothing and is not diagnosed.
+- **A selector for a face or an edge** (`selectors.py`; `describe` asked with `selector: true`, which only the `describe`
+  tool sends, never the window's hover). The kernel tries a short list of build123d expressions on the part as it stands in
+  the layout asked, most robust first (type or direction; the extreme along an axis, or along one and then another;
+  where it is, its radius, its area or length; last an index into a sort, `robust: "by order"`), evaluates each with
+  build123d on the worker's own shape and keeps the first that gives exactly that shape, with no other as far along
+  the axis (`TIE`, 1e-5 mm) for an extreme or a place in a sort. **The worker evaluates only expressions it made itself**:
+  the text is put together from fixed method names, build123d's own enumeration names (the target's
+  `geom_type.name`) and numbers written to 4 decimals, nothing of a tool's arguments (the ref says only which shape),
+  and `eval` has no builtins but `abs` (`_Search.globals`). It has `BUDGET` (10 s) of the query's 30, read between
+  candidates; past it, or with no form, `selector` is `null` with `selectorWhy`. The selector is checked on this build only.
 - **A worker is not trusted.** A frame from the building worker that is not a
   result (not JSON, or without its scene or error) is a `crash` of that build;
   the supervisor carries on. Frames are written with `allow_nan=False`: a scene
@@ -235,6 +304,16 @@ is the detail of this folder, under the headings it has there.
   (`loader.read_params`: name, type as written, default, whether that default is a literal in the source, the
   field's comment) and the build's scene carries it as `params`; `scene` lists it. Nothing in torno writes the
   model file: it is the person's, outside `.torno/`. A `Params` that cannot be read is no failure: `[]`.
+  Each field also says `value` (what this build used), `editable` (`float`, `int`, `bool` or `choice`: only a field
+  whose default is a literal number or bool, or a `Literal` of literals, with a default among them), `choices` and
+  `metadata` (the plain numbers `min`, `max`, `step` of the field's own `metadata`).
+- **A build may carry overrides of `Params`** (`overrides`, field name to a bool, number or string; anything
+  else is a `bad_request`). The loader makes every `Params()` it calls (`assembly`, `printables`, `make_<part>`,
+  `groups`, `checks`) as `dataclasses.replace(Params(), **applied)` (`loader._params`); `apply_overrides` takes only
+  an `editable` field's value of its type (a whole number for a float is made a float, a bool is no number), and
+  drops the rest. The scene's `overrides` says `applied` and `dropped` (`name`, `reason` naming the type wanted),
+  so none is lost silently. A range in a field's metadata is for the window to keep, not enforced here. A model
+  that makes `Params()` itself, not taking `p`, does not see an override.
 - **Groups are read by the worker too.** Under the `Params` convention, an optional `groups(p)` (group name to
   part names) is called with `Params()` by `loader._groups`, inside the load's `try`, and checked against the
   part names of every layout: a dict of str to a list of str, no empty group or name, no `/`, not `M<n>`, not a
@@ -242,6 +321,56 @@ is the detail of this folder, under the headings it has there.
   `exception` that says what is wrong. The scene carries it as `groups` (`[]` without), and each part of a group
   names it (`group`); the supervisor passes the
   frame on and reads none of it.
+- **Tags are read by the worker too, and matched before the print layout is spread** (`loader._tags`). Under the
+  `Params` convention an optional `tags(p, parts)` is called once for each layout with a copy of the dict that
+  layout's function returned (the shapes themselves, so a face taken from one is the part's own), and returns part
+  name to tag name to a face, an edge or a list of them. Each is matched to the kernel's index by `IsSame` in
+  `TopExp.MapShapes` maps, the same as `topo` walks, in `load_model`, before `tess.build_scene` runs `arrange.spread`
+  (a moved shape is no longer the same one; the order of faces and edges survives it). They travel with the layouts
+  (`loader.Layouts.tags`, `(layout, part)` → tag → `{"faces": [...], "edges": [...]}`, empty lists left out; the one
+  `Layouts` class that also holds `references`), so `load_model` still returns four things. References are in the
+  assembly's dict only, so a `tags` that takes a face of one guards `if name in parts`. A tag that is not a letter or `_` then letters, digits, `_ . -`, a part no
+  layout has, a result of the wrong shape, an empty list, a shape that is not a face or an edge, or one the part
+  does not have (a face of another part or taken before the part was changed: the tag is stale) fails the build as
+  an `exception` that says which; a part named that this layout lacks but another has is skipped. The scene carries
+  them on the part as `tags` (`worker._tag_parts`), and the worker keeps them in `kept[("tags", key)]` for
+  `queries.resolve`, which takes `layout:part/@tag` for the face or edge it names when it names exactly one (`describe`
+  tells the face's own ref and the `tag`) and refuses several, naming them. `nearest` may be given the `face` a tag
+  names now (as it is given an `edge`) and says whether the part has it and how far the point is (`faceFound`,
+  `faceDistance`, `facePoint`, `faceDescriptor`, `faceNormal`; an edge's `edgePoint`).
+- **The model's own checks are declarations, measured by torno** (`modelchecks.py`). Under the `Params` convention an
+  optional `checks(p)` returns a list of dicts in torno's vocabulary, not predicates: `name`, `kind` (`clearance`,
+  `overlap`, `solids`, `volume`, `thin`, `overhang`, `mesh`, `bed`, and `interference`, which takes no part: it passes when no pair of the layout shares volume),
+  part or group refs `a` and `b` (a group stands for its parts; never `F12`), an optional `layout`, and what is
+  wanted (`min`/`max`, `equals`, or `expected` with `tolerance` or `percent`; `thin` takes `min` as its least wall,
+  the printing kinds want none found). `loader._checks` reads only their shape and names, inside the load's `try`:
+  a malformed one fails the build as an `exception` that says what is wrong, as a bad `groups(p)` does. The worker
+  measures them after tessellation (`worker._model_checks`, `modelchecks.run`), through `checks.check` and
+  `measure.measure` as they are, in `modelchecks.BUDGET` (10 s; the rest are `not run`), and the scene carries the
+  results as `checks`: `status` (`pass`, `fail`, `error` for one that could not be measured, `not run`), `value`,
+  `unit`, `min`, `max`, `exact` and `how` of the kernel, and the `declared` dict. A check that does not pass never
+  fails the build; a `thin` that finds none says so by sampling, never as a proof.
+
+- **References are bought parts, read by the worker** (`loader._references`). Under the `Params` convention an optional
+  `references(p)` (name to shape, in the assembly's frame) is called with `Params()` after the layouts are collected and
+  before `groups(p)` and `checks(p)`, which may name them. They are added to every layout but `print` (a model with
+  only a print layout fails the build, saying it needs an assembly), as `loader.Layouts`, a dict that also holds which
+  names are references (`Layouts.references`), so the signature of `load_model` is as it was. A shape with children (a
+  bearing of bd_warehouse, a STEP with an assembly in it) is taken as the compound of its solids, where they are. A
+  name is refused when it is a part's, has a `/`, has the form `M<n>`, or the value has no solid. A vendor STEP is
+  read by the model itself (`import_step`); the kernel reads no file. `tess.build_scene` tells such a part `role:
+  "reference"` and notes it in `kept[("reference", key)]` (`queries.is_reference`), which is all the queries know.
+  A reference is an obstacle: `clearance`, `overlap` and `interference` take it against the parts (`interference`
+  never against another reference, and names them in `references`). It is not made: `bed` leaves it out (and says
+  so), `mass`, `mesh`, `overhang`, `thin` and a STL or 3MF refuse it (`queries.need_made`; a group in a model's
+  `thin`, `overhang` or `mesh` check skips them, and naming one is refused when the model loads), while a STEP may
+  hold it when asked. `describe` says `role: "reference"`.
+
+- **The scene says what the model imported (`uses`).** After the load, the worker (`loader.used_files`, from
+  `sys.modules`, never from a declaration) lists the Python files under the workspace (the folder above the
+  model's) that it imported from outside its own folder, `common/` included, as paths from the workspace with `/`.
+  `.venv`, `site-packages` and models loaded as models are not among them. Main watches those files and rebuilds on
+  a save; a cycle between two projects is shown on both and never refused here. Only a good build reports it.
 - The app starts the kernel with `PYTHONDONTWRITEBYTECODE=1`, so importing a
   model writes no `__pycache__` into the workspace.
 - **The build123d skill's API reference is made from the pinned build123d.** `app/resources/agent-plugin/skills/build123d/reference/api-<version>.txt`

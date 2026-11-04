@@ -1,0 +1,53 @@
+{
+  "object": "posts",
+  "track": "marks against text",
+  "prompts": [
+    "Do what my mark says, and nothing else."
+  ],
+  "answers": {
+    "default": "I don't know: choose, and say what you chose."
+  },
+  "checks": [
+    {
+      "id": "valid",
+      "kind": "valid"
+    },
+    {
+      "id": "right-z",
+      "kind": "size",
+      "part": "right",
+      "axis": "z",
+      "expect": 30,
+      "tol": 0.05
+    },
+    {
+      "id": "left-z",
+      "kind": "size",
+      "part": "left",
+      "axis": "z",
+      "expect": 20,
+      "tol": 0.05
+    },
+    {
+      "id": "left-volume",
+      "kind": "volume",
+      "part": "left",
+      "min": 1569.226,
+      "max": 1572.367
+    },
+    {
+      "id": "base-volume",
+      "kind": "volume",
+      "part": "base",
+      "min": 11988.0,
+      "max": 12012.0
+    },
+    {
+      "id": "diff",
+      "kind": "diff",
+      "only": [
+        "right"
+      ]
+    }
+  ]
+}

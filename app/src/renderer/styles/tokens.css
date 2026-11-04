@@ -12,6 +12,7 @@
   --ink: #22252A;
   --muted: #646970;        /* 4.5:1 on the surface, as all text is (shared/contrast.test.ts) */
   --hairline: #DAD6CE;
+  --field-edge: #8A857B;   /* the edge of an input or a text area: 3:1 on the panel and the ground (WCAG 1.4.11); dividers keep the hairline */
   --scroll-thumb: #84888E;  /* where a list is scrolled to: 3:1 on the panel and the ground, quieter than muted text */
   --accent: #1D46B8;       /* layout blue */
   --accent-wash: #E3E9F8;
@@ -53,6 +54,8 @@
   --part-6: #6E8388;
   --part-7: #B56F76;
   --part-8: #7FA7A6;
+  /* A reference, a bought part: neutral, in no theme's palette */
+  --part-reference: #9AA1A8;
 
   /* Terminal: the sixteen colours an agent's CLI may ask for by name, toned to
      sit on --panel, and what the terminal draws of its own. Each is text: 4.5:1
@@ -89,6 +92,7 @@
   --radius-control: 6px;
   --radius-palette: 10px;
   --divider: 1px solid var(--hairline);
+  --field-border: 1px solid var(--field-edge);
   --focus-ring: 2px solid var(--accent);
   /* The only shadow in the app: floating palettes. */
   --palette-shadow: 0 6px 20px rgb(34 37 42 / 0.10);
@@ -111,6 +115,7 @@
     --ink: #E9E7E2;
     --muted: #9A9FA6;
     --hairline: #33373C;
+    --field-edge: #6C727A;
     --scroll-thumb: #72777E;
     --accent: #7C9BF7;
     --accent-wash: #252F4A;

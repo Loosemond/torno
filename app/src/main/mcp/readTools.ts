@@ -1,15 +1,18 @@
 import { valueText } from '../../shared/dimension'
 import type { CheckedBed, CheckedClearance, CheckedMesh, CheckedOverhang, CheckedOverlap, CheckedThin, Measured, MeasuredValue, ScanSectioned, SectionLoop, Sectioned } from '../../shared/geometry'
-import type { Part, Scene } from '../../shared/scene'
+import type { Param, Part, Scene } from '../../shared/scene'
 import { type SectionDrawingResult, type SectionPlane, axisForm, cutText, planeText } from '../../shared/view'
 import type { ObjectInfo } from '../../shared/workspace'
+import { type Fit, FITS, type Profile, fitVerdict, leastWall, profileName } from '../../shared/profile'
 import { KernelError, isBusy } from '../kernel/client'
 import { scanNumber } from '../../shared/format'
 import { type FilletDiagnosis, WHY, diagnosisText, sizeText } from '../../shared/diagnosis'
 import { number, sizes, vector } from '../marks/describe'
-import { DIFF_APPROXIMATE, DIFF_REFS, clean, partDiff } from '../sanity'
+import { clean, sceneDiff } from '../../shared/diff'
+import { type HistoryEntry, parseBuildRef } from '../../shared/history'
+import { join } from 'node:path'
 import { plain, wire } from '../marks/measure'
-import { isMoved, movedForDisplay, spreadApart } from '../marks/spread'
+import { isMoved, movedForDisplay, spreadApart, spreadLayout } from '../marks/spread'
 import { type End, type EndArg, checkRef, endsOf } from './markTools'
 import { type ScanAsked, SCAN_APPROXIMATE, noteOf, saidNow, scanFor, scanFrame, scanSpread } from './scanTools'
 import type { PlaneArg } from './schemas'
@@ -29,6 +32,9 @@ export interface MeasureToolArgs {
   density?: number
   layout?: string
 }
+
+/** Said at the end of a reading whose numbers came from the person's profile and not from the call. */
+const byProfile = (profile: Profile, what: string): string => `${what} by your profile (${profileName(profile)}): the person's numbers, not measured`
 export interface SectionToolArgs {
   plane: 'current' | PlaneArg
   parts?: string[]
@@ -46,8 +52,15 @@ export interface TryFilletToolArgs {
   layout?: string
 }
 
+export interface TryParamsToolArgs {
+  set?: unknown
+  measure?: unknown
+  check?: unknown
+  layout?: string
+}
+
 export interface CheckToolArgs {
-  kind: 'overlap' | 'clearance' | 'mesh' | 'overhang' | 'thin' | 'bed'
+  kind: 'overlap' | 'clearance' | 'interference' | 'mesh' | 'overhang' | 'thin' | 'bed'
   a?: string
   b?: string
   layout?: string
@@ -57,6 +70,8 @@ export interface CheckToolArgs {
   min?: number
   /** bed: the bed, [x, y, z] mm. */
   size?: number[]
+  /** clearance: the fit the gap is judged against, by the profile's material. */
+  fit?: string
 }
 
 /** The checks of whether it prints: asked of the print layout unless another is named. */
@@ -129,6 +144,10 @@ export async function measureTool(deps: ToolDeps, objectId: string, args: Measur
   if (!between && args.b !== undefined) return failure(`${args.kind} is of a alone: leave b out`)
   if (args.kind !== 'distance' && (isScanEnd(args.a) || isScanEnd(args.b))) return failure(SCAN_END_DISTANCE)
 
+  // Mass by the density of the profile's material, when the call gives none.
+  const profile = deps.profile?.(objectId)
+  const density = args.density ?? (args.kind === 'mass' ? profile?.material?.density : undefined)
+  const fromProfile = args.kind === 'mass' && args.density === undefined && profile?.material !== undefined
   const asked = await ofOneBuild(deps, objectId, async (found) => {
     const layout = layoutFor(deps, objectId, found.scene, args.layout)
     if (typeof layout !== 'string') return layout
@@ -154,7 +173,7 @@ export async function measureTool(deps: ToolDeps, objectId: string, args: Measur
         if (described.kind === 'face') a.point = described.center
       }
       const end = ({ ref, point }: End): { ref?: string; point?: Vec3 } => ({ ...(ref === undefined ? {} : { ref }), ...(point ? { point } : {}) })
-      const request = wire({ kind: args.kind, layout, a: end(a), ...(b ? { b: end(b) } : {}), ...(args.density === undefined ? {} : { density: args.density }) })
+      const request = wire({ kind: args.kind, layout, a: end(a), ...(b ? { b: end(b) } : {}), ...(density === undefined ? {} : { density }) })
       const measured = await deps.query<Measured>(objectId, 'measure', request)
       // What is said of a scan's alignment is read once the kernel has answered: a check of this build has been by then.
       for (const one of ends) if (one.scan) one.scan.aligned = await saidNow(deps, objectId, layout, found.revision, one.scan.id, one.scan.aligned)
@@ -172,7 +191,8 @@ export async function measureTool(deps: ToolDeps, objectId: string, args: Measur
   const because = scan ? (other ? `${scan.id} and ${other.id} are scans` : `${scan.id} is a scan`) : undefined
   const taken = scan ? measureReading({ ...measured, exact: false }, a, b, because) : measureReading(measured, a, b)
   if (taken === null) return failure('the kernel did not answer with a measurement')
-  const reading = scan ? `${scan.aligned.first}${other?.aligned.first ?? ''}${taken}. ${scan.aligned.last()}${other ? ` ${other.aligned.last()}` : ''}` : taken
+  const said = scan ? `${scan.aligned.first}${other?.aligned.first ?? ''}${taken}. ${scan.aligned.last()}${other ? ` ${other.aligned.last()}` : ''}` : taken
+  const reading = fromProfile && profile ? `${said}; ${byProfile(profile, `density ${number(density!)} g/cm³`)}` : said
   // Of one part (an end that is a bare point is of none): its points are where the part is shown, and that is said.
   // Of two, the points of an angle are apart as torno put the parts, and are left out where it moved one.
   const parts = [...new Map([a, ...(b ? [b] : [])].flatMap((end) => (end.part ? [[end.part.name, end.part] as const] : []))).values()]
@@ -180,7 +200,7 @@ export async function measureTool(deps: ToolDeps, objectId: string, args: Measur
   const told = parts.length === 2 && parts.some(isMoved) ? angleOnly : measured
   const ofOther = other ? { other: { scan: other.id, alignment: other.aligned.data, ...noteOf(other.aligned, '') } } : {}
   const ofScan = scan ? { exact: false, scan: scan.id, alignment: scan.aligned.data, ...ofOther, ...noteOf(scan.aligned, layout), approximate: SCAN_APPROXIMATE } : {}
-  return reply({ layout, ...ofBuild(deps, objectId), ...clean(told), ...(parts.length === 1 && !scan ? movedForDisplay(parts[0], layout, told) : {}), ...ofScan, reading })
+  return reply({ layout, ...ofBuild(deps, objectId), ...clean(told), ...(parts.length === 1 && !scan ? movedForDisplay(parts[0], layout, told) : {}), ...ofScan, ...(fromProfile && profile ? { profile: profileName(profile), density } : {}), reading })
 }
 
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
@@ -242,20 +262,37 @@ function moved(measured: MeasuredValue): string {
 
 export async function checkTool(deps: ToolDeps, objectId: string, args: CheckToolArgs): Promise<ToolResult> {
   const two = args.kind === 'overlap' || args.kind === 'clearance'
-  const whole = args.kind === 'bed'
+  const whole = args.kind === 'bed' || args.kind === 'interference'
   if (two && args.b === undefined) return failure(`${args.kind} is of two parts: give b`)
   if (!two && args.b !== undefined) return failure(`${args.kind} is of ${whole ? 'the whole layout' : 'the part a alone'}: leave b out`)
-  if (whole && args.a !== undefined) return failure('bed is of the whole layout: leave a out')
+  if (whole && args.a !== undefined) return failure(`${args.kind} is of the whole layout: leave a out`)
   if (!whole && args.a === undefined) return failure(`${args.kind} is of the part a: give a`)
-  if (args.kind === 'thin' && args.min === undefined) return failure(`thin needs min, the least wall in mm: {"kind": "thin", "a": "${args.a}", "min": 0.8}`)
-  if (whole && args.size === undefined) return failure('bed needs size, the bed in mm: {"kind": "bed", "size": [256, 256, 256]}')
-  const extra = args.kind === 'overhang' ? { angle: args.angle ?? OVERHANG_ANGLE } : args.kind === 'thin' ? { min: args.min } : whole ? { size: args.size } : {}
+  // What the call leaves out is taken from the project's profile, when it has one, and the reading says so.
+  const profile = deps.profile?.(objectId)
+  const wall = leastWall(profile)
+  const taken: string[] = []
+  let min = args.min
+  let size = args.size
+  let angle = args.angle
+  if (args.kind === 'thin' && min === undefined && wall !== undefined) (min = wall), taken.push(`least wall ${number(wall)} mm`)
+  if (args.kind === 'bed' && size === undefined && profile?.printer) (size = profile.printer.bed), taken.push(`bed ${size.map(number).join(' × ')} mm`)
+  if (args.kind === 'overhang' && angle === undefined && profile?.material?.overhang !== undefined) (angle = profile.material.overhang), taken.push(`angle ${number(angle)}°`)
+  if (args.kind === 'thin' && min === undefined) return failure(`thin needs min, the least wall in mm: {"kind": "thin", "a": "${args.a}", "min": 0.8}; the project has no print profile to take it from`)
+  if (args.kind === 'bed' && size === undefined) return failure('bed needs size, the bed in mm: {"kind": "bed", "size": [256, 256, 256]}; the project has no printer in its profile to take it from')
+  if (args.fit !== undefined && args.kind !== 'clearance') return failure('fit is for clearance: the gap between a and b judged against the profile\'s band')
+  if (args.fit !== undefined && !(FITS as readonly string[]).includes(args.fit)) return failure(`fit is one of ${FITS.join(', ')}`)
+  if (args.fit !== undefined && !profile?.material) return failure('fit needs a material in the project\'s print profile, and it has none: ask the person to choose one (Print profile in the project menu), or leave fit out')
+  const extra = args.kind === 'overhang' ? { angle: angle ?? OVERHANG_ANGLE } : args.kind === 'thin' ? { min } : args.kind === 'bed' ? { size } : {}
 
   const asked = await ofOneBuild(deps, objectId, async (found) => {
     // Whether it prints is of the print layout, where the model has one and no other is asked for.
     const printLayout = PRINTABILITY.includes(args.kind) && args.layout === undefined && found.scene.layouts.includes('print') ? 'print' : args.layout
     const layout = layoutFor(deps, objectId, found.scene, printLayout)
     if (typeof layout !== 'string') return layout
+    if (args.kind === 'interference') {
+      const apart = spreadLayout(found.scene, layout, 'what the parts share in')
+      if (apart !== null) return failure(apart)
+    }
     if (whole) {
       try {
         return { got: { layout, part: null as Part | null, checked: await deps.query<object>(objectId, 'check', { kind: args.kind, layout, ...extra }) } }
@@ -280,10 +317,26 @@ export async function checkTool(deps: ToolDeps, objectId: string, args: CheckToo
   })
   if ('content' in asked) return asked
   const { layout, part, checked } = asked.got
-  const reading = checkReading(args, checked)
-  if (reading === null) return failure('the kernel did not answer with a check')
+  const said = checkReading(args, checked)
+  if (said === null) return failure('the kernel did not answer with a check')
+  // A clearance judged against the band of a fit: the person's numbers, never a claim that it prints.
+  const judged = args.fit !== undefined && profile?.material ? fitJudged(args.fit as Fit, profile, checked) : null
+  const used = profile && taken.length > 0 ? `; ${byProfile(profile, taken.join(', '))}` : ''
+  const reading = `${said}${judged ? `; ${judged.text}` : ''}${used}`
   // Where the open edges of a mesh are is where its part is shown.
-  return reply({ layout, ...ofBuild(deps, objectId), kind: args.kind, ...clean(checked), ...(two || part === null ? {} : movedForDisplay(part, layout, checked)), reading })
+  return reply({ layout, ...ofBuild(deps, objectId), kind: args.kind, ...clean(checked), ...(two || part === null ? {} : movedForDisplay(part, layout, checked)), ...(judged ? { fit: judged.data } : {}), ...(profile && (taken.length > 0 || judged) ? { profile: profileName(profile) } : {}), reading })
+}
+
+/** A clearance against the band of a fit of the profile's material; null when the kernel gave no distance. */
+function fitJudged(fit: Fit, profile: Profile, checked: object): { text: string; data: object } | null {
+  const { distance, overlapping } = checked as Partial<CheckedClearance>
+  const band = profile.material!.fits[fit]
+  if (!finite(distance)) return null
+  const where = `the ${fit} fit of ${profileName(profile)} is ${number(band[0])} to ${number(band[1])} mm per side`
+  if (overlapping === true) return { text: `FAILS the ${fit} fit: the parts overlap (${where}), judged by the person's numbers, not a claim that it prints`, data: { name: fit, band, verdict: 'overlap' } }
+  const v = fitVerdict(distance, band)
+  const what = v.verdict === 'within' ? `within the ${fit} fit (${where})` : `${number(v.by)} mm ${v.verdict === 'tighter' ? 'under' : 'over'} the ${fit} fit (${where}): ${v.verdict === 'tighter' ? 'tighter than the band' : 'looser than the band'}`
+  return { text: `${v.verdict === 'within' ? 'passes' : 'FAILS'} ${what}; judged by the person's numbers, not a claim that it prints`, data: { name: fit, band, verdict: v.verdict, by: v.by } }
 }
 
 /** The most edges one trial takes: the kernel's `MOST_TRIAL_EDGES`. */
@@ -334,6 +387,147 @@ export async function tryFilletTool(deps: ToolDeps, objectId: string, args: TryF
   return reply({ layout, ...ofBuild(deps, objectId), part: part.name, ...clean(tried), ...movedForDisplay(part, layout, { points: tried.edges ?? [] }), reading })
 }
 
+/** The most measurements, and as many checks, one trial carries: the kernel's `MOST_TRIAL_QUERIES` is for both together. */
+const MOST_TRIAL_EACH = 10
+const TRY_MEASURES = ['bbox', 'volume', 'area', 'mass', 'distance']
+const TRY_CHECKS = ['overlap', 'clearance', 'interference', 'mesh', 'overhang', 'thin', 'bed']
+const TRY_SET = 'try_params needs set, an object of the fields to change: {"set": {"wall": 2.4}, "measure": [{"kind": "bbox", "a": "lid"}]}'
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
+
+/** A name of a whole part: a trial has no face, edge or mark of any build to give. */
+function partName(v: unknown): string | null {
+  return typeof v === 'string' && v !== '' && !v.includes('/') && !/^M\d+$/.test(v) ? v : null
+}
+
+/** What `value` must be for the field, or null when it is: the sentence for the agent. */
+function paramFault(field: Param, value: unknown): string | null {
+  const name = field.name
+  switch (field.editable) {
+    case 'float':
+      return typeof value === 'number' && Number.isFinite(value) ? null : `${name} is a float: give a number, not ${JSON.stringify(value)}`
+    case 'int':
+      return typeof value === 'number' && Number.isInteger(value) ? null : `${name} is an int: give a whole number, not ${JSON.stringify(value)}`
+    case 'bool':
+      return typeof value === 'boolean' ? null : `${name} is a bool: give true or false, not ${JSON.stringify(value)}`
+    case 'choice':
+      return (field.choices ?? []).some((c) => c === value) ? null : `${name} is one of ${JSON.stringify(field.choices)}, not ${JSON.stringify(value)}`
+    default:
+      return `${name} cannot be tried: only a field whose default is a literal number or bool, or a Literal, can`
+  }
+}
+
+/**
+ * What the model gives with other values of its `Params` (`try_params`): built by the kernel in a worker of its own
+ * and thrown away, with the measurements and checks asked for answered there. Of whole parts by name only: a ref of
+ * a face or an edge is of a build, and a trial is of none. It changes nothing (not the model, not the person's
+ * values, not the build on screen), keeps nothing and is said, everywhere, to be of the trial.
+ */
+export async function tryParamsTool(deps: ToolDeps, objectId: string, args: TryParamsToolArgs): Promise<ToolResult> {
+  if (!deps.trial) return failure('this session cannot try other Params')
+  const found = built(deps, objectId)
+  if ('content' in found) return found
+  if (!isRecord(args.set) || Object.keys(args.set).length === 0) return failure(TRY_SET)
+  const fields = found.scene.params ?? []
+  const offered = fields.filter((p) => p.editable).map((p) => p.name)
+  const set: Record<string, number | boolean | string> = {}
+  for (const [name, value] of Object.entries(args.set)) {
+    const field = fields.find((p) => p.name === name)
+    if (!field) return failure(`${name} is not a field of the model's Params; those that can be tried: ${offered.join(', ') || 'none'}`)
+    const fault = paramFault(field, value)
+    if (fault !== null) return failure(`${fault}; those that can be tried: ${offered.join(', ')}`)
+    set[name] = value as number | boolean | string
+  }
+
+  const measures = args.measure === undefined ? [] : args.measure
+  const checks = args.check === undefined ? [] : args.check
+  if (!Array.isArray(measures) || !measures.every(isRecord) || measures.length > MOST_TRIAL_EACH) return failure(`measure is a list of at most ${MOST_TRIAL_EACH} measurements: [{"kind": "bbox", "a": "lid"}]`)
+  if (!Array.isArray(checks) || !checks.every(isRecord) || checks.length > MOST_TRIAL_EACH) return failure(`check is a list of at most ${MOST_TRIAL_EACH} checks: [{"kind": "clearance", "a": "lid", "b": "base"}]`)
+
+  const queries: Array<{ name: string; args: object }> = []
+  const asked: Array<{ what: 'measure' | 'check'; given: Record<string, unknown>; layout: string }> = []
+  for (const given of measures as Record<string, unknown>[]) {
+    const kind = given.kind
+    if (typeof kind !== 'string' || !TRY_MEASURES.includes(kind)) return failure(`a trial measures a whole part: kind is ${TRY_MEASURES.join(', ')}`)
+    const a = partName(given.a)
+    const b = given.b === undefined ? undefined : partName(given.b)
+    if (a === null || b === null) return failure(`a trial measures whole parts by name (a face, an edge or a mark is of a build, not of a trial): {"kind": "${kind}", "a": "lid"}`)
+    if ((kind === 'distance') !== (b !== undefined)) return failure(kind === 'distance' ? 'distance is between two parts: give b' : `${kind} is of a alone: leave b out`)
+    const layout = layoutFor(deps, objectId, found.scene, typeof given.layout === 'string' ? given.layout : args.layout)
+    if (typeof layout !== 'string') return layout
+    queries.push({ name: 'measure', args: { kind, layout, a: { ref: `${layout}:${a}` }, ...(b === undefined ? {} : { b: { ref: `${layout}:${b}` } }), ...(typeof given.density === 'number' ? { density: given.density } : {}) } })
+    asked.push({ what: 'measure', given: { ...given, a, ...(b === undefined ? {} : { b }) }, layout })
+  }
+  for (const given of checks as Record<string, unknown>[]) {
+    const kind = given.kind
+    if (typeof kind !== 'string' || !TRY_CHECKS.includes(kind)) return failure(`check kind is ${TRY_CHECKS.join(', ')}`)
+    const two = kind === 'overlap' || kind === 'clearance'
+    const whole = kind === 'bed' || kind === 'interference'
+    const a = given.a === undefined ? undefined : partName(given.a)
+    const b = given.b === undefined ? undefined : partName(given.b)
+    if (a === null || b === null) return failure('a trial checks whole parts by name (a face or an edge is of a build, not of a trial)')
+    if (two && b === undefined) return failure(`${kind} is of two parts: give b`)
+    if (!two && b !== undefined) return failure(`${kind} is of ${whole ? 'the whole layout' : 'the part a alone'}: leave b out`)
+    if (whole ? a !== undefined : a === undefined) return failure(whole ? `${kind} is of the whole layout: leave a out` : `${kind} is of the part a: give a`)
+    if (kind === 'thin' && typeof given.min !== 'number') return failure('thin needs min, the least wall in mm')
+    if (kind === 'bed' && !Array.isArray(given.size)) return failure('bed needs size, the bed in mm: [256, 256, 256]')
+    const printing = ['overhang', 'thin', 'bed'].includes(kind)
+    const wanted = typeof given.layout === 'string' ? given.layout : args.layout ?? (printing && found.scene.layouts.includes('print') ? 'print' : undefined)
+    const layout = layoutFor(deps, objectId, found.scene, wanted)
+    if (typeof layout !== 'string') return layout
+    const extra = kind === 'overhang' ? { angle: typeof given.angle === 'number' ? given.angle : OVERHANG_ANGLE } : kind === 'thin' ? { min: given.min } : kind === 'bed' ? { size: given.size } : {}
+    queries.push({ name: 'check', args: { kind, layout, ...(a === undefined ? {} : { a }), ...(b === undefined ? {} : { b }), ...extra } })
+    asked.push({ what: 'check', given: { ...given, ...(a === undefined ? {} : { a }), ...(b === undefined ? {} : { b }) }, layout })
+  }
+
+  let trial
+  try {
+    trial = await deps.trial(objectId, set, queries)
+  } catch (e) {
+    return failure(messageOf(e))
+  }
+  const tried = Object.entries(set).map(([name, value]) => `${name} ${JSON.stringify(value)} (file ${JSON.stringify(fields.find((p) => p.name === name)?.default)})`).join(', ')
+  if (!trial.ok) {
+    const { kind, message, traceback } = trial.error
+    const last = (traceback ?? '').split('\n').filter((line) => line.trim() !== '').slice(-3).join('\n')
+    return failure(`Tried ${tried} on the model of r${found.revision} and thrown away, nothing changed: it ${kind === 'busy' || kind === 'no_room' || kind === 'timeout' || kind === 'crash' ? `could not be tried (${kind}): ` : 'did not build: '}${message}${last ? `\n${last}` : ''}`)
+  }
+
+  const { layouts, notes } = sceneDiff(found.scene, trial.scene)
+  const applied = trial.scene.overrides?.applied ?? {}
+  const dropped = trial.scene.overrides?.dropped ?? []
+  const answers: Array<Record<string, unknown>> = []
+  const lines: string[] = []
+  trial.answers.forEach((answer, i) => {
+    const one = asked[i]
+    if (!one) return
+    const label = one.what === 'measure' ? `${one.given.kind} ${one.given.a}${one.given.b ? ` to ${one.given.b}` : ''}` : `${one.given.kind}${one.given.a ? ` ${one.given.a}` : ''}${one.given.b ? ` and ${one.given.b}` : ''}`
+    if (!answer.ok) {
+      answers.push({ [one.what]: one.given, layout: one.layout, error: answer.error.message })
+      lines.push(`${label}: not answered: ${answer.error.message}`)
+      return
+    }
+    const reading =
+      one.what === 'measure'
+        ? measureReading(answer.result as Measured, { text: String(one.given.a) }, one.given.b === undefined ? undefined : { text: String(one.given.b) })
+        : checkReading(one.given as unknown as Pick<CheckToolArgs, 'kind' | 'a' | 'b'>, answer.result as object)
+    answers.push({ [one.what]: one.given, layout: one.layout, ...clean(answer.result as object), reading: reading ?? 'the kernel did not answer with that' })
+    lines.push(reading ?? `${label}: the kernel did not answer with that`)
+  })
+  const head = `Tried ${tried} on the model of r${found.revision} and thrown away, nothing changed (these are of the trial, not of any build)`
+  return reply({
+    trial: true,
+    of: found.revision,
+    set,
+    applied,
+    ...(dropped.length > 0 ? { dropped } : {}),
+    built: true,
+    seconds: trial.scene.seconds,
+    diff: { layouts, ...(notes.length > 0 ? { notes } : {}) },
+    answers,
+    reading: `${head}: ${lines.length > 0 ? lines.join('; ') : 'built; see diff for what changed'}.`
+  })
+}
+
 /** A check in a line. Null for a reply that is none. */
 export function checkReading(args: Pick<CheckToolArgs, 'kind' | 'a' | 'b'>, checked: object): string | null {
   // Exact unless the kernel says otherwise: a clearance by `exact`, what two parts share by `volumeExact` and `bboxExact`.
@@ -363,6 +557,7 @@ export function checkReading(args: Pick<CheckToolArgs, 'kind' | 'a' | 'b'>, chec
     if (overlapping !== false) return `${base}${typeof how === 'string' && how ? ` (${how})` : ''}${broken}`
     return `${distance === 0 ? `${base}: the parts touch` : base}${broken}`
   }
+  if (args.kind === 'interference') return interferenceReading(checked)
   if (args.kind === 'overhang' || args.kind === 'thin' || args.kind === 'bed') return printReading(args, checked)
   const { watertight, openEdges, where, triangles } = checked as Partial<CheckedMesh>
   if (typeof watertight !== 'boolean' || !finite(openEdges) || !finite(triangles)) return null
@@ -371,6 +566,28 @@ export function checkReading(args: Pick<CheckToolArgs, 'kind' | 'a' | 'b'>, chec
   if (triangles === 0) return `mesh of ${args.a}: no triangles`
   const first = Array.isArray(where) && isVec(where[0]) ? `, first at ${vector(where[0])}` : ''
   return `mesh of ${args.a}: OPEN, ${count(openEdges, 'open edge')}${first}`
+}
+
+/** The pairs of a layout that share volume, in a line. Null for a reply that is none. */
+function interferenceReading(checked: object): string | null {
+  type Pair = { a?: unknown; b?: unknown; volume?: unknown; volumeExact?: unknown }
+  const { layout, parts, interfering, touching, clear, sampling, notSolid, listCut } = checked as {
+    layout?: unknown; parts?: unknown; interfering?: Pair[]; touching?: Pair[]; clear?: unknown
+    sampling?: { measured?: unknown; of?: unknown; complete?: unknown }; notSolid?: unknown; listCut?: unknown
+  }
+  if (!finite(parts) || !finite(clear) || !Array.isArray(interfering) || !Array.isArray(touching)) return null
+  const reversed = (checked as { reversed?: unknown }).reversed
+  const names = (list: unknown): string[] => (Array.isArray(list) ? list.filter((n): n is string => typeof n === 'string') : [])
+  const count = (n: number, one: string): string => `${n.toLocaleString('en-US')} ${one}${n === 1 ? '' : 's'}`
+  const tell = (p: Pair): string => `${p.a} and ${p.b}${finite(p.volume) ? ` ${p.volumeExact === false ? '≈ ' : ''}${number(p.volume)} mm³` : ''}`
+  const more = listCut === true ? ' (the list is cut)' : ''
+  const head = `${layout === undefined ? 'layout' : String(layout)}: ${count(parts, 'solid part')}`
+  const sharing = interfering.length === 0 ? 'no pair shares volume' : `${count(interfering.length, 'pair')} share${interfering.length === 1 ? 's' : ''} volume (${interfering.slice(0, REFS_READ).map(tell).join('; ')}${interfering.length > REFS_READ ? `; and ${interfering.length - REFS_READ} more` : ''})${more}`
+  const touches = touching.length === 0 ? '' : `, ${count(touching.length, 'pair')} only touch${touching.length === 1 ? 'es' : ''} (${touching.slice(0, REFS_READ).map((p) => `${p.a} and ${p.b}`).join('; ')}${touching.length > REFS_READ ? `; and ${touching.length - REFS_READ} more` : ''})`
+  const cut = sampling?.complete === false && finite(sampling.measured) && finite(sampling.of) ? `; the time ran out after ${sampling.measured} of ${sampling.of} pairs whose boxes meet, the rest are NOT measured` : ''
+  const left = names(notSolid).length > 0 ? `; left out, not solids: ${names(notSolid).join(', ')}` : ''
+  const broken = names(reversed).length > 0 ? `; ${names(reversed).join(' and ')} ${names(reversed).length === 1 ? 'has' : 'have'} a solid turned inside out (reversed), so this is not to be relied on` : ''
+  return `${head}: ${sharing}${touches}; ${count(clear, 'pair')} clear${cut}${left}${broken}`
 }
 
 /** At most so many refs are named in a reading: the data holds them all. */
@@ -712,56 +929,157 @@ export function thinned(loop: Pick<SectionLoop, 'points' | 'closed' | 'deflectio
   return { points: points.filter((_, i) => keep[i] === 1), deflection: loop.deflection + strays }
 }
 
+/** Said when the two builds `diff` compares were made from the same sources. */
+export const DIFF_SAME_SOURCES = 'Both builds were made from the same sources (the .py files of the project and common/ hash alike), so the model did not change between them.'
+
 export interface DiffToolArgs {
-  from?: number
-  to?: number
+  from?: number | string
+  to?: number | string
 }
 
 type Kept = { revision: number; scene: Scene }
 
+/** Said when a build of the history is told with its checks or dimensions. */
+export const DIFF_AS_OF_THEN = 'The checks, defects and dimensions told of a build kept in the history are as of that build, never how the project stands now.'
+
+/** One side of a `diff`: a build of this run in memory, or one kept in the history, or both. */
+interface Side {
+  /** How the reply names it: the revision for a build asked for by revision, the id for a kept one. */
+  label: number | string
+  scene: Scene
+  /** Set for a build of this run. */
+  revision?: number
+  entry?: HistoryEntry
+}
+
 /**
- * What changed between two successful builds that main keeps (`Builds.scenes`: the last two), from what the
- * kernel said of each part as it built it: no query. Nothing is said to be exact that either build does not say is.
+ * What changed between two successful builds, from what the kernel said of each part as it built it: no query.
+ * Those of this run that main holds in memory (`Builds.scenes`: the last two), and any build kept in the history
+ * (`.torno/history/`, by id, `h41`; one of this run also by revision). Nothing is said to be exact that either build
+ * does not say is.
  */
-export function diffTool(deps: ToolDeps, objectId: string, args: DiffToolArgs): ToolResult {
+export async function diffTool(deps: ToolDeps, objectId: string, args: DiffToolArgs): Promise<ToolResult> {
   const found = built(deps, objectId)
   if ('content' in found) return found
   const kept: Kept[] = deps.scenes?.(objectId) ?? [{ revision: found.revision, scene: found.scene }]
+  const history = await deps.history?.(objectId).catch(() => null)
+  const entries = history?.entries ?? []
+  const entryOf = (revision: number): HistoryEntry | undefined => entries.findLast((e) => e.run === history?.run && e.revision === revision)
   const revisions = kept.map((k) => k.revision)
-  if (kept.length < 2) return failure(`only one successful build so far (revision ${revisions.join(', ')}): there is nothing to compare it with yet`)
   const listed = `revisions ${revisions.slice(0, -1).join(', ')} and ${revisions.at(-1)} are`
-  const pick = (revision: number | undefined, fallback: Kept): Kept | ToolResult => {
-    if (revision === undefined) return fallback
-    return kept.find((k) => k.revision === revision) ?? failure(`revision ${revision} is not kept: ${listed}`)
+  const keptIds = entries.length > 0 ? `; the history keeps ${entries.length > 6 ? `${entries.length} builds, ${entries.at(0)!.id} to ${entries.at(-1)!.id}` : entries.map((e) => e.id).join(', ')} (the history tool lists them)` : ''
+  const asked = (value: unknown, which: string): ReturnType<typeof parseBuildRef> | ToolResult => {
+    if (value === undefined) return null
+    return parseBuildRef(value) ?? failure(`${which} is a revision of this run (3) or a build kept in the history (h41), not ${JSON.stringify(value)}`)
   }
-  const from = pick(args.from, kept.at(-2)!)
+  const [wantFrom, wantTo] = [asked(args.from, 'from'), asked(args.to, 'to')]
+  if (wantFrom && 'content' in wantFrom) return wantFrom
+  if (wantTo && 'content' in wantTo) return wantTo
+
+  const side = async (ref: NonNullable<ReturnType<typeof parseBuildRef>>): Promise<Side | ToolResult> => {
+    if ('revision' in ref) {
+      const inMemory = kept.find((k) => k.revision === ref.revision)
+      if (inMemory) return { label: ref.revision, scene: inMemory.scene, revision: ref.revision, entry: entryOf(ref.revision) }
+      const entry = entryOf(ref.revision)
+      const scene = entry ? await deps.historyScene?.(objectId, entry.id).catch(() => null) : null
+      if (entry && scene) return { label: ref.revision, scene, revision: ref.revision, entry }
+      return failure(`revision ${ref.revision} is not kept: ${listed}${keptIds}`)
+    }
+    const entry = entries.find((e) => e.id === ref.id)
+    const scene = entry ? await deps.historyScene?.(objectId, ref.id).catch(() => null) : null
+    if (!entry || !scene) return failure(`${ref.id} is not kept${entries.length > 0 ? keptIds.replace(/^;/, ':') : ': the history of this project holds no build yet'}`)
+    const thisRun = entry.run === history?.run
+    const inMemory = thisRun ? kept.find((k) => k.revision === entry.revision) : undefined
+    return { label: ref.id, scene: inMemory?.scene ?? scene, ...(thisRun ? { revision: entry.revision } : {}), entry }
+  }
+
+  // Without a build asked for: the last two of this run; or, with only the last, it and the newest kept build of other sources.
+  const last = kept.at(-1)!
+  const lastSide: Side = { label: last.revision, scene: last.scene, revision: last.revision, entry: entryOf(last.revision) }
+  let before: Side | ToolResult | null = null
+  const fallbackFrom = async (): Promise<Side | ToolResult> => {
+    if (before) return before
+    if (kept.length >= 2) {
+      const k = kept.at(-2)!
+      return (before = { label: k.revision, scene: k.scene, revision: k.revision, entry: entryOf(k.revision) })
+    }
+    const sources = deps.identity?.(objectId, last.revision)?.sources
+    const prior = entries.findLast((e) => !(e.run === history?.run && e.revision === last.revision) && (sources === undefined || e.sources !== sources))
+    if (prior) return (before = await side({ id: prior.id }))
+    return failure(`only one successful build so far (revision ${revisions.join(', ')}): there is nothing to compare it with yet`)
+  }
+  const from = wantFrom ? await side(wantFrom) : await fallbackFrom()
   if ('content' in from) return from
-  const to = pick(args.to, kept.at(-1)!)
+  const to = wantTo ? await side(wantTo) : lastSide
   if ('content' in to) return to
 
-  let approximate = false
-  let refsMoved = false
-  const named = (parts: Part[], name: string): Part | undefined => parts.find((p) => p.name === name)
-  const layouts = [...new Set([...to.scene.layouts, ...from.scene.layouts])].map((layout) => {
-    const before = from.scene.parts.filter((p) => p.layout === layout)
-    const after = to.scene.parts.filter((p) => p.layout === layout)
-    const parts = after.flatMap((p) => {
-      const was = named(before, p.name)
-      if (!was) return []
-      const told = partDiff(was, p)
-      approximate ||= told.approximate
-      refsMoved ||= told.refsMoved
-      return [told.data]
-    })
-    const only = !from.scene.layouts.includes(layout) ? { only: 'to' } : !to.scene.layouts.includes(layout) ? { only: 'from' } : {}
+  const diffed = sceneDiff(from.scene, to.scene)
+  // What each build was made from, so that a difference that is none of the model's (the same sources) is not taken for one.
+  const told = (s: Side): Record<string, unknown> | undefined => {
+    const made = s.revision === undefined ? undefined : deps.identity?.(objectId, s.revision)
+    const entry = s.entry
+    if (!made && !entry) return undefined
     return {
-      layout,
-      ...only,
-      added: after.filter((p) => !named(before, p.name)).map((p) => p.name),
-      removed: before.filter((p) => !named(after, p.name)).map((p) => p.name),
-      parts
+      ...(s.revision === undefined ? {} : { revision: s.revision }),
+      ...(entry ? { id: entry.id, at: entry.at, ...(entry.starred ? { starred: true } : {}) } : {}),
+      ...(made ?? (entry ? { sources: entry.sources, ...(entry.head ? { head: entry.head } : {}), ...(entry.dirty ? { dirty: true } : {}) } : {})),
+      ...(entry?.failing ? { failingChecks: entry.failing } : {}),
+      ...(entry?.defects ? { defects: entry.defects } : {}),
+      ...(entry?.dimensions ? { dimensions: entry.dimensions } : {})
     }
+  }
+  const [was, now] = [told(from), told(to)]
+  const builds = was || now ? { from: was ?? { revision: from.revision }, to: now ?? { revision: to.revision } } : undefined
+  const verdicts = [from, to].some((s) => s.entry && (s.entry.failing || s.entry.defects || s.entry.dimensions))
+  const notes = [...diffed.notes, ...(was && now && was.sources === now.sources ? [DIFF_SAME_SOURCES] : []), ...(verdicts ? [DIFF_AS_OF_THEN] : [])]
+  return reply(clean({ object: found.obj.id, from: from.label, to: to.label, ...(builds ? { builds } : {}), layouts: diffed.layouts, ...(notes.length > 0 ? { notes } : {}) }))
+}
+
+export interface HistoryToolArgs {
+  id?: string
+  limit?: number
+}
+
+/** The most builds `history` lists at once, and how many it does when it is not told. */
+export const HISTORY_MOST = 100
+export const HISTORY_DEFAULT = 20
+
+/**
+ * The builds kept in the project's history, newest first, each with its id, when it was made, what changed from the
+ * build kept before it in a line, and the checks and dimensions it had then; or one of them (`id`), with where its
+ * copies of the sources are, which the agent may read to go back to that build (torno never restores a file).
+ */
+export async function historyTool(deps: ToolDeps, objectId: string, args: HistoryToolArgs): Promise<ToolResult> {
+  const obj = deps.object(objectId)
+  if (!obj) return failure(`unknown project: ${objectId}`)
+  const history = await deps.history?.(objectId).catch(() => null)
+  if (!history) return failure('the history of this project cannot be read now')
+  const base = join(obj.dir, '.torno', 'history')
+  const summary = (e: HistoryEntry) => ({
+    id: e.id,
+    at: e.at,
+    ...(e.run === history.run ? { revision: e.revision } : { earlierRun: true }),
+    ...(e.starred ? { starred: true } : {}),
+    changed: e.line,
+    parts: e.parts,
+    ...(e.failing ? { failingChecks: e.failing } : {}),
+    ...(e.defects ? { defects: e.defects } : {}),
+    ...(e.dimensions ? { dimensions: e.dimensions } : {}),
+    sources: e.sources,
+    ...(e.head ? { head: e.head } : {}),
+    ...(e.dirty ? { dirty: true } : {})
   })
-  const notes = [...(approximate ? [DIFF_APPROXIMATE] : []), ...(refsMoved ? [DIFF_REFS] : [])]
-  return reply(clean({ object: found.obj.id, from: from.revision, to: to.revision, layouts, ...(notes.length > 0 ? { notes } : {}) }))
+  const note = `${DIFF_AS_OF_THEN} A revision is of one run of torno; an id is for ever. Compare any two with diff.`
+  if (args.id !== undefined) {
+    const id = String(args.id).trim().toLowerCase()
+    const entry = history.entries.find((e) => e.id === id)
+    if (!entry) return failure(`${JSON.stringify(args.id)} is not kept: ${history.entries.length === 0 ? 'the history holds no build yet' : `${history.entries.at(0)!.id} to ${history.entries.at(-1)!.id} are (not every number between them)`}`)
+    const copies = entry.files.map((file) => ({ file, path: join(base, entry.id, 'source', ...file.split('/')) }))
+    const source = copies.length > 0 ? 'These are copies of the files the build was made from. To go back, read them and edit the project\'s own files to match; torno never restores a file itself.' : 'No copy of the sources was kept for this build (too large, or changed while it was read).'
+    return reply({ object: obj.id, ...summary(entry), model: entry.model, seconds: entry.seconds, ...(entry.params ? { params: entry.params } : {}), copies, notes: [source, note] })
+  }
+  const limit = args.limit === undefined ? HISTORY_DEFAULT : args.limit
+  if (!Number.isInteger(limit) || limit < 1 || limit > HISTORY_MOST) return failure(`limit is a whole number from 1 to ${HISTORY_MOST} (default ${HISTORY_DEFAULT})`)
+  const newest = history.entries.slice(-limit).reverse()
+  return reply({ object: obj.id, kept: history.entries.length, shown: newest.length, builds: newest.map(summary), notes: [note] })
 }

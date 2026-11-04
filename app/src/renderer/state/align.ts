@@ -72,6 +72,47 @@ export function setAlignScan(scan: string | null): void {
   if (alignStore.getState().scan !== scan) alignStore.setState({ ...NOTHING_IN_HAND, scale: false, notice: null, pivot: null, scan })
 }
 
+/** What the person last chose in this window for each scan: the bar comes back to it. */
+const chosenMode = new Map<string, AlignMode>()
+
+/** Which of the three ways an alignment has been through: a floor, pairs, or a hand (a nudge or typed values). */
+export function stepsDone(alignment: Pick<ScanAlignment, 'steps'> | null | undefined): Record<AlignMode, boolean> {
+  const steps = alignment?.steps ?? []
+  return { floor: steps.includes('floor'), pairs: steps.includes('pairs'), nudge: steps.includes('nudge') || steps.includes('typed') }
+}
+
+/**
+ * The first step not done, in the order of use. With nothing done, Floor for a scan much larger than the parts (a
+ * room, where the floor is most of the job) and Pairs for one about their size (three pairs do it all). Pairs once a
+ * floor is down, Nudge once there are pairs.
+ */
+export function firstStep(alignment: Pick<ScanAlignment, 'steps'> | null | undefined, surroundings: boolean): AlignMode {
+  const done = stepsDone(alignment)
+  if (done.pairs) return 'nudge'
+  if (done.floor) return 'pairs'
+  return surroundings ? 'floor' : 'pairs'
+}
+
+/** The Align tool takes up a scan: on what the person chose for it last in this window, else on its first step not done. */
+export function beginAlign(scan: ScanInfo, alignment: Pick<ScanAlignment, 'steps'> | null | undefined, surroundings: boolean, mode?: AlignMode): void {
+  setAlignScan(scan.id)
+  if (mode) chosenMode.delete(scan.id)
+  setAlignMode(mode ?? chosenMode.get(scan.id) ?? firstStep(alignment, surroundings))
+}
+
+/** A step was done for the scan in hand: the bar goes on to the next, whatever was chosen before. */
+export function advanceAlign(scan: string, alignment: Pick<ScanAlignment, 'steps'> | null | undefined, surroundings: boolean): void {
+  chosenMode.delete(scan)
+  if (alignStore.getState().scan === scan) setAlignMode(firstStep(alignment, surroundings))
+}
+
+/** The person chose a way: it is the one the bar comes back to for that scan. */
+export function chooseAlignMode(mode: AlignMode): void {
+  const { scan } = alignStore.getState()
+  if (scan !== null) chosenMode.set(scan, mode)
+  setAlignMode(mode)
+}
+
 /** Another way of aligning: what was in hand of the one before is put down. */
 export function setAlignMode(mode: AlignMode): void {
   if (alignStore.getState().mode !== mode) alignStore.setState({ ...NOTHING_IN_HAND, scale: false, notice: null, mode })

@@ -1,9 +1,71 @@
-# Screws, nuts and inserts without bd_warehouse
+# Screws, nuts and inserts
 
-`bd_warehouse` (fasteners, nuts, `ClearanceHole`, `HeatSetNut`) is **not in torno's kernel environment**: a model
-that imports it fails the build with `ModuleNotFoundError`. It works only where the project's own workspace has it
-(a `pyproject.toml` that lists it, with a `.venv`); if the model must be built by torno elsewhere, do not import it.
-Make the hole from the sizes below, each a field of `Params` with the source in a comment.
+`bd_warehouse` (fasteners, nuts, `ClearanceHole`, `InsertHole`, bearings) is in torno's kernel environment, in any
+workspace, with or without a `pyproject.toml` of its own: `from bd_warehouse.fastener import ...` works. Use it
+rather than work out a head or a tap diameter by hand. Where the workspace has its own `.venv`, it has `bd_warehouse`
+only if its `pyproject.toml` lists it. The tables further down are the sizes to put in `Params` when a model should
+not depend on the library, and the ones to check what it gives.
+
+## With bd_warehouse
+
+A fastener is a part to **look at and check against**, not one to print: put it among `references(p)`
+(see the `torno-model` skill), never among `assembly(p)` or `printables(p)`, or torno would print it, count it in
+`bed` and give it a mass. Pass `simple=True`: a screw without its thread is one solid, light to draw and exact enough
+to check a clearance.
+
+- `SocketHeadCapScrew(size="M3-0.5", length=10, fastener_type="iso4762", simple=True)`, `CounterSunkScrew`,
+  `ButtonHeadScrew`, `HexNut(size="M3-0.5", fastener_type="iso4032", simple=True)`: `size` is `M<d>-<pitch>`;
+  an unknown one raises `ValueError` listing the sizes there are. `.types()` on a class lists the standards.
+- The origin of a screw is under its head, its axis is +Z and its shank goes down (-Z): `Pos(x, y, z) * screw`
+  puts its head on the face at `z`, shank into the part; turn it with `Rot` or `Plane`.
+- `ClearanceHole(fastener=screw, fit="Normal", depth=..., counter_sunk=...)` and `InsertHole(fastener=insert, ...)`
+  cut the hole for the fastener in a `BuildPart`, at each location. `fit` is `Close`, `Normal` or `Loose`. `InsertHole` takes a
+  `HeatSetNut(size="M3-0.5-Standard", fastener_type="McMaster-Carr", simple=True)`; the makers
+  (`HeatSetNut.types()`) differ in their holes, so name the one that will be bought.
+- Bearings: `from bd_warehouse.bearing import SingleRowDeepGrooveBallBearing`;
+  `SingleRowDeepGrooveBallBearing(size="M8-22-7", bearing_type="SKT")` is a 608 (8 mm bore, 22 mm outer, 7 mm wide),
+  `.sizes("SKT")` lists the others. It is a compound of many solids; torno takes a reference as one shape.
+- Make the fastener **before** the `with BuildPart()`: one made inside a builder is added to the part, and the
+  part then has the screw in it.
+- What a library gives is the standard's size: the allowance of a printed part is still the part's (`slack`).
+
+```python
+from dataclasses import dataclass
+
+from bd_warehouse.bearing import SingleRowDeepGrooveBallBearing
+from bd_warehouse.fastener import ClearanceHole, SocketHeadCapScrew
+from build123d import Box, BuildPart, Locations, Pos
+
+
+@dataclass
+class Params:
+    length: float = 10.0  # M3 screw, ISO 4762
+
+
+def screw(p: Params):
+    return SocketHeadCapScrew(size="M3-0.5", length=p.length, fastener_type="iso4762", simple=True)
+
+
+def make_block(p: Params):
+    bolt = screw(p)  # made before the builder: one made inside a BuildPart is added to the part
+    with BuildPart() as block:
+        Box(30, 20, 8)
+        with Locations((0, 0, 4)):
+            ClearanceHole(fastener=bolt, fit="Normal", depth=8, counter_sunk=False)
+    return block.part
+
+
+def references(p: Params):
+    # bought: drawn and checked against, never printed
+    return {"screw": Pos(0, 0, 4) * screw(p), "bearing": Pos(25, 0, 0) * SingleRowDeepGrooveBallBearing(size="M8-22-7", bearing_type="SKT")}
+
+
+block = make_block(Params())
+assert block.is_valid and len(block.solids()) == 1 and block.volume < 30 * 20 * 8
+assert set(references(Params())) == {"screw", "bearing"}
+```
+
+## Without it: sizes for `Params`
 
 All sizes are millimetres, for a metric ISO screw. The ISO columns are for the part made in metal. For a part that is
 printed (FDM) a pocket usually wants an allowance on top (`slack` below, 0.2 mm in the example): this is a practice

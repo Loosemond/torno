@@ -38,6 +38,14 @@ describe('what a ref in the chat can do', () => {
     expect(refInfo(store.getState(), 'tub/E11')).toMatchObject({ live: true })
   })
 
+  it('lights and selects what a tag of the model names, one face or several', () => {
+    store.setState({ scene: { ...SCENE, parts: [{ ...part('assembly', 'lid'), tags: { top: { faces: [3] }, screws: { faces: [1, 2], edges: [4] } } } as Part, ...SCENE.parts.slice(1)] } })
+    expect(refInfo(store.getState(), 'lid/@top')).toMatchObject({ kind: 'geometry', live: true, lights: ['lid/F3'], act: 'select', title: 'Select lid/@top (lid/F3)' })
+    expect(refInfo(store.getState(), 'lid/@screws')).toMatchObject({ live: true, lights: ['lid/F1', 'lid/F2', 'lid/E4'] })
+    expect(refInfo(store.getState(), 'lid/@gone')).toMatchObject({ live: false, title: 'lid has no tag @gone in this build' })
+    expect(refInfo(store.getState(), 'cap/@top')).toMatchObject({ live: false, plain: true })
+  })
+
   it('says why a ref of a part that is not drawn, or not there, does nothing', () => {
     expect(refInfo(store.getState(), 'cap/F1')).toMatchObject({ live: false, lights: [], title: 'cap/F1 is not in the layout shown (assembly)' })
     expect(refInfo(store.getState(), 'lid/F6')).toMatchObject({ live: false, title: 'lid has no F6' })

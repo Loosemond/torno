@@ -10,6 +10,10 @@ describe('refsIn', () => {
     expect(refsIn('M4 and lid/F12, r3; tub_2/E10.').map((p) => p.text).join('')).toBe('M4 and lid/F12, r3; tub_2/E10.')
   })
 
+  it('finds a face or an edge the model names, without the full stop or comma that ends the sentence', () => {
+    expect(refs('the lid/@top and tub/@screw_holes, then lid/@a.b-c. Not lid/@ or @top.')).toEqual(['lid/@top', 'tub/@screw_holes', 'lid/@a.b-c'])
+  })
+
   it('never takes a letter, a bare face number or a decimal for one', () => {
     expect(refs('M alone, F12 alone, 3.5 mm, M4x, version 12, r')).toEqual([])
     expect(refs('a part named lid is not one')).toEqual([])

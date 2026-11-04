@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react'
 import { hint, pressed } from '../../../shared/keys'
-import { MAX_PHOTO_BYTES, moduleName, MOST_REFERENCES, objectNameProblem } from '../../../shared/objectName'
+import { MAX_PHOTO_BYTES, MAX_STEP_BYTES, moduleName, MOST_REFERENCES, objectNameProblem, STEP_FORMATS } from '../../../shared/objectName'
 import { actions, store, useStore } from '../../state/store'
 import { draftHas, onboard, onboarding, useOnboard, type Stroke } from '../../state/onboard'
 import { Confirm } from '../Confirm'
@@ -29,6 +29,7 @@ function leaveNewObject(): void {
 
 const IMAGE_ENDINGS = ['.png', '.jpg', '.jpeg', '.webp']
 const isImage = (name: string): boolean => IMAGE_ENDINGS.some((end) => name.toLowerCase().endsWith(end))
+const isStep = (name: string): boolean => STEP_FORMATS.some((end) => name.toLowerCase().endsWith(end))
 const basename = (path: string): string => path.split(/[\\/]/).pop() || path
 /** Elements of the page that ask something of their own, or lie over it: the page leaves its keys to them. */
 const LAYER = '[role="dialog"], [role="alertdialog"], [role="menu"]'
@@ -78,7 +79,7 @@ export function NewObject({ onOpen }: { onOpen: (id: string) => Promise<void> })
 
   const nameProblem = draft.name === '' ? null : objectNameProblem(draft.name, [...new Set([...ids, ...taken])])
   const ready = draft.name !== '' && nameProblem === null && draft.description.trim() !== ''
-  const files = draft.photos.length + draft.doodles.length
+  const files = draft.photos.length + draft.doodles.length + draft.steps.length
   const module = moduleName(draft.name)
 
   // The page takes the focus when it comes, and gives it back to where it was when it goes.
@@ -170,6 +171,12 @@ export function NewObject({ onOpen }: { onOpen: (id: string) => Promise<void> })
     if (path === null) return
     setSaid(onboarding.addScan({ path, file: basename(path) }) ? null : scanRefused(path))
   }
+  async function addStep(): Promise<void> {
+    const path = await window.torno.objects.pickStep().catch(() => null)
+    if (path === null) return
+    setSaid(onboarding.addStep({ path, file: basename(path) }) ? null : stepRefused(path))
+  }
+  const stepRefused = (path: string): string => (onboard.getState().draft.steps.some((s) => s.path === path) ? `${basename(path)} is there already.` : `At most ${MOST_REFERENCES.steps} bought parts.`)
   const scanRefused = (path: string): string => (onboard.getState().draft.scans.some((s) => s.path === path) ? `${basename(path)} is there already.` : `At most ${MOST_REFERENCES.scans} scans.`)
 
   function dropped(list: FileList): void {
@@ -178,7 +185,12 @@ export function NewObject({ onOpen }: { onOpen: (id: string) => Promise<void> })
     const problems: string[] = []
     for (const file of all) {
       const path = window.torno.objects.pathOf(file)
-      if (isScan(file.name)) {
+      if (isStep(file.name)) {
+        // The size first: a file over the cap is never copied, whatever else is said of it.
+        if (file.size > MAX_STEP_BYTES) problems.push(`${file.name} is over ${MAX_STEP_BYTES / (1024 * 1024)} MB.`)
+        else if (!path) problems.push(`${file.name}: ${NO_PATH}`)
+        else if (!onboarding.addStep({ path, file: file.name, size: file.size })) problems.push(stepRefused(path))
+      } else if (isScan(file.name)) {
         if (!path) problems.push(`${file.name}: ${NO_PATH}`)
         else if (!onboarding.addScan({ path, file: file.name, size: file.size })) problems.push(scanRefused(path))
       } else if (isImage(file.name)) {
@@ -187,7 +199,7 @@ export function NewObject({ onOpen }: { onOpen: (id: string) => Promise<void> })
         else if (!path) problems.push(`${file.name}: ${NO_PATH}`)
         else pictures.push({ path, name: file.name, bytes: async () => new Uint8Array(await file.arrayBuffer()) })
       } else if (/\.(heic|heif)$/i.test(file.name)) problems.push(`${file.name}: ${HEIC_REASON}`)
-      else problems.push(`${file.name} is neither a picture nor a scan.`)
+      else problems.push(`${file.name} is neither a picture, a STEP file nor a scan.`)
     }
     setSaid(problems.length > 0 ? problems.join(' ') : null)
     if (pictures.length > 0) void takePhotos(pictures).then(() => problems.length > 0 && setSaid((now) => [...problems, ...(now ? [now] : [])].join(' ')))
@@ -291,7 +303,7 @@ export function NewObject({ onOpen }: { onOpen: (id: string) => Promise<void> })
             placeholder="A clip that holds a 6 mm cable to the edge of a desk, printed in PETG…"
             onChange={(e) => onboarding.setDescription(e.target.value)}
           />
-          <p className="new-help">What it is for, what it must fit or hold, sizes you know, how it will be made.</p>
+          <p className="new-help">What it is for, what it must fit or hold, sizes you know, how it will be made. Give the sizes you have measured: sizes the agent guesses are the most common reason a part does not fit.</p>
         </div>
 
         <div className="new-field">
@@ -305,13 +317,16 @@ export function NewObject({ onOpen }: { onOpen: (id: string) => Promise<void> })
             <button type="button" className="button" disabled={busy || draft.doodles.length >= MOST_REFERENCES.doodles} onClick={() => setBoard({ uid: null })}>
               Draw…
             </button>
+            <button type="button" className="button" disabled={busy || draft.steps.length >= MOST_REFERENCES.steps} title="A vendor's STEP file of a screw, a bearing, a board: copied into reference/ for Claude to place as a bought part" onClick={() => void addStep()}>
+              Add a bought part…
+            </button>
             <button type="button" className="button" disabled={busy || draft.scans.length >= MOST_REFERENCES.scans} onClick={() => void addScan()}>
               Add a scan…
             </button>
             <ObjectMenu ids={ids.filter((id) => !draft.objects.some((o) => o.id === id))} disabled={busy || draft.objects.length >= MOST_REFERENCES.objects} onChoose={(id) => void onboarding.addObject(id)} />
           </div>
           <p className="new-help">
-            Photos and scans can also be dropped on this page. Each can have a note for Claude.
+            Photos, STEP files and scans can also be dropped on this page. Each can have a note for Claude.
             {reading > 0 && <span role="status"> Reading {numbered(plural(reading, 'picture', 'pictures'))}…</span>}
           </p>
           {said !== null && (

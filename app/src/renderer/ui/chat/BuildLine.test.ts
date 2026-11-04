@@ -5,6 +5,7 @@ import type { ChatItem } from '../../../shared/chat'
 import type { BuildDigest } from '../../../shared/sanity'
 import { store } from '../../state/store'
 import { BuildLine, MOST_PARTS, stillLatest, verdictWord } from './BuildLine'
+import { plainText } from '../../../test/plainText'
 
 type Context = Extract<ChatItem, { kind: 'context' }>
 const context = (more: Partial<Context> = {}): Context => ({ kind: 'context', id: 'i3', forUser: 'i2', forTool: true, text: 'THE WHOLE TEXT THE AGENT WAS GIVEN', marks: [], ...more })
@@ -20,7 +21,7 @@ function drawn(item: Context): string {
     now.mockRestore()
   }
 }
-const text = (html: string): string => html.replace(/<[^>]*>/g, '').replaceAll('&#x27;', "'")
+const text = (html: string): string => plainText(html).replaceAll('&#x27;', "'")
 
 afterEach(() => store.setState({ build: null, errorOpen: false, marks: [] }))
 

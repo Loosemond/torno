@@ -37,6 +37,10 @@ _BUFFERS = {
 }
 
 
+# The ``role`` of a part that is a reference (``loader.Layouts``); a part with none is one to make.
+REFERENCE = "reference"
+
+
 def build_scene(
     layouts: dict[str, dict[str, Any]], model: str, kept: dict[Any, Any] | None = None
 ) -> tuple[dict[str, Any], bytes, dict[str, Any]]:
@@ -50,6 +54,8 @@ def build_scene(
     its own (``boxed``), whether it is ``valid`` and the ``deflection`` it
     was drawn with, each under ``(what, key)``.
 
+    The names in ``layouts.references`` (``loader.Layouts``) are told ``role: "reference"`` and noted in ``kept``.
+
     Parts of the print layout that overlap are first moved apart along X. The
     shape itself is moved, so the mesh, the bounding box and the shape kept for
     queries all agree; the part says how far in ``arranged``.
@@ -57,6 +63,7 @@ def build_scene(
     blob = bytearray()
     parts = []
     shapes = {}
+    references = getattr(layouts, "references", frozenset())
     # The solids integrated so far: one placed in two layouts is integrated once.
     solids: list[tuple[Any, extent.Volume]] = []
     for layout, named in layouts.items():
@@ -80,6 +87,11 @@ def build_scene(
                     kept["boxed", key] = part["bboxExact"]
             if name in moves:
                 part["arranged"] = moves[name]
+            if name in references:
+                # Bought, not made: drawn and checked against, left out of what is printed, weighed and exported.
+                part["role"] = REFERENCE
+                if kept is not None:
+                    kept["reference", key] = True
             parts.append(part)
     scene = {"model": model, "layouts": list(layouts), "parts": parts}
     return scene, bytes(blob), shapes

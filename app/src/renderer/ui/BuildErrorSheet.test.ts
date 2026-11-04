@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { BuildError, BuildState } from '../../shared/build'
 import { probe } from '../../test/diagnosisFixtures'
+import { plainText } from '../../test/plainText'
 import { chatStore } from '../state/chat'
 import { store } from '../state/store'
 import { BuildErrorSheet, askLabel, errorText, toldLine } from './BuildErrorSheet'
@@ -42,7 +43,7 @@ describe('what the sheet says of who is told, and offers', () => {
       chat.mockRestore()
     }
   }
-  const text = (html: string): string => html.replace(/<[^>]*>/g, '').replaceAll('&#x27;', "'")
+  const text = (html: string): string => plainText(html).replaceAll('&#x27;', "'")
   const button = (html: string, name: string): string => new RegExp(`<button[^>]*>${name}</button>`).exec(html)?.[0] ?? ''
 
   afterEach(() => {

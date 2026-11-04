@@ -1,10 +1,10 @@
 import { NO_SCAN_YET, doesOf, hint, pressed } from '../../shared/keys'
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { ShapeKind } from '../../shared/marks'
-import { BETWEEN, ROUND, SHAPES, TOOLS, TOOL_GROUPS, setBetween, setRound, setShape, setTool, useBetween, useRound, useShape, useTool, type ToolName } from '../state/tools'
+import { BETWEEN, ROUND, SELECT_SCOPES, SHAPES, TOOLS, TOOL_GROUPS, setBetween, setRound, setSelectScope, setShape, setTool, useBetween, useRound, useSelectScope, useShape, useTool, type ToolName } from '../state/tools'
 import { count } from '../../shared/format'
 import { useRegion } from '../state/region'
-import { keepHeld, useHeld } from '../state/measured'
+import { componentsOf, keepHeld, useHeld } from '../state/measured'
 import { scanless } from '../state/step'
 import { useStore } from '../state/store'
 import { commitMark } from '../tools/pickMarks'
@@ -75,6 +75,7 @@ export function ToolPalette() {
   return (
     <>
     {tool === 'measure' && <MeasureChoice />}
+    {tool === 'select' && <SelectChoice />}
     <div className="toolbox" role="toolbar" aria-label="Tools" aria-orientation="vertical">
       {TOOL_GROUPS.map((g, i) => (
         <Fragment key={g.group}>
@@ -254,6 +255,22 @@ function MeasureChoice() {
   )
 }
 
+/** In the same corner while the Select tool is in hand: what a click takes. It holds from then on. */
+function SelectChoice() {
+  const scope = useSelectScope()
+  return (
+    <div className="measure-choice" role="group" aria-label="What a click selects">
+      <div className="segmented" role="group" aria-label="A click selects">
+        {SELECT_SCOPES.map((c) => (
+          <button key={c.scope} type="button" title={c.title} aria-pressed={c.scope === scope} onClick={() => setSelectScope(c.scope)}>
+            {c.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 /**
  * The last measurement, after the choices: the kernel's value and how it was taken, and a button that keeps it as a
  * dimension (as `Enter` does). Only of the object and build on show: of any other it is not shown. It changes once
@@ -276,6 +293,12 @@ function MeasureLast() {
         <>
           <span className="measure-last-text" title={`Measured on r${held.revision}, not kept: the agent is not told`}>
             Last: <span className="num">{valueText(held.measure, held.value)}</span> <span className="measure-how">{held.how}</span>
+            {componentsOf(held)?.map(([axis, text]) => (
+              <span key={axis} className="measure-delta">
+                {' '}
+                Δ{axis} <span className="num">{text}</span>
+              </span>
+            ))}
           </span>
           <button
             type="button"

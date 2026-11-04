@@ -32,7 +32,7 @@ from typing import Any
 import numpy as np
 
 from . import checks, extent, tess, topo
-from .queries import QueryError, WithBlob, box_of, boxed_exactly_of, need_layout, need_part, need_solid, volume_of
+from .queries import QueryError, WithBlob, box_of, boxed_exactly_of, need_layout, need_made, need_part, need_solid, volume_of
 
 FORMATS = ("step", "stl", "3mf")
 # How far a triangle of a mesh file may be from the faces it stands for, mm, by default; and the least and the most.
@@ -70,7 +70,7 @@ def export(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, Any] | 
     ``solids``, ``volume`` and ``volumeExact``; of a mesh its ``triangles`` (and each part's), ``tolerance`` and
     ``angle``. The file is the blob.
     """
-    asked = _asked(shapes, args)
+    asked = _asked(shapes, args, kept)
     format, layout, parts = asked["format"], asked["layout"], asked["parts"]
     told: list[dict[str, Any]] = []
     for name in parts:
@@ -125,7 +125,7 @@ def export_check(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, A
     part read back, ``objects`` says what was found (by name, in the order asked); ``volumeDeviation`` is the
     largest of theirs, in percent of the model's volume. Of a mesh, ``triangles`` is how many it has in all.
     """
-    asked = _asked(shapes, args)
+    asked = _asked(shapes, args, kept)
     path = args.get("path")
     if not isinstance(path, str) or not os.path.isabs(path):
         raise QueryError("bad_request", "export_check needs args.path, the whole path of the file to read")
@@ -151,7 +151,7 @@ def export_check(shapes: dict[str, Any], args: dict[str, Any], kept: dict[Any, A
 # What is asked
 
 
-def _asked(shapes: dict[str, Any], args: Any) -> dict[str, Any]:
+def _asked(shapes: dict[str, Any], args: Any, kept: dict[Any, Any] | None = None) -> dict[str, Any]:
     if not isinstance(args, dict):
         args = {}
     format = args.get("format")
@@ -168,6 +168,8 @@ def _asked(shapes: dict[str, Any], args: Any) -> dict[str, Any]:
     for part in parts:
         shape = need_part(shapes, layout, part)
         if format != "step":
+            # A mesh is of what is made: a bought part goes into a STEP when asked and into no mesh.
+            need_made(kept, f"{layout}:{part}", part, "a mesh file")
             need_solid(shape, part)
             loose = topo.loose_faces(shape)
             if loose:

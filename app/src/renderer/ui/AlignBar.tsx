@@ -1,8 +1,8 @@
 import { pressed } from '../../shared/keys'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { alignmentOf, alignmentText, standingOf } from '../../shared/scans'
+import { type ScanAlignment, alignmentOf, alignmentText, muchLarger, standingOf } from '../../shared/scans'
 import { useAgentHighlight } from '../state/agent'
-import { type AlignMode, alignStore, nextLine, proposed, scanInHand, setAlignMode, setAlignScan, useAlign } from '../state/align'
+import { type AlignMode, advanceAlign, alignStore, beginAlign, chooseAlignMode, nextLine, proposed, scanInHand, setAlignScan, stepsDone, useAlign } from '../state/align'
 import { store, useStore } from '../state/store'
 import { useTool } from '../state/tools'
 import { clearAlignment, declineRough, keepAlignment, undoAlignment } from '../tools/alignTool'
@@ -13,10 +13,10 @@ import { Confirm } from './Confirm'
 import { capital, numbered } from './numbered'
 import { chosen, pointerChoice } from './typing'
 
-const MODES: { mode: AlignMode; label: string; title: string }[] = [
-  { mode: 'floor', label: 'Floor', title: 'Lay a flat patch of the scan on the ground, or on a face of the model' },
-  { mode: 'pairs', label: 'Pairs', title: 'Click a point on the scan, then where it belongs on the model: three pairs fix the scan' },
-  { mode: 'nudge', label: 'Nudge', title: 'Move and turn the scan by its handles, or by typed values' }
+const MODES: { mode: AlignMode; label: string; title: string; purpose: string }[] = [
+  { mode: 'floor', label: 'Floor', title: 'Lay a flat patch of the scan on the ground, or on a face of the model', purpose: 'lays the scan level: how it lies, not where' },
+  { mode: 'pairs', label: 'Pairs', title: 'Click a point on the scan, then where it belongs on the model: three pairs fix the scan', purpose: 'three points on the scan and the same three on the model fix where it is' },
+  { mode: 'nudge', label: 'Nudge', title: 'Move and turn the scan by its handles, or by typed values', purpose: 'moves by hand; no build checks them' }
 ]
 const STEP_WORD = { floor: 'floor', pairs: 'pairs', nudge: 'nudge', typed: 'typed values' } as const
 
@@ -59,10 +59,13 @@ export function AlignBar() {
   const busy = state.sending !== null
   // Above the section's bar, the selection and what the agent points at: each has a row of its own at the bottom edge.
   const raised = (section ? 1 : 0) + (selected ? 1 : 0) + (pointedOut ? 1 : 0)
+  const surroundings = scan ? muchLarger(scan.imported, parts.map((part) => part.bbox)) : false
+  const done = stepsDone(current)
   const undo = current && current.before !== undefined ? STEP_WORD[current.steps[current.steps.length - 1]] : null
 
   return (
     <div className="alignbar" role="toolbar" aria-label="Align" data-raised={raised || undefined}>
+      <StepOn scan={scan?.id ?? null} alignment={current} surroundings={surroundings} />
       <div className="alignbar-head">
         {scans.length > 1 ? (
           <select
@@ -71,7 +74,9 @@ export function AlignBar() {
             value={scan?.id ?? ''}
             {...pointerChoice}
             onChange={(e) => {
-              setAlignScan(e.target.value || null)
+              const next = scans.find((one) => one.id === e.target.value)
+              if (next) beginAlign(next, alignmentOf(next, layout), muchLarger(next.imported, parts.map((part) => part.bbox)))
+              else setAlignScan(null)
               chosen(e.currentTarget)
             }}
           >
@@ -90,13 +95,26 @@ export function AlignBar() {
           )
         )}
         <div className="segmented" role="group" aria-label="How to align">
-          {MODES.map((m) => (
-            <button key={m.mode} type="button" title={m.title} aria-pressed={m.mode === state.mode} disabled={!scan} onClick={() => setAlignMode(m.mode)}>
+          {MODES.map((m, n) => (
+            <button key={m.mode} type="button" className="align-step" title={m.title} aria-pressed={m.mode === state.mode} data-done={scan && done[m.mode] ? '' : undefined} disabled={!scan} onClick={() => chooseAlignMode(m.mode)}>
+              <span className="num" aria-hidden="true">
+                {n + 1}
+              </span>{' '}
               {m.label}
+              {scan && done[m.mode] && (
+                <span className="align-step-tick" role="img" aria-label="done">
+                  ✓
+                </span>
+              )}
             </button>
           ))}
         </div>
       </div>
+      {scan && (
+        <p className="alignbar-purpose" data-part="purpose">
+          {MODES.find((m) => m.mode === state.mode)?.purpose}
+        </p>
+      )}
 
       <p className="alignbar-next" role="status">
         {nextLine(state, scan, scans.length, current, { visible: !hidden })}
@@ -228,4 +246,20 @@ export function numberedNames(names: string[]): ReactNode[] {
       {name}
     </span>
   ])
+}
+
+/**
+ * Draws nothing. A step done for the scan in hand (a floor, pairs) moves the bar on to the next, once; a step by
+ * hand never does, since it is never the last.
+ */
+function StepOn({ scan, alignment, surroundings }: { scan: string | null; alignment: ScanAlignment | null; surroundings: boolean }) {
+  const steps = alignment?.steps.length ?? 0
+  const seen = useRef({ scan, steps })
+  useEffect(() => {
+    const was = seen.current
+    seen.current = { scan, steps }
+    const last = alignment?.steps[steps - 1]
+    if (scan !== null && was.scan === scan && steps > was.steps && last !== 'nudge' && last !== 'typed') advanceAlign(scan, alignment, surroundings)
+  })
+  return null
 }

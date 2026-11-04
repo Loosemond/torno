@@ -9,6 +9,7 @@ import { instructionsLine } from '../shared/instructions'
 import type { ScanAlignment, ScanInfo } from '../shared/scans'
 import { probe } from '../test/diagnosisFixtures'
 import { buildContextFor, CONTEXT_LIMIT, contextFor, modelOutput, tellsInstructions, type ContextDeps } from './context'
+import { STARTER_MATERIALS, printerOf } from '../shared/profile'
 
 const BRACKET: ObjectInfo = { id: 'bracket', name: 'bracket', dir: '/ws/bracket', model: 'bracket.py' }
 
@@ -1027,6 +1028,12 @@ describe('the digest of the build of an edit', () => {
     expect(told.digest?.parts.map((p) => p.name)).toEqual(['base'])
   })
 
+  it('is left out when an eval run takes it away (digest: false), the rest as ever', () => {
+    const told = buildContextFor({ ...withBuilds(), digest: false }, 'bracket')
+    expect(told.text).toBe([STATUS, 'Model printed (last 1 line):', 'volume: 6000'].join('\n'))
+    expect(told.digest).toBeUndefined()
+  })
+
   it('comes before the dimensions, and says a dimension that passed on the build before and fails now', () => {
     const dim = (n: number, over: object): Mark =>
       ({ id: `M${n}`, kind: 'dimension', author: 'user', note: '', status: 'sent', sentBefore: true, anchorState: 'ok', layout: 'assembly', revision: 4, camera: CAMERA, createdAt: '', checkedRevision: 4, measure: 'diameter', a: { point: [n, 0, 5], part: 'base', ref: 'base/F9' }, value: 8, how: 'cylinder', measuredRevision: 4, expected: 8, tolerance: 0.05, ...over }) as unknown as Mark
@@ -1048,6 +1055,29 @@ describe('the digest of the build of an edit', () => {
     expect(lines.slice(0, 3)).toEqual([STATUS, "Changed since r3: no part's volume, size or faces (2 as they were).", 'Check: M4 FAIL, passed on r3.'])
     expect(lines[3]).toBe('Dimensions (measured on r4):')
     expect(told.digest?.dimensions).toEqual([{ id: 'M4', was: 'pass', now: 'fail' }])
+  })
+
+  it('tells the assumed sizes when that set changes, and not otherwise', () => {
+    const param = (name: string, value: number, doc: string | null) => ({ name, type: 'float', default: value, literal: true, doc })
+    const a: Scene = { ...R3, params: [param('wall', 2, 'assumed: perimeters'), param('w', 60, 'brief: asked'), param('c', 1, null)] }
+    const same: Scene = { ...R4, params: a.params as NonNullable<Scene['params']> }
+    const less: Scene = { ...R4, params: [param('wall', 2, 'brief: asked'), param('w', 60, 'brief: asked'), param('c', 1, null)] }
+    const LINE = 'Assumed: wall 2 (1 of 3 sizes); no source: 1'
+    expect(buildContextFor(withBuilds({ kept: [{ revision: 3, scene: R3 }, { revision: 4, scene: same }] }), 'bracket').text).toContain(LINE)
+    expect(buildContextFor(withBuilds({ kept: [{ revision: 3, scene: a }, { revision: 4, scene: same }] }), 'bracket').text).not.toContain('Assumed')
+    expect(buildContextFor(withBuilds({ kept: [{ revision: 3, scene: a }, { revision: 4, scene: less }] }), 'bracket').text).toContain('No source: 1 of 3 sizes')
+  })
+
+  it("says every time that the build is made with Params the person tried, and what was let go of", () => {
+    const param = (name: string, def: number, value: number) => ({ name, type: 'float', default: def, value, literal: true, doc: null, editable: 'float' as const })
+    const tried: Scene = { ...SCENE, params: [param('wall', 2, 2.4), param('lip', 3, 3)] }
+    for (const make of [contextFor, buildContextFor]) {
+      const lines = make(withBuilds({ kept: [{ revision: 3, scene: tried }] }), 'bracket').text.split('\n')
+      expect(lines[1]).toBe('Params tried by the person (this build is made with them; the model file says otherwise): wall 2.4 (file 2). To make one the default, edit it in the model.')
+    }
+    const gone: Scene = { ...SCENE, params: [param('wall', 2.2, 2.2)], overrides: { applied: {}, dropped: [{ name: 'wall', reason: 'the file wins' }] } }
+    expect(contextFor(withBuilds({ kept: [{ revision: 3, scene: gone }] }), 'bracket').text).toContain('Params overrides let go of: wall (the file wins).')
+    expect(contextFor(withBuilds({ kept: [{ revision: 3, scene: SCENE }] }), 'bracket').text).not.toContain('Params tried')
   })
 
   it('of a first build, is the check alone', () => {
@@ -1132,5 +1162,57 @@ describe('a failed fillet', () => {
     }
     // What is cut of the edges is counted.
     expect(textFor(deps({ build, scene: SCENE }), 'bracket')).toMatch(/\nand \d+ more edges\n/)
+  })
+})
+
+// #53: the checks the model declares are told after the person's dimensions, never as "verified".
+describe('the checks the model declares', () => {
+  const build: BuildState = { objectId: 'bracket', status: 'ok', revision: 4, seconds: 0.5, stale: false }
+  const fits = { name: 'lid fits the tub', kind: 'clearance', status: 'fail' as const, value: 0.12, unit: 'mm', min: 0.15, max: 0.25, exact: true }
+  const walls = { name: 'walls', kind: 'thin', status: 'pass' as const, value: null, unit: 'mm', min: 1.2, max: null, exact: false }
+  const gap = { name: 'gap', kind: 'clearance', status: 'pass' as const, value: 0.2, unit: 'mm', min: 0.1, max: 0.3, exact: true }
+  const dimension = {
+    id: 'M8', kind: 'dimension', measure: 'diameter', author: 'user', note: '', status: 'sent', anchorState: 'ok', layout: 'assembly', revision: 4, camera: CAMERA, createdAt: '', checkedRevision: 4,
+    value: 7, expected: 8, tolerance: 0.05, measuredRevision: 4, anchor: { ref: 'base/F9' }
+  } as unknown as Mark
+
+  it('are told in a line under the build, with what did not pass named and a pass never called verified', () => {
+    const text = textFor(deps({ build, scene: { ...SCENE, checks: [fits, walls, gap] } }), 'bracket')
+    expect(text.split('\n').at(-1)).toBe("Checks (the model's own, on r4): 2 pass, 1 fails (1 of the passes by sampling or approximate): lid fits the tub (0.12 mm, wanted 0.15 to 0.25 mm)")
+    expect(text).not.toMatch(/verified/i)
+  })
+  it('come after the dimensions of the person, and the same after an edit', () => {
+    const scene = { ...SCENE, checks: [fits] }
+    const told = contextFor(deps({ build, scene }), 'bracket', [dimension]).text.split('\n')
+    expect(told.findIndex((l) => l.startsWith('Checks'))).toBeGreaterThan(told.findIndex((l) => l.startsWith('Dimensions')))
+    expect(buildContextFor(deps({ build, scene }), 'bracket', [dimension]).text).toContain('Checks (the model')
+  })
+  it('say while a build runs that they are not of the last edit', () => {
+    const running = { objectId: 'bracket', status: 'building', revision: 4, stale: false } as BuildState
+    expect(textFor(deps({ build: running, scene: { ...SCENE, checks: [fits] }, revision: 4 }), 'bracket')).toContain('[a build is running, so these are not of your last edit]')
+  })
+  it('are not mentioned when the model declares none', () => {
+    expect(textFor(deps({ build, scene: { ...SCENE, checks: [] } }), 'bracket')).not.toContain('Checks')
+    expect(textFor(deps({ build, scene: SCENE }), 'bracket')).not.toContain('Checks')
+  })
+  it('keep the context within its limit with many of them', () => {
+    const many = Array.from({ length: 60 }, (_, i) => ({ ...fits, name: `check number ${i} with a long name` }))
+    expect(textFor(deps({ build, scene: { ...SCENE, checks: many } }), 'bracket').length).toBeLessThanOrEqual(CONTEXT_LIMIT)
+  })
+})
+
+describe('the print profile of a new conversation', () => {
+  const OK: BuildState = { objectId: 'bracket', status: 'ok', revision: 1, seconds: 0.5, stale: false }
+  const profile = { printer: printerOf({ name: 'Bambu X1C', bed: [256, 256, 250], nozzle: 0.4 })!, material: STARTER_MATERIALS[1] }
+  it('is told in one line, in a new conversation only', () => {
+    const d = { ...deps({ build: OK, scene: SCENE }), profile: () => profile }
+    const fresh = contextFor(d, 'bracket', [], { fresh: true }).text.split('\n')
+    expect(fresh.filter((l) => l.startsWith('Print profile of this project')).length).toBe(1)
+    expect(fresh.join('\n')).toContain('Bambu X1C')
+    expect(contextFor(d, 'bracket').text).not.toContain('Print profile')
+    expect(contextFor(d, 'bracket', [], { newConversation: true, buildOnly: true } as never).text).not.toContain('Print profile')
+  })
+  it('is not told when the project has none', () => {
+    expect(contextFor(deps({ build: OK, scene: SCENE }), 'bracket', [], { fresh: true }).text).not.toContain('Print profile')
   })
 })

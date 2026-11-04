@@ -28,6 +28,14 @@ declare global {
       project(point: [number, number, number], part?: string): [number, number]
       /** Whether the viewport draws the parts apart now, or is on its way there or back. */
       exploded(): boolean
+      /** Whether the parts are drawn faded (older than the latest build attempt, and that has run a while or failed). */
+      faded(): boolean
+      /** The keys (`layout:name`) of the parts the old edges and the new are drawn for after a build landed; empty once they are gone. */
+      ghosts(): string[]
+      /** The keys of the parts of the earlier build drawn over the current one (the history sheet); empty when there is none. */
+      earlier(): string[]
+      /** Keeps the ghosts of the builds that land after this until a key or a click (for a capture of the window). */
+      holdGhosts(held: boolean): void
       /** Where the label of a mark is drawn, as such fractions, and whether it is in view; null for a mark that is not drawn. */
       markScreen(id: string): { x: number; y: number; visible: boolean } | null
       /** The mark whose chip the viewport rings as pointed at (its row or its chip hovered); null for none. */
@@ -36,6 +44,8 @@ declare global {
       highlighted(): Record<'hover' | 'selection' | 'agent' | 'userMark' | 'agentMark' | 'point', readonly string[]>
       /** The mark whose chip is drawn at a point of the canvas, in fractions of it: a press there is the chip's, whatever tool is in hand. Null for none. */
       chipAt(fx: number, fy: number): string | null
+      /** What the pointer is making, drawn now: a pending measurement, or the last one held (`held` is its value); null for none. */
+      draft(): { kind: string; from?: [number, number, number]; to?: [number, number, number] | null; held?: string } | null
       /** What a thumbnail of the build on show (or of a scene given, with its meshes) costs, drawn `count` times off screen as a card's picture is: the mean and the worst, in milliseconds, and the size of the PNG. */
       timeThumbnail(count?: number, given?: { scene: import('../shared/scene').Scene; blob: ArrayBuffer }): Promise<{ count: number; meanMs: number; worstMs: number; bytes: number }>
       /** The scans of the open object as the viewport has them: whether each mesh has come, where it stands, how it is drawn. */

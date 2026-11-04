@@ -9,6 +9,7 @@ import type { Part, Scene } from '../shared/scene'
 import type { SavedView } from '../shared/views'
 import type { ObjectInfo } from '../shared/workspace'
 import { probe } from '../test/diagnosisFixtures'
+import { STARTER_MATERIALS } from '../shared/profile'
 import { StateFiles, stateText, writtenLine } from './statefile'
 
 const part = (layout: string, name: string, min: number[], max: number[]): Part => ({ key: `${layout}:${name}`, name, layout, bbox: { min, max }, bboxExact: true, volumeExact: true }) as Part
@@ -47,6 +48,31 @@ afterEach(() => {
 })
 
 describe('stateText', () => {
+  it('lists the checks of the model and what was made easier to pass', () => {
+    const fits = { name: 'lid fits', kind: 'clearance', status: 'fail' as const, value: 0.12, unit: 'mm', min: 0.15, max: 0.25, exact: true, how: 'least distance between the parts' }
+    const note = { name: 'walls', what: 'loosened' as const, text: 'walls: min 1.2 → 0.6 mm', since: 2, from: fits }
+    const text = stateText(obj, OK, { revision: 3, scene: { ...SCENE, checks: [fits], checkNotes: [note] } }, [])
+    expect(text).toContain('## Checks')
+    expect(text).toContain('- FAIL: lid fits (0.12 mm, wanted 0.15 to 0.25 mm); exact: least distance between the parts')
+    expect(text).toContain('- walls: min 1.2 → 0.6 mm (since r2)')
+    expect(stateText(obj, OK, { revision: 3, scene: SCENE }, [])).not.toContain('## Checks')
+  })
+  it('lists the sizes of Params with where the model says each comes from', () => {
+    const param = (name: string, value: number, doc: string | null) => ({ name, type: 'float', default: value, literal: true, doc })
+    const scene = { ...SCENE, params: [param('wall', 2, 'assumed: perimeters'), param('w', 60, 'brief: asked'), param('c', 1, null)] }
+    const text = stateText(obj, OK, { revision: 3, scene }, [])
+    expect(text).toContain('## Params')
+    expect(text).toContain('- wall = 2: assumed\n- w = 60: brief\n- c = 1: no source')
+    expect(stateText(obj, OK, { revision: 3, scene: SCENE }, [])).not.toContain('## Params')
+  })
+
+  it('says which Params the person tried, in a section of its own', () => {
+    const param = (name: string, def: number, value: number) => ({ name, type: 'float', default: def, value, literal: true, doc: null })
+    const text = stateText(obj, OK, { revision: 3, scene: { ...SCENE, params: [param('wall', 2, 2.4), param('lip', 3, 3)] } }, [])
+    expect(text).toContain('## Params tried\n\nParams tried by the person (this build is made with them; the model file says otherwise): wall 2.4 (file 2).')
+    expect(stateText(obj, OK, { revision: 3, scene: { ...SCENE, params: [param('wall', 2, 2)] } }, [])).not.toContain('Params tried')
+  })
+
   it('writes the digest of a build that worked under it, naming the tools as tools', () => {
     const sound = (name: string, more: Partial<Part> = {}): Part => ({ ...part('assembly', name, [0, 0, 0], [10, 10, 10]), volume: 1000, faceCount: 6, edgeCount: 12, valid: true, solids: 1, openShells: 0, ...more }) as Part
     const before = { revision: 2, scene: { ...SCENE, layouts: ['assembly'], parts: [sound('base'), sound('post')] } }
@@ -71,6 +97,12 @@ describe('stateText', () => {
     expect(stateText(obj, OK, { revision: 3, scene: SCENE }, [])).not.toContain('≈')
   })
 
+  it('marks a reference (a bought part) in the list of parts', () => {
+    const parts = [part('assembly', 'base', [0, 0, 0], [10, 10, 2]), { ...part('assembly', '608', [0, 0, 0], [22, 22, 7]), role: 'reference' as const }]
+    const text = stateText(obj, OK, { revision: 3, scene: { ...SCENE, layouts: ['assembly'], parts } }, [])
+    expect(text).toContain('- assembly: base 10 × 10 × 2 mm, 608 (reference) 22 × 22 × 7 mm')
+  })
+
   it("names the model's groups of parts in each layout that has any of their parts, before the parts", () => {
     const parts = [part('assembly', 'flat-a', [0, 0, 0], [10, 10, 2]), part('assembly', 'flat-b', [20, 0, 0], [30, 10, 2]), part('assembly', 'key', [0, 30, 0], [4, 34, 4]), part('print', 'key', [0, 30, 0], [4, 34, 4])]
     const scene = { ...SCENE, layouts: ['assembly', 'print'], parts, groups: [{ name: 'flat', parts: ['flat-a', 'flat-b'] }] }
@@ -89,6 +121,13 @@ describe('stateText', () => {
     expect(text).toContain('- print: base 40 × 30 × 5 mm\n\nSaved views: "Hinge side", "Wall at the latch" (proposed by the agent), "Kept", "Old" (of layout bed, which the model no longer has), "Less" (hides clip, which layout assembly no longer has).\n\n## Marks')
     // Before anything is built, nothing can be said to be gone.
     expect(stateText(obj, OK, undefined, [], undefined, [view('Old', { layout: 'bed' })])).toContain('Saved views: "Old".')
+  })
+
+  it('names the files the model imported from beside its project', () => {
+    expect(stateText(obj, OK, { revision: 3, scene: SCENE }, [])).not.toContain('Uses:')
+    expect(stateText(obj, OK, { revision: 3, scene: { ...SCENE, uses: ['box/box.py', 'common/fit.py'] } }, [])).toContain(
+      'Model: bracket.py, r3.\n\nUses: box/box.py, common/fit.py (a save in one builds this project again).\n\n- assembly'
+    )
   })
 
   it('says how the build stands, what each layout holds and every mark that is not resolved', () => {
@@ -373,5 +412,16 @@ describe('StateFiles', () => {
     fail = false
     failing.changed('bracket')
     await vi.waitFor(() => expect(writes).toBe(1))
+  })
+})
+
+describe('the print profile in the state file', () => {
+  const obj = { id: 'bracket', name: 'bracket', dir: '/ws/bracket', model: 'bracket.py' } as ObjectInfo
+  it('is a section when the project has one, and nothing otherwise', () => {
+    const OK: BuildState = { objectId: 'bracket', status: 'ok', revision: 3, seconds: 1, stale: false }
+    const text = stateText(obj, OK, undefined, [], undefined, undefined, undefined, { material: STARTER_MATERIALS[1] })
+    expect(text).toContain('## Print profile')
+    expect(text).toContain('material PETG')
+    expect(stateText(obj, OK, undefined, [])).not.toContain('Print profile')
   })
 })

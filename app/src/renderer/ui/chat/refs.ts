@@ -1,4 +1,5 @@
 import { markAnchors } from '../../../shared/marks'
+import { splitTagRef, tagRefs } from '../../../shared/tags'
 import { layerOf, type TornoState } from '../../state/store'
 
 /** What a ref shown in the chat is, and what the window can do with it. */
@@ -43,6 +44,20 @@ export function refInfo(s: RefState, value: string): RefInfo {
     const failed = shown && s.build?.status === 'failed' && s.build.error !== undefined
     const title = shown ? `Build ${value}, the one on show${failed ? '; the build after it failed: show why' : ''}` : `Build ${value}`
     return { kind: 'build', live: failed, lights: [], plain: n < 1 || n > s.revision, ...(failed ? { act: 'build' as const } : {}), title }
+  }
+  const tagged = splitTagRef(value)
+  if (tagged) {
+    // A face or an edge the model names (`lid/@top`): it lights and selects what it names now, one face or several.
+    const part = s.scene?.parts.find((p) => p.layout === s.layout && p.name === tagged.part)
+    const no = (title: string): RefInfo => ({ kind: 'geometry', live: false, lights: [], plain: false, title })
+    if (!part) {
+      const anywhere = s.scene?.parts.some((p) => p.name === tagged.part) === true
+      return { ...no(`${value} is not in the layout shown (${s.layout})`), plain: !anywhere }
+    }
+    if (layerOf(s.layers, part.name)?.visible === false) return no(`${value} is on a part that is switched off`)
+    const refs = tagRefs(part, tagged.tag)
+    if (!refs) return no(`${part.name} has no tag @${tagged.tag} in this build`)
+    return { kind: 'geometry', live: true, lights: refs, plain: false, act: 'select', title: `Select ${value}${refs.length > 1 ? ` (${refs.length} faces and edges)` : ` (${refs[0]})`}` }
   }
   const sub = /^(.*)\/([FE])(\d+)$/.exec(value)
   if (!sub) return { kind: 'none', live: false, lights: [], plain: true, title: value }

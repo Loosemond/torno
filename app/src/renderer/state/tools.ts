@@ -41,7 +41,18 @@ export const ROUND: { measure: RoundMeasure; label: string; title: string }[] = 
   { measure: 'radius', label: 'Radius', title: 'A double click on a hole, a cylinder or a circle measures its radius' }
 ]
 
+/** What a click of the Select tool takes: whatever is under the pointer, a face, an edge, or the whole part. */
+export type SelectScope = 'any' | 'face' | 'edge' | 'part'
+export const SELECT_SCOPES: { scope: SelectScope; label: string; title: string }[] = [
+  { scope: 'any', label: 'Any', title: 'A click takes the face or the edge under the pointer; a double click takes the whole part' },
+  { scope: 'face', label: 'Face', title: 'A click takes a face; edges are passed over' },
+  { scope: 'edge', label: 'Edge', title: 'A click takes an edge; faces are passed over' },
+  { scope: 'part', label: 'Part', title: 'A click takes the whole part under the pointer' }
+]
+
 interface ToolState {
+  /** What a click of the Select tool takes. */
+  selectScope: SelectScope
   /** Which tool the pointer works as in the viewport. */
   tool: ToolName
   /** The shape the Shape tool places: the one last chosen. */
@@ -61,7 +72,7 @@ interface ToolState {
 }
 
 /** What the pointer does in the viewport. It changes on a click or a key, never on a pointer move. */
-export const toolStore = createStore<ToolState>(() => ({ tool: 'select', shape: 'box', gizmo: 'translate', replacing: null, between: 'distance', round: 'diameter' }))
+export const toolStore = createStore<ToolState>(() => ({ tool: 'select', shape: 'box', gizmo: 'translate', replacing: null, between: 'distance', round: 'diameter', selectScope: 'any' }))
 
 export function useTool(): ToolName {
   return useZustand(toolStore, (s) => s.tool)
@@ -81,6 +92,15 @@ export function useBetween(): BetweenMeasure {
 
 export function useRound(): RoundMeasure {
   return useZustand(toolStore, (s) => s.round)
+}
+
+export function useSelectScope(): SelectScope {
+  return useZustand(toolStore, (s) => s.selectScope)
+}
+
+/** Choose what a click of the Select tool takes. */
+export function setSelectScope(selectScope: SelectScope): void {
+  toolStore.setState({ selectScope })
 }
 
 /** Choose what two picks of the Measure tool measure: also of the pair whose second pick is pending. */

@@ -4,9 +4,11 @@ import { homedir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import type { BuildState } from '../shared/build'
-import { EXPORT_FORMATS, EXTENSIONS, FORMAT_NAMES, type ExportFormat, type ExportPlan, type ExportRequest, type ExportSaved, type ModelFormat } from '../shared/exportdata'
+import { EXPORT_FORMATS, EXTENSIONS, FORMAT_NAMES, type FileFormat, type ExportPlan, type ExportRequest, type ExportSaved, type ModelFormat } from '../shared/exportdata'
 import type { Described, MeasureProbe, MeasuredOnce } from '../shared/geometry'
+import type { BuildIdentity } from '../shared/git'
 import type { MarkPatch, NewMark, NewRegion, Replacement } from '../shared/marks'
+import { STEP_FORMATS } from '../shared/objectName'
 import { type AlignMade, type NewAlignment, type ScanInfo, type ScanUnit, type ScanUp, SCAN_FORMATS, alignmentOf, standingOf } from '../shared/scans'
 import type { Scene } from '../shared/scene'
 import type { SceneFile } from '../shared/scenefile'
@@ -14,34 +16,50 @@ import type { ObjectCard, ThumbnailOf } from '../shared/show'
 import type { ViewState } from '../shared/view'
 import type { ObjectInfo, RecentFolder, WorkspaceInfo } from '../shared/workspace'
 import { Builds, buildTimeout, watchFolder } from './builds'
+import { BuildLog } from './buildlog'
+import { RecentMeshes } from './meshes'
+import { History, readHistory, readHistoryScene, readHistorySource, readHistoryThumb } from './history'
+import type { HistoryEntry, HistoryGhost, HistoryList } from '../shared/history'
+import type { Verdict } from '../shared/sanity'
+import { gitStateRecently } from './git'
+import { keepExample } from './example'
 import { type ExportDeps, exportFile, exportPlan, forgetExportScans } from './export/build'
 import { loadAssets } from './export/html'
 import { type ModelDeps, checkModelFile, makeModelFile } from './export/model'
 import { defaultExportPath, exportPath, prepareExports, writeExport } from './export/save'
+import { checkedPicture } from './export/picture'
+import { makeSectionDrawing } from './export/section'
+import { pdfOfSvg } from './export/pdf'
 import { type InstructionList } from './instructions'
-import { KernelError, type KernelClient, startKernel } from './kernel/client'
+import { KernelError, type KernelClient, type TrialResult, startKernel } from './kernel/client'
 import { toArrayBuffer } from './kernel/frames'
-import { forgetViews, reportView, resolveRequest } from './look'
+import { forgetViews, latestView, reportView, resolveRequest } from './look'
 import { type AskedAnchor, type Retrying, asPlaced, asReplaced, checkMarks, followMarks, nearestReply, retrying } from './marks/reanchor'
 import { addDimension, dueAfterEdit, measureOnce, remeasure } from './marks/measure'
-import { type RegionDeps, addRegion, convertScan, removeMark, repaintRegion, tendRegions } from './marks/regions'
+import { type RegionDeps, addRegion, convertScan, removeMark, repaintRegion, restoreMark, tendRegions } from './marks/regions'
 import type { MarkStore } from './marks/store'
 import { kernelDir, kernelRun } from './paths'
 import { Refusal, refusable } from './refusal'
 import { type AlignCheckDeps, checkingAlignments, heldNow, keepChecking, tiedToMoved, uncheckedOn } from './scans/alignCheck'
 import { frameOf } from './scans/alignments'
 import type { ScanStore } from './scans/store'
+import { forgetParamFiles, overrideValues, reconcile, resetOverrides, setOverride } from './paramsfile'
 import { forgetSceneFiles, loadSceneFile, saveSceneFile, sceneFileNow } from './scenefile'
-import { EFFORTS, isEffort, MODEL_ALIASES, MODEL_NAME, type ChatAnswer } from '../shared/chat'
-import type { AgentView, CreateRequest, OnboardDraft } from '../shared/bridge'
+import { EFFORTS, isEffort, isMode, MODES, MODEL_ALIASES, MODEL_NAME, type ChatAnswer } from '../shared/chat'
+import type { AgentView, CreateRequest, OnboardDraft, PromptPreviewDraft } from '../shared/bridge'
 import { readChoice, writeChoice } from './sessions/choice'
 import { drawingOf } from './sessions/drawing'
+import type { Asks } from './asks'
 import type { Sessions } from './sessions/manager'
 import type { KnownModels } from './sessions/models'
+import { type UserProfiles, projectProfile, setProjectProfile } from './profile'
+import { type Profile, profileOf } from '../shared/profile'
+import { lastConversation } from './sessions/chatlog'
 import { readReference } from './sessions/reference'
+import { storedConversation } from './sessions/resume'
 import { sessionOfWorkspace } from './sessions/status'
 import { type KeepDeps, cardsOf, keepThumbnail, newestPython, thumbnailOnFile } from './show/cards'
-import { onboardObject, sessionRunning } from './onboard'
+import { onboardObject, previewPrompt, sessionRunning } from './onboard'
 import { createObject, readPhoto, sweepStaleNew } from './objects/create'
 import { Offered } from './objects/offered'
 import { scanOrder, scanWorkspace } from './workspace'
@@ -59,22 +77,23 @@ function handle(channel: string, fn: (event: Electron.IpcMainInvokeEvent, ...arg
 
 // Channel names, repeated in src/preload/index.ts.
 //   invoke: workspace:current, workspace:pick, workspace:open, workspace:versions, ready:check, ready:make,
-//           workspace:recent, workspace:forget, workspace:hasExample, workspace:openExample,
+//           history:list, history:thumbnail, history:source, history:ghost, history:star,
+//           workspace:recent, workspace:forget, workspace:hasExample, workspace:openExample, workspace:keepExample,
 //           object:open, object:rebuild, object:sceneFile,
 //           session:current, session:start, session:trust, session:instructions, session:revealInstruction, session:stop, session:chooseView,
-//           chat:history, chat:reference, chat:send, chat:interrupt, chat:setModel, chat:setEffort, chat:models,
-//           marks:list, marks:add, marks:update, marks:acknowledge, marks:remove, marks:replace, marks:problem (also sent to the renderer),
+//           chat:history, chat:lastConversation, chat:reference, chat:changes, chat:undo, chat:send, chat:interrupt, chat:setModel, chat:setEffort, chat:models, profile:choices, profile:savePrinter, profile:saveMaterial, profile:get, profile:set,
+//           marks:list, marks:add, marks:update, marks:acknowledge, marks:remove, marks:restore, marks:replace, marks:problem (also sent to the renderer),
 //           marks:dismissProblem, geometry:describe, geometry:measure,
-//           scans:list, scans:pick, scans:import, scans:convert, scans:rename, scans:remove, scans:align, scans:mesh,
+//           asks:list, scans:list, scans:pick, scans:import, scans:convert, scans:rename, scans:remove, scans:align, scans:mesh,
 //           scans:problem (also sent to the renderer), scans:dismissProblem, scans:reimport, scans:undoAlign, scans:alignHolds,
-//           objects:pickPhotos, objects:readPhoto, objects:create, objects:onboard, objects:taken, show:cards, show:thumbnail, export:plan, export:save
+//           objects:pickPhotos, objects:pickStep, objects:readPhoto, objects:create, objects:onboard, objects:previewPrompt, objects:taken, show:cards, show:thumbnail, export:plan, export:save, export:savePicture, export:saveSection
 //   from the renderer: export:done, show:saveThumbnail, object:saveSceneFile, view:report, view:lookReply, view:showReply, view:highlightReply,
 //           view:drawSectionReply, view:saveViewReply, session:write, session:resize, session:insert,
-//           chat:answer
+//           chat:answer, asks:answer
 //   to the renderer: object:build, object:scene, view:look, view:show, view:highlight, view:drawSection, view:saveView (sent by src/main/look.ts),
 //           session:data, session:status, chat:item, chat:meta, chat:capabilities, workspace:requested and window:closeAsked (sent by src/main/index.ts,
 //           which hears the answer, window:closeAnswer),
-//           ready:changed, marks:changed, marks:problem, scans:changed, scans:progress, scans:problem, show:changed
+//           ready:changed, marks:changed, marks:problem, scans:changed, scans:progress, scans:problem, show:changed, asks:changed (sent by src/main/index.ts), history:changed
 
 /** The longest prompt the window may send. */
 const MAX_PROMPT_CHARS = 200_000
@@ -98,6 +117,11 @@ interface OpenWorkspace {
   /** By object: when the build that is running, or was last run, was started (ms epoch), and which build its last good scene came of. */
   started: Map<string, number>
   builtFrom: Map<string, { revision: number; startedMs: number | undefined }>
+  /** What each successful build of this run was made from, and `.torno/builds.jsonl` (`main/buildlog.ts`). */
+  buildLog: BuildLog
+  history: History
+  /** The meshes of the builds of this run, for the ghost of a kept build (`main/meshes.ts`). */
+  meshes: RecentMeshes
 }
 
 let current: OpenWorkspace | null = null
@@ -106,6 +130,7 @@ const offered = new Offered()
 
 /** The agent sessions, once `registerIpc` has been given them. They belong to the objects of the open workspace. */
 let sessions: Sessions | null = null
+let asks: Asks | null = null
 
 /** The marks of the objects of the open workspace, once `registerIpc` has been given them. */
 let marks: MarkStore | null = null
@@ -188,7 +213,9 @@ function cards(): Promise<ObjectCard[]> {
     },
     readFile: (path) => readFile(path, 'utf8'),
     sourcesMtimeMs: newestPython,
-    size: (path) => stat(path).then((s) => s.size, () => null)
+    uses: (id) => ws.builds.scene(id)?.scene.uses ?? [],
+    size: (path) => stat(path).then((s) => s.size, () => null),
+    git: (dir) => gitStateRecently(dir)
   })
 }
 
@@ -200,7 +227,8 @@ const keeping: KeepDeps = {
     const revision = current?.builds.scene(id)?.revision
     if (revision === undefined) return undefined
     const built = current?.builtFrom.get(id)
-    return { revision, ...(built?.revision === revision && built.startedMs !== undefined ? { startedMs: built.startedMs } : {}) }
+    const uses = current?.builds.scene(id)?.scene.uses
+    return { revision, ...(built?.revision === revision && built.startedMs !== undefined ? { startedMs: built.startedMs } : {}), ...(uses ? { uses } : {}) }
   }
 }
 
@@ -218,6 +246,7 @@ export async function openWorkspace(root: string, opts: { example?: boolean } = 
   const builds: Builds = new Builds({
     kernel,
     timeout: buildTimeout(process.env),
+    overrides: { values: overrideValues, reconcile },
     // Which file is an object's model can change with its folder's contents (a
     // first candidate added, the model renamed), so a change there is a reason
     // to choose again before building. The choice is `builds.choice`: an open
@@ -231,7 +260,12 @@ export async function openWorkspace(root: string, opts: { example?: boolean } = 
         })
       })
   })
-  const ws: OpenWorkspace = { info, scan: scanOrder(), kernel, builds, opened: new Set(), shown: null, started: new Map(), builtFrom: new Map() }
+  const ws: OpenWorkspace = { info, scan: scanOrder(), kernel, builds, opened: new Set(), shown: null, started: new Map(), builtFrom: new Map(), buildLog: new BuildLog(), history: new History(), meshes: new RecentMeshes() }
+  // The window is told when an object's history changed (a build kept, a picture or a star added).
+  ws.history.onChange((dir) => {
+    const obj = ws.info.objects.find((o) => o.dir === dir)
+    if (obj) broadcast('history:changed', obj.id)
+  })
   builds.on('build', (state) => {
     if (state.status === 'building' && state.startedAt !== undefined) ws.started.set(state.objectId, state.startedAt)
     broadcast('object:build', state)
@@ -239,8 +273,17 @@ export async function openWorkspace(root: string, opts: { example?: boolean } = 
     cardsChanged()
   })
   builds.on('scene', ({ objectId, revision, scene, blob }) => {
+    ws.meshes.keep(objectId, revision, { scene, blob })
     // Which build this scene came of: the one started last. A picture of it is no newer than the model was then.
     ws.builtFrom.set(objectId, { revision, startedMs: ws.started.get(objectId) })
+    // What it was made from is found and kept (the sources hashed, git read), and a line is added to `builds.jsonl`.
+    const obj = ws.info.objects.find((o) => o.id === objectId)
+    if (obj) {
+      const made = ws.buildLog.record(obj, revision, scene)
+      void made.catch(() => {})
+      // And the build is kept in the object's history (`.torno/history/`), in the order the builds landed.
+      void ws.history.keep(obj, made, scene)
+    }
     broadcast('object:scene', { objectId, revision, scene, blob: toArrayBuffer(blob) })
   })
   // Every successful build may have renumbered the faces, moved the surfaces or dropped the parts that
@@ -340,6 +383,7 @@ export async function closeWorkspace(): Promise<void> {
   offered.clear()
   forgetViews()
   forgetSceneFiles()
+  forgetParamFiles()
   forgetExportScans()
   // A check of its marks that failed is not tried again: its timers would outlive it.
   ws.reanchor?.cancel()
@@ -383,10 +427,47 @@ export function buildState(id: string): BuildState | undefined {
   return current?.builds.state(id)
 }
 
+/** How long a tool waits for the builds that just landed to be written into the history. */
+const HISTORY_WAIT_MS = 2000
+
+/** The builds kept of an object (`.torno/history/`), oldest first, once the ones that just landed are written, with the run of this torno. */
+export async function historyOf(id: string): Promise<{ run: string; entries: HistoryEntry[] } | null> {
+  const ws = current
+  const obj = findObject(id)
+  if (!ws || !obj) return null
+  let timer: NodeJS.Timeout | undefined
+  const late = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, HISTORY_WAIT_MS)
+  })
+  await Promise.race([ws.history.settled(), late])
+  clearTimeout(timer)
+  return { run: ws.buildLog.run, entries: await readHistory(obj.dir) }
+}
+
+/** The scene a kept build left (without its mesh). */
+export async function historySceneOf(id: string, historyId: string): Promise<Scene | null> {
+  const obj = findObject(id)
+  return obj ? readHistoryScene(obj.dir, historyId) : null
+}
+
+/** What the person's dimensions said of build `revision` of an object when it was last checked: kept with its entry in the history. */
+export function keepDimensions(id: string, revision: number | undefined, verdicts: ReadonlyMap<string, Verdict> | undefined): void {
+  const obj = findObject(id)
+  if (!current || !obj || revision === undefined || !verdicts) return
+  const counts = { pass: 0, fail: 0, none: 0 }
+  for (const v of verdicts.values()) counts[v] += 1
+  void current.history.dimensions(obj, current.buildLog.run, revision, counts)
+}
+
 /** The last successful build of an object. */
 /** The last two successful builds of an object, the older first (`diff`). */
 export function keptScenes(id: string): Array<{ revision: number; scene: Scene }> {
   return current?.builds.scenes(id) ?? []
+}
+
+/** What the build with this revision, made in this run, was made from: its sources' hash, the commit, whether files differed from it. */
+export function buildIdentity(id: string, revision: number): BuildIdentity | undefined {
+  return current?.buildLog.identity(id, revision)
 }
 
 export function lastScene(id: string): { revision: number; scene: Scene } | undefined {
@@ -415,6 +496,12 @@ export function queryObject<T = unknown>(id: string, name: string, args: object)
   return current.builds.query<T>(id, name, args)
 }
 
+/** The open workspace's trial of an object: its model built with other values of its `Params` in a worker the kernel throws away. */
+export function trialObject(id: string, set: Record<string, number | boolean | string>, queries: Array<{ name: string; args: object }>): Promise<TrialResult> {
+  if (!current) return Promise.reject(new KernelError('no_build', 'no workspace is open'))
+  return current.builds.trial(id, set, queries)
+}
+
 /**
  * `onWorkspaceChosen` is told the root of every workspace the person opens
  * from the window, so that it can be opened again at the next start.
@@ -433,8 +520,14 @@ export function registerIpc(
   opts: {
     onWorkspaceChosen?: (root: string) => void
     sessions?: Sessions
+    /** The questions of the agents that wait for the person. */
+    asks?: Asks
     /** The models the last chat's CLI offered, for a session not started yet. Absent: Claude Code's aliases. */
     knownModels?: KnownModels
+    /** The person's printers and materials (`profiles.json` beside the config file). */
+    userProfiles?: UserProfiles
+    /** The profile of an object changed: its state file is written anew. */
+    onProfile?: (objectId: string) => void
     marks?: MarkStore
     onBuild?: (state: BuildState) => void
     onMarksChecked?: (objectId: string, revision: number | undefined) => void
@@ -457,6 +550,7 @@ export function registerIpc(
     pickFile?: () => Promise<string | null>
     /** Stands in for the photo dialog of a new object: the files to add, or [] for none. */
     pickPhotos?: () => Promise<string[]>
+    pickStep?: () => Promise<string | null>
     /** Stands in for the save dialog of an export: given the path it would open on, the path to write, or null for none. */
     pickSave?: (defaultPath: string) => Promise<string | null>
     /** Stands in for the question asked before an export replaces a file the save dialog did not ask about: yes or no. */
@@ -485,6 +579,7 @@ export function registerIpc(
     return sessions
   }
 
+  asks = opts.asks ?? null
   onBuild = opts.onBuild ?? null
   onMarksChecked = opts.onMarksChecked ?? null
   onSceneFile = opts.onSceneFile ?? null
@@ -492,7 +587,7 @@ export function registerIpc(
   readiness = opts.ready ?? null
   readiness?.on('changed', (m) => broadcast('ready:changed', m))
   marks = opts.marks ?? null
-  marks?.on('changed', (m) => broadcast('marks:changed', m))
+  marks?.on('changed', (m) => broadcast('marks:changed', { ...m, marks: requireMarks().shown(m.objectId, m.marks) }))
   marks?.on('problem', (m) => broadcast('marks:problem', m))
   marks?.on('changed', () => cardsChanged())
   // A mark added, or reopened, has not been checked against the build there is: no build is on its way to do it.
@@ -536,6 +631,30 @@ export function registerIpc(
     if (!folder) throw new Error('this torno has no example beside it')
     return openWorkspace(folder, { example: true })
   })
+  // "Keep this as a folder": the open example copied, whole, to a new folder at a path the person chooses in the save dialog
+  // (under test `pickSave`), which is then opened and remembered like any folder they chose. Null when they chose none.
+  handle('workspace:keepExample', async (event): Promise<WorkspaceInfo | null> => {
+    const ws = requireWorkspace()
+    // The copy to keep is the open one, which main made: never a path from the window.
+    if (!ws.info.example) throw new Refusal('Only the example can be kept this way.')
+    const usual = join(homedir(), 'objects')
+    const defaultPath = join(existsSync(usual) ? usual : homedir(), 'torno-example')
+    let picked: string | null
+    if (opts.pickSave) picked = await opts.pickSave(defaultPath)
+    else {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      const options: Electron.SaveDialogOptions = { title: 'Keep this as a folder', buttonLabel: 'Keep', defaultPath, properties: ['createDirectory'] }
+      const answer = await (win ? dialog.showSaveDialog(win, options) : dialog.showSaveDialog(options))
+      picked = answer.canceled || !answer.filePath ? null : answer.filePath
+    }
+    if (picked === null) return null
+    try {
+      await keepExample(ws.info.root, picked)
+    } catch (e) {
+      throw new Refusal(e instanceof Error ? e.message : String(e))
+    }
+    return chosen(await openWorkspace(picked))
+  })
 
   handle('ready:check', async (_event, fresh: unknown) => {
     if (!readiness) throw new Error('readiness is not available')
@@ -575,6 +694,25 @@ export function registerIpc(
 
   handle('object:rebuild', (_event, id: string) => {
     requireWorkspace().builds.rebuild(id)
+  })
+
+  handle('object:setParam', async (_event, id: string, name: string, value: unknown) => {
+    const ws = requireWorkspace()
+    const obj = ws.info.objects.find((o) => o.id === id)
+    if (!obj) throw new Refusal(`no project named ${id}`)
+    const field = ws.builds.scene(id)?.scene.params?.find((p) => p.name === name)
+    if (!field) throw new Refusal(`${name} is not a field of the model's Params in the last build`)
+    if (!field.editable) throw new Refusal(`${name} cannot be tried here: only a number, a flag or a choice with a literal default can`)
+    await setOverride(obj.dir, name, value, field.default)
+    ws.builds.changed(id)
+  })
+
+  handle('object:resetParams', async (_event, id: string, name?: string) => {
+    const ws = requireWorkspace()
+    const obj = ws.info.objects.find((o) => o.id === id)
+    if (!obj) throw new Refusal(`no project named ${id}`)
+    await resetOverrides(obj.dir, name)
+    ws.builds.changed(id)
   })
 
   handle('object:sceneFile', (_event, id: string): Promise<SceneFile> => {
@@ -669,10 +807,29 @@ export function registerIpc(
     return history
   })
 
+  // What the pane with no session shows of the conversation it would go on with: read from `.torno/chat/`, nothing made.
+  handle('chat:lastConversation', async (_event, objectId: string) => {
+    const obj = findObject(String(objectId))
+    const stored = obj ? storedConversation(obj.dir) : null
+    return obj && stored !== null ? lastConversation(obj.dir, stored) : null
+  })
+
   handle('chat:reference', async (_event, sessionId: string, file: string) => {
     const chat = sessions?.chatOf(String(sessionId))
     if (!chat || !sessionOfWorkspace(chat, current?.info.root)) return null
     return readReference(chat.dir, String(file))
+  })
+
+  handle('chat:changes', async (_event, sessionId: string, turnId: string) => {
+    const chat = sessions?.chatOf(String(sessionId))
+    if (!chat || !sessionOfWorkspace(chat, current?.info.root) || typeof turnId !== 'string') return null
+    return (await sessions?.changesOf(String(sessionId), turnId)) ?? null
+  })
+
+  handle('chat:undo', async (_event, sessionId: string, turnId: string) => {
+    if (!ofThisWorkspace(String(sessionId))) throw new Refusal('This session has ended')
+    if (typeof turnId !== 'string') throw new Refusal('Nothing to undo')
+    await requireSessions().undoTurn(String(sessionId), turnId)
   })
 
   handle('chat:send', async (_event, sessionId: string, prompt: { text?: unknown; attachView?: unknown; attachedView?: unknown; drawing?: unknown }) => {
@@ -684,6 +841,12 @@ export function registerIpc(
     // The picture the window showed for "Attach view": the sessions check it as any picture for the agent.
     if (prompt.attachedView !== undefined && !(prompt.attachedView instanceof Uint8Array)) throw new Refusal('The picture of the view is not one')
     await requireSessions().send(String(sessionId), { text: prompt.text, attachView: prompt.attachView === true, ...(prompt.attachedView ? { attachedView: prompt.attachedView } : {}), ...(drawing ? { drawing } : {}) })
+  })
+
+  // The questions the agent put to the person (`ask`): the list for a window that has just begun, and the answer.
+  handle('asks:list', () => asks?.open() ?? [])
+  ipcMain.on('asks:answer', (_event, id: number, answer: unknown) => {
+    if (typeof id === 'number') asks?.answer(id, answer)
   })
 
   ipcMain.on('chat:answer', (_event, sessionId: string, requestId: string, answer: ChatAnswer) => {
@@ -706,10 +869,35 @@ export function registerIpc(
     if (!isEffort(effort)) throw new Refusal(`Not an effort: Claude Code takes ${EFFORTS.join(', ')}`)
     await requireSessions().setEffort(String(sessionId), effort)
   })
+  handle('chat:setMode', async (_event, sessionId: string, mode: string) => {
+    if (!ofThisWorkspace(String(sessionId))) throw new Refusal('This session has ended')
+    if (!isMode(mode)) throw new Refusal(`Not a mode: torno offers ${MODES.join(', ')}`)
+    await requireSessions().setMode(String(sessionId), mode)
+  })
   handle('chat:models', () => opts.knownModels?.list() ?? [...MODEL_ALIASES])
 
+  // The printer and material of a project (`.torno/profile.json`), and the person's own to choose from.
+  const requireProfiles = (): UserProfiles => {
+    if (!opts.userProfiles) throw new Refusal('Printers and materials are not kept here')
+    return opts.userProfiles
+  }
+  handle('profile:choices', () => opts.userProfiles?.list() ?? { printers: [], materials: [] })
+  handle('profile:savePrinter', (_event, printer: unknown) => requireProfiles().savePrinter(printer).catch((e: Error) => Promise.reject(new Refusal(e.message))))
+  handle('profile:saveMaterial', (_event, material: unknown) => requireProfiles().saveMaterial(material).catch((e: Error) => Promise.reject(new Refusal(e.message))))
+  handle('profile:get', (_event, objectId: string): Profile | null => {
+    const obj = findObject(String(objectId))
+    return (obj ? projectProfile(obj.dir) : undefined) ?? null
+  })
+  handle('profile:set', async (_event, objectId: string, profile: unknown): Promise<Profile | null> => {
+    const obj = findObject(String(objectId))
+    if (!obj) throw new Refusal('That project is not open')
+    const kept = await setProjectProfile(obj.dir, profileOf(profile))
+    opts.onProfile?.(obj.id)
+    return kept ?? null
+  })
+
   // The renderer names the object; the store finds its folder, and rejects an object the workspace does not have.
-  handle('marks:list', (_event, objectId: string) => requireMarks().list(String(objectId)))
+  handle('marks:list', async (_event, objectId: string) => requireMarks().shown(String(objectId), await requireMarks().list(String(objectId))))
   // A mark made in the window is the person's. The agent's come through its tools, which call the store themselves.
   // What only main says of a mark is said here: how far its part is spread on the build it was placed on.
   // A dimension is measured as it is kept (`addDimension`): its value is the kernel's, never the window's.
@@ -732,6 +920,8 @@ export function registerIpc(
   // With a region goes the mask that held its triangles.
   const regions = (): RegionDeps => ({ marks: requireMarks(), scans: requireScans() })
   handle('marks:remove', (_event, objectId: string, id: string) => (scans ? removeMark(regions(), String(objectId), String(id)) : requireMarks().remove(String(objectId), String(id))))
+  // The last mark deleted, whole and with its number; once.
+  handle('marks:restore', (_event, objectId: string, id: string) => restoreMark(regions(), String(objectId), String(id)))
   // What the person painted on a scan: main works out what it is from the mesh, and writes its triangles beside it.
   handle('marks:addRegion', (_event, objectId: string, region: NewRegion) => addRegion(regions(), String(objectId), region))
   // A region painted again: the same mark, of the triangles sent; main writes them as a new mask and says the numbers anew.
@@ -773,6 +963,13 @@ export function registerIpc(
     if (opts.pickFile) return opts.pickFile()
     const win = BrowserWindow.fromWebContents(event.sender)
     const options: Electron.OpenDialogOptions = { title: 'Import scan', properties: ['openFile'], filters: [{ name: 'Scans', extensions: SCAN_FORMATS.map((format) => format.slice(1)) }] }
+    const picked = await (win ? dialog.showOpenDialog(win, options) : dialog.showOpenDialog(options))
+    return picked.canceled || picked.filePaths.length === 0 ? null : picked.filePaths[0]
+  })
+  handle('objects:pickStep', async (event): Promise<string | null> => {
+    if (opts.pickStep) return opts.pickStep()
+    const win = BrowserWindow.fromWebContents(event.sender)
+    const options: Electron.OpenDialogOptions = { title: 'Add a bought part', properties: ['openFile'], filters: [{ name: 'STEP files', extensions: STEP_FORMATS.map((format) => format.slice(1)) }] }
     const picked = await (win ? dialog.showOpenDialog(win, options) : dialog.showOpenDialog(options))
     return picked.canceled || picked.filePaths.length === 0 ? null : picked.filePaths[0]
   })
@@ -826,6 +1023,12 @@ export function registerIpc(
       String(objectId),
       draft
     )
+  })
+  // The first prompt of a draft as `objects:onboard` would send it. Nothing is written, imported or started.
+  handle('objects:previewPrompt', (_event, name: string, draft: PromptPreviewDraft) => {
+    const ws = current
+    if (!ws) throw new Error('No workspace is open.')
+    return previewPrompt({ object: (id) => ws.info.objects.find((o) => o.id === id), scene: (id) => ws.builds.scene(id)?.scene }, name, draft)
   })
   handle('scans:import', (_event, objectId: string, path: string) => requireScans().import(String(objectId), path))
   // Read again, a scan may be another mesh: what the last build makes of its alignments is asked anew.
@@ -908,6 +1111,42 @@ export function registerIpc(
   // The page of objects. Asking for the cards, or for a picture on file, reads and does nothing else: no
   // object is opened or built for it. The window hands over the pictures it drew of the builds it was sent.
   handle('show:cards', () => cards())
+  // What git says of an object's sources, for the status line and the Marks panel. Read only (`main/git.ts`).
+  handle('git:status', (_event, objectId: string) => {
+    const obj = findObject(String(objectId))
+    return obj && obj.model !== null ? gitStateRecently(obj.dir) : Promise.resolve(null)
+  })
+  // The builds kept of an object (`main/history.ts`): read, and starred; nothing is ever restored from them.
+  handle('history:list', async (_event, objectId: string): Promise<HistoryList | null> => {
+    const obj = findObject(String(objectId))
+    const kept = obj ? await historyOf(obj.id) : null
+    const held = current && obj ? current.meshes.revisions(obj.id) : []
+    const ghosts = kept ? kept.entries.filter((e) => e.run === kept.run && held.includes(e.revision)).map((e) => e.id) : []
+    return obj && kept ? { run: kept.run, base: join(obj.dir, '.torno', 'history'), entries: kept.entries, ghosts } : null
+  })
+  handle('history:thumbnail', async (_event, objectId: string, id: string) => {
+    const obj = findObject(String(objectId))
+    const png = obj ? await readHistoryThumb(obj.dir, String(id)) : null
+    return png && toArrayBuffer(png)
+  })
+  handle('history:source', async (_event, objectId: string, id: string, file: string) => {
+    const obj = findObject(String(objectId))
+    if (!obj) return null
+    const entry = (await readHistory(obj.dir)).find((e) => e.id === String(id))
+    return entry ? readHistorySource(obj.dir, entry, String(file)) : null
+  })
+  handle('history:ghost', async (_event, objectId: string, id: string): Promise<HistoryGhost | null> => {
+    const obj = findObject(String(objectId))
+    const ws = current
+    if (!obj || !ws) return null
+    const entry = (await readHistory(obj.dir)).find((e) => e.id === String(id))
+    const held = entry && entry.run === ws.buildLog.run ? ws.meshes.get(obj.id, entry.revision) : undefined
+    return held ? { scene: held.scene, blob: toArrayBuffer(held.blob) } : null
+  })
+  handle('history:star', (_event, objectId: string, id: string, starred: boolean) => {
+    const obj = findObject(String(objectId))
+    return obj && current ? current.history.star(obj, String(id), starred === true) : false
+  })
   handle('show:thumbnail', async (_event, objectId: string) => {
     const obj = findObject(String(objectId))
     const png = obj ? await thumbnailOnFile(obj.dir) : null
@@ -915,11 +1154,20 @@ export function registerIpc(
   })
   ipcMain.on('show:saveThumbnail', (_event, objectId: string, revision: number, png: Uint8Array, of: ThumbnailOf) => {
     keepThumbnail(keeping, String(objectId), revision, png, of).then(
-      (kept) => kept && cardsChanged(),
+      (kept) => {
+        if (!kept) return
+        cardsChanged()
+        // The picture of a build the window drew is kept with that build's entry in the history, when it has one.
+        const ws = current
+        const obj = findObject(String(objectId))
+        if (ws && obj) void ws.history.thumbnail(obj, ws.buildLog.run, revision, png)
+      },
       (e) => console.error(`cannot keep the picture of ${String(objectId)}: ${e instanceof Error ? e.message : String(e)}`)
     )
   })
 
+  /** The path `export:save` wrote last, for the sheet that is up: what "Show in folder" and "Open" act on. */
+  let savedHere: string | null = null
   // An export: one HTML file of the last build of this run of each object named, made in main from what it
   // holds, or a STEP, STL or 3MF file of one object, made by the kernel's worker of that build. Nothing is built
   // for it. A plan writes nothing. A save writes one file, to the path the save dialog answered with and no other:
@@ -961,12 +1209,12 @@ export function registerIpc(
     return { object: deps.object, last: deps.last, sceneFile: deps.sceneFile, query: (id, name, args, opts) => ws.builds.query(id, name, args, opts) }
   }
   /** Where the person says the file goes: the save dialog (under test `pickSave`), then torno's question when the name it ends in is of a file the dialog never asked about. Null for none. */
-  const askWhere = async (event: Electron.IpcMainInvokeEvent, defaultPath: string, format: ExportFormat): Promise<string | null> => {
+  const askWhere = async (event: Electron.IpcMainInvokeEvent, defaultPath: string, format: FileFormat): Promise<string | null> => {
     let picked: string | null
     if (opts.pickSave) picked = await opts.pickSave(defaultPath)
     else {
       const win = BrowserWindow.fromWebContents(event.sender)
-      const options: Electron.SaveDialogOptions = { title: 'Export', defaultPath, filters: [{ name: FORMAT_NAMES[format], extensions: [...EXTENSIONS[format]] }] }
+      const options: Electron.SaveDialogOptions = { title: format === 'png' || format === 'svg' || format === 'pdf' ? 'Save' : 'Export', defaultPath, filters: [{ name: FORMAT_NAMES[format], extensions: [...EXTENSIONS[format]] }] }
       const answer = await (win ? dialog.showSaveDialog(win, options) : dialog.showSaveDialog(options))
       picked = answer.canceled || !answer.filePath ? null : answer.filePath
     }
@@ -1012,6 +1260,7 @@ export function registerIpc(
       const path = await askWhere(event, defaultPath, 'html')
       if (path === null) return null
       await writeExport(path, made.html)
+      savedHere = path
       return { path, bytes: made.bytes, dropped: made.dropped }
     })
   )
@@ -1029,6 +1278,7 @@ export function registerIpc(
     let checked: ExportSaved['checked']
     await writeExport(path, file.bytes, async (beside) => void (checked = await checkModelFile(deps, file, beside)))
     // A plate handed to the person's slicer, when they ticked it: the file that passed, at the path they chose.
+    savedHere = path
     let opened: string | undefined
     if (req.open === true && req.format === '3mf') {
       if (opts.openFile) await opts.openFile(path)
@@ -1037,8 +1287,74 @@ export function registerIpc(
     return { path, bytes: file.bytes.length, dropped: [], checked, revision: file.revision, ...(opened ? { notOpened: opened } : {}) }
   }
 
-  // The sheet was put away: what was reduced for it is let go.
-  ipcMain.on('export:done', () => forgetExportScans())
+  // A picture of the view the person keeps: the window drew it (as large as 4000 px on its long edge, which the
+  // agent's pictures may not be), main checks that it is a PNG, asks where to save and writes it like any export.
+  // The path is the dialog's alone; no agent has a tool for it.
+  handle('export:savePicture', (event, objectId: unknown, png: unknown) =>
+    plainly(async (): Promise<ExportSaved | null> => {
+      const deps = exportDeps()
+      const obj = typeof objectId === 'string' ? deps.object(objectId) : undefined
+      if (!obj) throw new Error('That project is not in this folder.')
+      if (!checkedPicture(png)) throw new Error('That is not a picture torno can save: a PNG of at most 4000 px.')
+      await prepareExports(obj.dir)
+      const path = await askWhere(event, defaultExportPath(obj.dir, obj.name, deps.last(obj.id)?.revision, 'png'), 'png')
+      if (path === null) return null
+      await writeExport(path, png as Uint8Array)
+      savedHere = path
+      return { path, bytes: (png as Uint8Array).length, dropped: [] }
+    })
+  )
+
+  // A drawing of the section on screen, for someone who will make the part: an SVG at true scale from the kernel's
+  // outlines of the plane the window reports (`export/section.ts`), written like any export. The window names the
+  // object and nothing else.
+  handle('export:saveSection', (event, objectId: unknown, as: unknown) =>
+    plainly(async (): Promise<ExportSaved | null> => {
+      const ws = requireWorkspace()
+      const deps = exportDeps()
+      const drawing = await makeSectionDrawing(
+        { object: deps.object, last: deps.last, view: latestView, marks: deps.marks, query: <T>(id: string, name: string, args: Record<string, unknown>) => ws.builds.query<T>(id, name, args), now: deps.now, identity: buildIdentity },
+        String(objectId)
+      )
+      const obj = deps.object(drawing.objectId)!
+      await prepareExports(obj.dir)
+      const format = as === 'pdf' ? 'pdf' : 'svg'
+      // The PDF is the SVG printed by a window nobody sees, before the dialog is up: it is of the build there was.
+      const bytes = format === 'pdf' ? await pdfOfSvg(drawing.svg, drawing.width, drawing.height) : Buffer.from(drawing.svg, 'utf8')
+      const path = await askWhere(event, defaultExportPath(obj.dir, `${drawing.name}-section`, drawing.revision, format), format)
+      if (path === null) return null
+      await writeExport(path, bytes)
+      savedHere = path
+      return { path, bytes: bytes.length, dropped: [], revision: drawing.revision }
+    })
+  )
+
+  // The sheet was put away: what was reduced for it is let go, and the file it wrote is no longer its to show.
+  ipcMain.on('export:done', () => {
+    savedHere = null
+    forgetExportScans()
+  })
+  // The file the sheet wrote last, shown in its folder or handed to the system (a browser, for a page). The path is
+  // the one `export:save` wrote and main kept: the window names none, and no agent has a tool for it.
+  const savedFile = (): string => {
+    if (savedHere === null || !existsSync(savedHere)) throw new Refusal('That file is no longer there')
+    return savedHere
+  }
+  handle('export:reveal', () =>
+    plainly(async () => {
+      const path = savedFile()
+      if (opts.revealFile) opts.revealFile(path)
+      else shell.showItemInFolder(path)
+    })
+  )
+  handle('export:openSaved', () =>
+    plainly(async () => {
+      const path = savedFile()
+      if (opts.openFile) return void (await opts.openFile(path))
+      const failed = await shell.openPath(path)
+      if (failed) throw new Refusal(`It could not be opened: ${failed}`)
+    })
+  )
 
   ipcMain.on('view:report', (_event, view: ViewState) => {
     if (findObject(view?.objectId)) reportView(view)

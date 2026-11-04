@@ -109,7 +109,7 @@ const sceneFile = () => join(root, 'bracket', '.torno', 'scene.json')
 
 test('the object list shows the objects; one that cannot be built is muted, with the reason', async () => {
   const rows = page.locator('.object-row')
-  await expect(rows).toHaveText(['bracket', 'broken', 'chatty', 'crash', 'exits', 'gauge', 'grouped', 'hollow', 'makers', 'measures', 'morph', 'noscene', 'plain', 'slow', 'spread', 'two'])
+  await expect(rows).toHaveText(['bracket', 'broken', 'chatty', 'crash', 'exits', 'gauge', 'grouped', 'hollow', 'housing608', 'makers', 'measures', 'morph', 'noscene', 'plain', 'slow', 'spread', 'two'])
   const two = page.getByRole('button', { name: 'two', exact: true })
   await expect(two).toHaveAttribute('title', /more than one model file in .*two: a\.py, b\.py/)
   await expect(two).toHaveAttribute('data-problem', '')
@@ -244,7 +244,8 @@ test('dragging orbits the camera, and main is told where it came to rest', async
   await page.mouse.up()
   const after = await camera()
   expect(after.position).not.toEqual(before.position)
-  expect(after.target).toEqual(before.target)
+  // The turn is about the point under the pointer (#103), so the target has moved along the view.
+  expect(after.target).not.toEqual(before.target)
 
   await expect.poll(async () => (await mainView('bracket'))?.camera.position, { timeout: 5_000 }).toEqual(after.position)
   expect(await mainView('bracket')).toMatchObject({
@@ -480,6 +481,62 @@ test('an object with two candidate models says what was looked for, and nothing 
   expect(await layerNames()).toEqual(['base', 'post'])
 })
 
+// The parts fade for a build that takes a while, not at each save; picks are locked from the first moment either way.
+test('a quick save never fades the parts; a build held past 600 ms does, and the pick lock does not wait', async () => {
+  const faded = () => page.evaluate(() => window.__tornoTest!.faded())
+  const before = (await state()).build!.revision
+  await page.evaluate(() => {
+    const w = window as unknown as { __fadedSeen: boolean; __fadedTimer: number }
+    w.__fadedSeen = false
+    w.__fadedTimer = window.setInterval(() => { if (window.__tornoTest!.faded()) w.__fadedSeen = true }, 10)
+  })
+  appendFileSync(model(), '# quick\n')
+  await expect.poll(async () => (await state()).build?.revision, { timeout: 15_000 }).toBe(before + 1)
+  await page.waitForTimeout(700)
+  expect(await page.evaluate(() => (window as unknown as { __fadedSeen: boolean }).__fadedSeen)).toBe(false)
+  expect(await faded()).toBe(false)
+
+  // Held by the model itself: it sleeps in the build.
+  writeFileSync(model(), readFileSync(model(), 'utf8').replace('def assembly(p):\n', 'def assembly(p):\n    import time\n    time.sleep(1.5)\n'))
+  await expect.poll(async () => (await state()).build?.status, { timeout: 15_000 }).toBe('building')
+  // The lock holds from the first moment; the fade does not.
+  expect((await state()).build).toMatchObject({ status: 'building', stale: true })
+  expect(await faded()).toBe(false)
+  await expect.poll(faded, { timeout: 5_000 }).toBe(true)
+  expect((await state()).build?.status).toBe('building')
+  await expect.poll(async () => (await state()).build?.revision, { timeout: 20_000 }).toBe(before + 2)
+  await expect.poll(faded).toBe(false)
+  await page.evaluate(() => window.clearInterval((window as unknown as { __fadedTimer: number }).__fadedTimer))
+  cpSync(join(fixtures, 'bracket', 'bracket.py'), model())
+  await expect.poll(async () => (await state()).build?.revision, { timeout: 15_000 }).toBe(before + 3)
+})
+
+// What a build changed is told when it lands: the status line names the part, and for a moment the old edges and the new are drawn.
+test('a build that changes one part says which in the status line, shows its ghost for a moment, and a key puts it away', async () => {
+  const ghosts = () => page.evaluate(() => window.__tornoTest!.ghosts())
+  const landing = status(page).locator('[data-part="landing"]')
+  const before = (await state()).build!.revision
+  // The ghost is gone by itself, with no key or click.
+  writeFileSync(model(), readFileSync(model(), 'utf8').replace('Box(40, 30, 5)', 'Box(40, 30, 7)'))
+  await expect.poll(async () => (await state()).build?.revision, { timeout: 15_000 }).toBe(before + 1)
+  await expect(landing).toHaveText('base changed, post same')
+  await expect(landing).toHaveAttribute('title', /^Since the build before:\nbase: volume .* mm³/)
+  expect(await ghosts()).toEqual(['assembly:base'])
+  await expect.poll(ghosts, { timeout: 5_000 }).toEqual([])
+  // A key puts it away at once.
+  writeFileSync(model(), readFileSync(model(), 'utf8').replace('Box(40, 30, 7)', 'Box(40, 30, 5)'))
+  await expect.poll(async () => (await state()).build?.revision, { timeout: 15_000 }).toBe(before + 2)
+  await expect(landing).toHaveText('base changed, post same')
+  expect(await ghosts()).toEqual(['assembly:base'])
+  await page.keyboard.press('Shift')
+  expect(await ghosts()).toEqual([])
+  // A save that changes nothing drawn names no part, and leaves no ghost.
+  appendFileSync(model(), '# touch\n')
+  await expect.poll(async () => (await state()).build?.revision, { timeout: 15_000 }).toBe(before + 3)
+  await expect(landing).toHaveText('no part changed')
+  expect(await ghosts()).toEqual([])
+})
+
 // Milestone 5 (M11): the kernel let the build go to make room for another's. No test's kernel is short of memory,
 // so main is told it was (`__tornoMain.letGo`): the status line says it in the words the tools use.
 test('an object whose build the kernel let go says so in the status line', async () => {
@@ -494,12 +551,18 @@ test('an object whose build the kernel let go says so in the status line', async
 })
 
 test('the workspace is written nowhere but under .torno/', async () => {
-  const added = () => readdirSync(root, { recursive: true, encoding: 'utf8' }).filter((path) => !existsSync(join(fixtures, path)) || path.includes('__pycache__'))
+  const all = () => readdirSync(root, { recursive: true, encoding: 'utf8' }).filter((path) => !existsSync(join(fixtures, path)) || path.includes('__pycache__'))
+  // The builds kept (`.torno/history/`) are many and numbered: held to their own folder, and looked at by what they hold.
+  const added = () => all().filter((path) => !path.includes('.torno/history/'))
   // Every object that was opened has its state file, built or not; it follows the last build by a second.
   // One that built has the picture of its card, what that is of, and the word to git to pass over the two.
   await expect
     .poll(() => added().sort())
-    .toEqual(['bracket/.torno', 'bracket/.torno/.gitignore', 'bracket/.torno/scene.json', 'bracket/.torno/state.md', 'bracket/.torno/thumb.json', 'bracket/.torno/thumb.png', 'noscene/.torno', 'noscene/.torno/.gitignore', 'noscene/.torno/state.md', 'two/.torno', 'two/.torno/.gitignore', 'two/.torno/state.md'])
+    .toEqual(['bracket/.torno', 'bracket/.torno/.gitignore', 'bracket/.torno/builds.jsonl', 'bracket/.torno/history', 'bracket/.torno/scene.json', 'bracket/.torno/state.md', 'bracket/.torno/thumb.json', 'bracket/.torno/thumb.png', 'noscene/.torno', 'noscene/.torno/.gitignore', 'noscene/.torno/state.md', 'two/.torno', 'two/.torno/.gitignore', 'two/.torno/state.md'].sort())
+  const kept = all().filter((path) => path.includes('.torno/history/'))
+  expect(kept.length).toBeGreaterThan(0)
+  expect(kept.every((path) => path.startsWith('bracket/.torno/history/'))).toBe(true)
+  expect(kept).toContain('bracket/.torno/history/index.json')
 })
 
 test.describe('the workspace is remembered', () => {

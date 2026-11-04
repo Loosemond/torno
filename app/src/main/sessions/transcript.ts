@@ -1,4 +1,5 @@
-import { type ChatImage, type ChatItem, type ChatMeta, type Effort, MAX_ITEMS, TORNO_TOOL_PREFIX, isTornoTool, toolLabel } from '../../shared/chat'
+import { type ChatImage, type ChatItem, type ChatMeta, type Effort, MAX_ITEMS, MODE_NOTE, type TokenCount, type TurnUsage, TORNO_TOOL_PREFIX, isTornoTool, toolLabel } from '../../shared/chat'
+import type { BuildIdentity } from '../../shared/git'
 import type { DrawnOver } from '../../shared/drawing'
 import type { BuildDigest } from '../../shared/sanity'
 import { sessionRules } from './permissions'
@@ -36,6 +37,11 @@ const MAX_INSIDE = 50
  * yet seen). torno cannot know which, so it says what failed and offers the terminal, where the CLI runs as the person runs it. Only that
  * typed field is read, never the words of the message or of the result.
  */
+export const NO_HOOKS = "Claude Code's hooks did not reach torno: marks are not sent and the Stop is not checked. A setting that limits what hooks may read (httpHookAllowedEnvVars) must list TORNO_SESSION."
+
+/** How long a prompt the CLI has started may go without its `UserPromptSubmit` before the hooks are said not to arrive. */
+const HOOK_WAIT_MS = 8000
+
 export const LOGIN_FAILED = "Claude Code's chat could not use your login: it said the request was not authenticated. The terminal runs Claude Code as you would."
 
 type Record_ = Record<string, unknown>
@@ -60,6 +66,35 @@ export interface TranscriptOptions {
   tested?: { min: string; max: string }
   /** The effort the session was started with (`--effort`); absent: the person's own default. */
   effort?: Effort
+  /** How long a started prompt waits for its hook before the note that none arrive (default 8 s); Infinity: the hooks are not looked for. */
+  hookWaitMs?: number
+  /** The CLI compacted the conversation (a `compact_boundary`). */
+  onCompact?: () => void
+}
+
+/** The tokens a count holds, or none when it holds no number. */
+function countOf(raw: unknown): TokenCount | undefined {
+  const u = obj(raw)
+  if (!u) return undefined
+  const input = num(u.input_tokens ?? u.inputTokens)
+  const output = num(u.output_tokens ?? u.outputTokens)
+  const cacheRead = num(u.cache_read_input_tokens ?? u.cacheReadInputTokens)
+  const cacheCreation = num(u.cache_creation_input_tokens ?? u.cacheCreationInputTokens)
+  if (input === undefined && output === undefined && cacheRead === undefined && cacheCreation === undefined) return undefined
+  return { input: input ?? 0, output: output ?? 0, cacheRead: cacheRead ?? 0, cacheCreation: cacheCreation ?? 0 }
+}
+
+/** What a turn used, read off the `result` that ended it; none when it says no number (a result of no turns says zeros, which are kept). */
+function usageOf(m: AgentMessage): TurnUsage | undefined {
+  const total = countOf(m.usage)
+  if (!total) return undefined
+  const requests = num(m.num_turns)
+  const models: Record<string, TokenCount> = {}
+  for (const [name, raw] of Object.entries(obj(m.modelUsage) ?? {})) {
+    const count = countOf(raw)
+    if (count) models[name] = count
+  }
+  return { ...total, ...(requests !== undefined ? { requests } : {}), ...(Object.keys(models).length > 0 ? { models } : {}) }
 }
 
 /** A block of the message being streamed, by its index. */
@@ -132,6 +167,15 @@ export class Transcript {
   private explained = 0
   /** A compaction note was made in this turn, so the command's own "Compacted" is not a second. */
   private compactNoted = false
+  private readonly onCompact: () => void
+  private readonly hookWaitMs: number
+  /** A `UserPromptSubmit` has come in this session: the hooks reach torno. */
+  private hookSeen = false
+  /** The note that the hooks do not arrive was made: once per session. */
+  private hooksNoted = false
+  /** The prompts the CLI started whose hook has not come, and the timer of the wait. */
+  private readonly hookless = new Set<string>()
+  private hookTimer: NodeJS.Timeout | undefined
   private pulled: Record<string, number> = {}
 
   private readonly lastTold = new Map<string, number>()
@@ -147,6 +191,8 @@ export class Transcript {
     this.emitItem = opts.emit ?? (() => {})
     this.emitMeta = opts.emitMeta ?? (() => {})
     this.plugin = opts.plugin
+    this.onCompact = opts.onCompact ?? (() => {})
+    this.hookWaitMs = opts.hookWaitMs ?? HOOK_WAIT_MS
     this.tested = opts.tested
     if (opts.effort) this.info = { effort: opts.effort }
   }
@@ -163,6 +209,15 @@ export class Transcript {
   }
 
   // --- what torno records ---------------------------------------------------------------------------------
+
+  /** The CLI took the mode torno asked of it for this session (`set_permission_mode`): it goes on the meta, and is said in a note. */
+  modeSet(mode: string): void {
+    this.run(() => {
+      if (this.info.permissionMode === mode) return
+      this.put({ kind: 'note', id: this.newId('i'), text: `Edits: ${MODE_NOTE[mode] ?? mode}`, tone: 'quiet' })
+      this.setMeta({ ...this.info, permissionMode: mode })
+    })
+  }
 
   /** The CLI took the effort torno asked of it for this session (`apply_flag_settings`): it goes on the meta, and is said in a note. */
   effortSet(effort: Effort): void {
@@ -211,9 +266,11 @@ export class Transcript {
    * What a `UserPromptSubmit` was answered with, under the prompt it went with: the one `prompt` names if it names
    * one that is waiting, else the oldest that has none yet. Null when nothing was added, and when no prompt waits.
    */
-  context(c: { text: string; sentMarkIds: string[]; prompt?: string; revision?: number; buildState?: 'ok' | 'failed' | 'building'; selection?: string[]; instructions?: number }): ChatItem | null {
+  context(c: { text: string; sentMarkIds: string[]; prompt?: string; revision?: number; buildState?: 'ok' | 'failed' | 'building'; selection?: string[]; instructions?: number; identity?: BuildIdentity }): ChatItem | null {
     let made: ChatItem | null = null
     this.run(() => {
+      this.hookSeen = true
+      this.stopWaiting()
       if (this.awaiting.length === 0) return
       const wants = c.prompt?.trim()
       const named = wants === undefined ? -1 : this.awaiting.findIndex((id) => (this.byId.get(id) as { text?: string } | undefined)?.text?.trim() === wants)
@@ -228,7 +285,7 @@ export class Transcript {
       // This hook starts a turn, and the `init` that follows it is its own (unless its lifecycle said so already).
       this.explain(forUser)
       if (c.text.trim() === '' && c.sentMarkIds.length === 0) return
-      made = { kind: 'context', id: this.newId('i'), forUser, text: this.redact(c.text), marks: [...c.sentMarkIds], ...(c.revision !== undefined ? { revision: c.revision } : {}), ...(c.buildState ? { buildState: c.buildState } : {}), ...(c.selection && c.selection.length > 0 ? { selection: c.selection.map((ref) => this.redact(ref)) } : {}), ...(c.instructions ? { instructions: c.instructions } : {}) }
+      made = { kind: 'context', id: this.newId('i'), forUser, text: this.redact(c.text), marks: [...c.sentMarkIds], ...(c.revision !== undefined ? { revision: c.revision } : {}), ...(c.buildState ? { buildState: c.buildState } : {}), ...(c.selection && c.selection.length > 0 ? { selection: c.selection.map((ref) => this.redact(ref)) } : {}), ...(c.instructions ? { instructions: c.instructions } : {}), ...(c.identity ? { identity: c.identity } : {}) }
       this.put(made)
     })
     return made
@@ -238,10 +295,10 @@ export class Transcript {
    * What the `PostToolUse` of an edit of the model was answered with (the build the edit started), under the card of
    * that tool, as a prompt's context is under the prompt. Null when the tool is not one of this transcript's.
    */
-  toolContext(c: { toolUseId?: string; text: string; revision?: number; buildState?: 'ok' | 'failed' | 'building'; seconds?: number; error?: string; digest?: BuildDigest }): ChatItem | null {
+  toolContext(c: { toolUseId?: string; text: string; revision?: number; buildState?: 'ok' | 'failed' | 'building'; seconds?: number; error?: string; digest?: BuildDigest; identity?: BuildIdentity }): ChatItem | null {
     const forItem = c.toolUseId === undefined ? undefined : this.tools.get(c.toolUseId)
     if (forItem === undefined || c.text.trim() === '') return null
-    const made: ChatItem = { kind: 'context', id: this.newId('i'), forUser: forItem, forTool: true, text: this.redact(c.text), marks: [], ...(c.revision !== undefined ? { revision: c.revision } : {}), ...(c.buildState ? { buildState: c.buildState } : {}), ...(c.seconds !== undefined ? { seconds: c.seconds } : {}), ...(c.error ? { error: this.redact(c.error) } : {}), ...(c.digest ? { digest: c.digest } : {}) }
+    const made: ChatItem = { kind: 'context', id: this.newId('i'), forUser: forItem, forTool: true, text: this.redact(c.text), marks: [], ...(c.revision !== undefined ? { revision: c.revision } : {}), ...(c.buildState ? { buildState: c.buildState } : {}), ...(c.seconds !== undefined ? { seconds: c.seconds } : {}), ...(c.error ? { error: this.redact(c.error) } : {}), ...(c.digest ? { digest: c.digest } : {}), ...(c.identity ? { identity: c.identity } : {}) }
     this.run(() => this.put(made))
     return made
   }
@@ -264,11 +321,38 @@ export class Transcript {
     for (const [id, given] of this.uuids) {
       if (given !== uuid) continue
       if (!this.untaken.includes(id)) return
+      if (!this.isCommand(id)) this.waitForHook(id)
       this.lifecycled.add(id)
       this.take(id)
       this.explain(id)
       return
     }
+  }
+
+  /**
+   * A prompt of ours began and its hook has not come. The hook comes before the `init` in ordinary use; if none has
+   * come in a few seconds, or the turn ends first, and none ever has in this session, the hooks do not reach torno:
+   * said once, as a note. It changes no status.
+   */
+  private waitForHook(id: string): void {
+    if (this.hookSeen || this.hooksNoted || !Number.isFinite(this.hookWaitMs)) return
+    this.hookless.add(id)
+    this.hookTimer ??= setTimeout(() => this.run(() => this.noHooks()), this.hookWaitMs)
+    this.hookTimer.unref?.()
+  }
+
+  private stopWaiting(): void {
+    if (this.hookTimer) clearTimeout(this.hookTimer)
+    this.hookTimer = undefined
+    this.hookless.clear()
+  }
+
+  private noHooks(): void {
+    const waiting = this.hookless.size > 0
+    this.stopWaiting()
+    if (!waiting || this.hookSeen || this.hooksNoted || this.closed) return
+    this.hooksNoted = true
+    this.put({ kind: 'note', id: this.newId('i'), text: NO_HOOKS, tone: 'warn' })
   }
 
   private isCommand(id: string): boolean {
@@ -384,6 +468,7 @@ export class Transcript {
       this.put({ kind: 'note', id: this.newId('i'), text: 'The session ended', tone: 'quiet' })
     })
     this.closed = true
+    this.stopWaiting()
     this.awaiting.length = 0
     this.untaken.length = 0
     return changed
@@ -468,10 +553,12 @@ export class Transcript {
       const connected = servers ? servers.some((s) => s.name === 'torno' && s.status === 'connected') : undefined
       const version = str(m.claude_code_version)
       const keySource = str(m.apiKeySource)
+      const mode = str(m.permissionMode)
       const plugin = this.pluginState(m)
       let next: ChatMeta = {
         ...this.info,
         ...(model ? { model } : {}),
+        ...(mode ? { permissionMode: mode } : {}),
         ...(connected !== undefined ? { tornoConnected: connected } : {}),
         ...(version ? { version } : {}),
         ...(keySource !== undefined ? { apiKeySource: keySource } : {}),
@@ -509,6 +596,7 @@ export class Transcript {
       const text = before !== undefined && after !== undefined ? `Conversation compacted: ${tokens.format(before)} → ${tokens.format(after)} tokens` : 'Conversation compacted'
       this.put({ kind: 'note', id: this.newId('i'), text, tone: 'quiet' })
       this.compactNoted = true
+      this.onCompact()
     }
   }
 
@@ -739,7 +827,9 @@ export class Transcript {
       const first = Array.isArray(m.errors) ? m.errors.map((e) => str(e) ?? str(obj(e)?.message)).find((e) => e) : undefined
       error = first ?? (m.is_error === true && typeof m.result === 'string' && m.result !== '' ? m.result : (str(m.subtype) ?? 'failed'))
     }
-    this.put({ kind: 'turn', id: this.newId('i'), ok, stopped, seconds: seconds(took), pulled: this.pulled, ...(error !== undefined ? { error: this.redact(error) } : {}) })
+    const usage = usageOf(m)
+    this.noHooks()
+    this.put({ kind: 'turn', id: this.newId('i'), ok, stopped, seconds: seconds(took), pulled: this.pulled, ...(usage ? { usage } : {}), ...(error !== undefined ? { error: this.redact(error) } : {}) })
     this.pulled = {}
     this.denials(m.permission_denials)
     this.spent(m)

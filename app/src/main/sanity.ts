@@ -1,6 +1,7 @@
 import type { BuildDigest, DigestFlag, DigestPart, VerdictChange } from '../shared/sanity'
 import type { Part, Scene } from '../shared/scene'
-import { number, sizes, vector } from './marks/describe'
+import { DIFF_APPROXIMATE, DIFF_REFS, clean, partDiff } from '../shared/diff'
+import { number } from './marks/describe'
 
 /**
  * The sanity pass after every successful build: what it did to the parts since the successful build before, and
@@ -9,81 +10,11 @@ import { number, sizes, vector } from './marks/describe'
  * never has and that appeared with the build is hard (`DigestFlag.hard`): it holds a Stop back once.
  */
 
-type Vec3 = [number, number, number]
+export { DIFF_APPROXIMATE, DIFF_REFS, clean, partDiff }
 export type Kept = { revision: number; scene: Scene }
 
 /** The most of the answer to an edit the digest takes, in characters. */
 export const DIGEST_LIMIT = 1200
-
-/** Said in `diff` when a number it compares is not exact in either build. */
-export const DIFF_APPROXIMATE = 'A volume, size or min with exact false is approximate in at least one of the two builds (the kernel said so): call measure for a number to rely on.'
-/** Said in `diff` when a part's face or edge count changed. */
-export const DIFF_REFS = 'Face or edge counts changed: refs such as lid/F12 may name other faces or edges now; describe a ref again before relying on it.'
-
-/** A number as data: in full, but for what arithmetic leaves past the ninth decimal, and never -0. */
-export function clean<T>(value: T): T {
-  if (typeof value === 'number') return (Number.isFinite(value) ? Math.round(value * 1e9) / 1e9 + 0 : value) as T
-  if (Array.isArray(value)) return value.map(clean) as T
-  if (typeof value === 'object' && value !== null) return Object.fromEntries(Object.entries(value).map(([key, v]) => [key, clean(v)])) as T
-  return value
-}
-
-const sizeOf = (p: Part): Vec3 => p.bbox.max.map((max, i) => max - p.bbox.min[i]) as Vec3
-const minus = (a: readonly number[], b: readonly number[]): number[] => a.map((v, i) => v - b[i])
-const same = (a: readonly number[], b: readonly number[]): boolean => a.every((v, i) => clean(v) === clean(b[i]))
-/** The same, or apart by no more than `slack` in any coordinate. */
-const within = (a: readonly number[], b: readonly number[], slack: number): boolean => same(a, b) || a.every((v, i) => Math.abs(v - b[i]) <= slack)
-const signed = (v: number): string => (clean(v) > 0 ? `+${number(v)}` : number(v))
-/** A change as a part of what it was, in percent, to two significant digits; none of what was nothing. */
-const percentOf = (change: number, before: number): number | undefined => (Math.abs(before) < 1e-9 ? undefined : Number(((change / before) * 100).toPrecision(2)))
-
-/** One part in both builds: its numbers before and after, as data in full, and a line of what changed. */
-export function partDiff(before: Part, after: Part): { data: Omit<DigestPart, 'layout' | 'text'> & { changed: boolean; line: string; min: object; arranged?: object }; approximate: boolean; refsMoved: boolean } {
-  const volumeExact = before.volumeExact === true && after.volumeExact === true
-  const boxExact = before.bboxExact === true && after.bboxExact === true
-  const [sizeBefore, sizeAfter] = [sizeOf(before), sizeOf(after)]
-  // A number that is not exact may differ in its last digits from one build to the next however untouched the part
-  // is: it changed only by more than both builds' doubt of it (`volumeDoubt`, `bboxDoubt`). An exact one, by anything.
-  const volumeSlack = volumeExact ? 0 : (before.volumeDoubt ?? 0) + (after.volumeDoubt ?? 0)
-  const boxSlack = boxExact ? 0 : (before.bboxDoubt ?? 0) + (after.bboxDoubt ?? 0)
-  const volumeChanged = clean(before.volume) !== clean(after.volume) && Math.abs(after.volume - before.volume) > volumeSlack
-  // A size has two sides, each of them in doubt.
-  const sizeChanged = !within(sizeBefore, sizeAfter, 2 * boxSlack)
-  const minChanged = !within(before.bbox.min, after.bbox.min, boxSlack)
-  const facesChanged = before.faceCount !== after.faceCount
-  const edgesChanged = before.edgeCount !== after.edgeCount
-  const solidsChanged = before.solids !== undefined && after.solids !== undefined && before.solids !== after.solids
-  const change = after.volume - before.volume
-  const percent = percentOf(change, before.volume)
-  const about = (exact: boolean): string => (exact ? '' : '≈ ')
-  const said: string[] = []
-  if (volumeChanged) said.push(`volume ${about(volumeExact)}${number(before.volume)} → ${number(after.volume)} mm³ (${signed(change)}${percent === undefined ? '' : `, ${signed(percent)} %`})`)
-  if (sizeChanged) said.push(`size ${about(boxExact)}${sizes(sizeBefore)} → ${sizes(sizeAfter)} mm`)
-  if (minChanged) said.push(`min corner ${about(boxExact)}${vector(before.bbox.min)} → ${vector(after.bbox.min)}`)
-  if (facesChanged) said.push(`faces ${before.faceCount} → ${after.faceCount}`)
-  if (edgesChanged) said.push(`edges ${before.edgeCount} → ${after.edgeCount}`)
-  if (solidsChanged) said.push(`solids ${before.solids} → ${after.solids}`)
-  const changed = said.length > 0
-  const arranged = before.arranged || after.arranged ? { arranged: { before: before.arranged ?? [0, 0, 0], after: after.arranged ?? [0, 0, 0] } } : {}
-  const line = `${after.name}: ${changed ? said.join(', ') : 'unchanged'}`
-  return {
-    data: {
-      name: after.name,
-      changed,
-      volume: { before: before.volume, after: after.volume, change, ...(percent === undefined ? {} : { percent }), exact: volumeExact },
-      size: { before: sizeBefore, after: sizeAfter, change: minus(sizeAfter, sizeBefore), exact: boxExact } as DigestPart['size'],
-      // The box's corner of least x, y and z, in the object frame of the layout: where the part is.
-      min: { before: before.bbox.min, after: after.bbox.min, change: minus(after.bbox.min, before.bbox.min), exact: boxExact },
-      faces: { before: before.faceCount, after: after.faceCount },
-      edges: { before: before.edgeCount, after: after.edgeCount },
-      ...(before.solids !== undefined || after.solids !== undefined ? { solids: { ...(before.solids !== undefined ? { before: before.solids } : {}), ...(after.solids !== undefined ? { after: after.solids } : {}) } } : {}),
-      ...arranged,
-      line
-    },
-    approximate: changed && (!volumeExact || !boxExact),
-    refsMoved: facesChanged || edgesChanged
-  }
-}
 
 /** The parts of a build by name, each as it is in the first layout of the build that has it, with every layout it is in. */
 function byName(scene: Scene): Map<string, { part: Part; all: Part[] }> {

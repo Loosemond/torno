@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path'
 import type { BuildState } from '../../shared/build'
 import { standingOf, unmetDimensions } from '../../shared/dimension'
 import type { DimensionMark, Mark } from '../../shared/marks'
+import type { GitState } from '../../shared/git'
 import type { ObjectCard, ThumbnailOf } from '../../shared/show'
 import type { ObjectInfo } from '../../shared/workspace'
 import { FOLDER, writeOwn } from '../own'
@@ -36,6 +37,10 @@ export interface CardDeps {
   sourcesMtimeMs(dir: string): Promise<number | null>
   /** How many bytes a file has; null when there is none. */
   size(path: string): Promise<number | null>
+  /** What git says of an object's sources (`gitState`); null for none. Left out: git is not asked. */
+  git?(dir: string): Promise<GitState | null>
+  /** What the last good build of an opened object imported from outside its folder (`Scene.uses`), paths from the workspace. Absent: none is known. */
+  uses?(objectId: string): string[]
 }
 
 /**
@@ -58,6 +63,16 @@ export async function newestPython(dir: string): Promise<number | null> {
 /** The newer of two such moments; null when the object's own folder has no source to speak of. */
 const newestOf = (own: number | null, common: number | null): number | null => (own === null ? null : Math.max(own, common ?? -Infinity))
 
+/** When the newest of the files a build imported from beside its project was last saved, in ms; null when it imported none or they are gone. `uses` are paths from the workspace root. */
+export async function newestUsed(root: string, uses: string[]): Promise<number | null> {
+  const saved = await Promise.all(uses.map((file) => stat(join(root, file)).then((s) => (s.isFile() ? s.mtimeMs : null), () => null)))
+  const found = saved.filter((at): at is number => at !== null)
+  return found.length > 0 ? Math.max(...found) : null
+}
+
+/** The most files of `Scene.uses` a card names. */
+const MAX_USES = 20
+
 /** One card per object of the workspace, in the list's order. */
 export function cardsOf(deps: CardDeps): Promise<ObjectCard[]> {
   // The common folder is every object's: looked at once for all the cards.
@@ -78,7 +93,13 @@ async function cardOf(deps: CardDeps, obj: ObjectInfo, commonOf: (dir: string) =
   const marks = opened ? await deps.marks(obj.id).catch(() => null) : await deps.readFile(join(obj.dir, FOLDER, 'marks.json')).then(peekMarks, (e: unknown) => (isMissing(e) ? [] : null))
   const meta = await deps.readFile(join(obj.dir, FOLDER, THUMB_JSON)).then((text) => JSON.parse(text) as unknown).catch(() => null)
   const [own, common] = sourceFolders(obj.dir)
-  let thumb = meta === null ? null : thumbOf(meta, obj.model === null ? null : newestOf(await deps.sourcesMtimeMs(own).catch(() => null), await commonOf(common)))
+  // What the last build of this run imported from other projects counts as a source too.
+  const uses = opened ? (deps.uses?.(obj.id) ?? []) : []
+  const used = uses.length > 0 ? await newestUsed(dirname(obj.dir), uses) : null
+  // When a source was last saved: one read of two folders' listings, nothing built. For the picture's `behind` and for the card's own line.
+  const newest = obj.model === null ? null : newestOf(await deps.sourcesMtimeMs(own).catch(() => null), await commonOf(common))
+  const saved = newest === null || used === null ? newest : Math.max(newest, used)
+  let thumb = meta === null ? null : thumbOf(meta, saved)
   // A picture of what another file made is behind, whenever that one was last saved.
   if (thumb && (meta as { model?: unknown }).model !== obj.model) thumb = { ...thumb, behind: true }
   // The picture on file is not the one these facts are of (two builds landed close together, a file was put
@@ -86,6 +107,10 @@ async function cardOf(deps: CardDeps, obj: ObjectInfo, commonOf: (dir: string) =
   if (thumb && (await deps.size(join(obj.dir, FOLDER, THUMB_PNG)).catch(() => null)) !== (meta as { bytes?: unknown }).bytes) thumb = null
 
   const card: ObjectCard = { id: obj.id, name: obj.name, opened, thumb, marks: marks && { open: marks.filter((m) => m.status !== 'resolved').length, drafts: marks.filter((m) => m.status === 'draft').length }, dimensions: null, session: deps.session(obj.id) }
+  const git = obj.model === null ? null : await deps.git?.(obj.dir).catch(() => null)
+  if (git) card.git = git
+  if (saved !== null) card.sourcesMtimeMs = saved
+  if (uses.length > 0) card.uses = uses.slice(0, MAX_USES)
   if (obj.problem !== undefined) {
     // The folder by its name: the card is of that folder, and where it is on this machine is for whoever asks.
     card.problem = obj.problem.split(obj.dir).join(obj.name)
@@ -209,7 +234,7 @@ export interface KeepDeps {
   /** Opened in this run. */
   opened(objectId: string): boolean
   /** The last good build of an object: its revision, and when the build it came of was started (ms epoch) when that is known. */
-  lastBuild(objectId: string): { revision: number; startedMs?: number } | undefined
+  lastBuild(objectId: string): { revision: number; startedMs?: number; uses?: string[] } | undefined
 }
 
 /**
@@ -226,7 +251,9 @@ export async function keepThumbnail(deps: KeepDeps, objectId: string, revision: 
   const said = Object(of) as Partial<ThumbnailOf>
   if (thumbnailRefusal(png) !== null || typeof said.layout !== 'string' || said.layout === '' || said.layout.length > 100 || !Number.isSafeInteger(said.parts) || said.parts! < 0) return false
   const [own, common] = sourceFolders(obj.dir)
-  const saved = newestOf(await newestPython(own), await newestPython(common))
+  const ownSaved = newestOf(await newestPython(own), await newestPython(common))
+  const used = built.uses && built.uses.length > 0 ? await newestUsed(dirname(obj.dir), built.uses) : null
+  const saved = ownSaved === null || used === null ? ownSaved : Math.max(ownSaved, used)
   const sourcesMtimeMs = saved === null ? null : built.startedMs === undefined ? saved : Math.min(saved, built.startedMs)
   // The workspace may have been left, or the object built again, while the folders were looked at.
   if (deps.object(objectId)?.dir !== obj.dir || deps.lastBuild(objectId)?.revision !== revision) return false

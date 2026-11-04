@@ -1005,6 +1005,68 @@ describe('reanchorAll', () => {
       expect(asked).toEqual([])
     })
   })
+
+  describe('a tag the model gives a face or an edge', () => {
+    const TOPPED: Anchor = { point: [5, 3, 2.5], normal: [0, 0, 1], part: 'base', ref: 'base/F4', tag: 'top' }
+    /** The build after: three faces added below, so that the top is F7 and 2 mm higher. */
+    const taller = (tags: Scene['parts'][number]['tags'] = { top: { faces: [7] } }): void => {
+      scene = sceneOf(['assembly:base'])
+      scene.parts[0].tags = tags
+      revision += 1
+    }
+
+    it('is found again by it, however the faces were numbered and wherever the face went, before the nearest-point rule', async () => {
+      await store.add('bracket', pin(TOPPED))
+      taller()
+      // The nearest face to the point is now a wall; the top is 2 mm higher.
+      answer = (_name, args) => ({
+        anchors: anchorsOf(args).map(({ part }) => ({ ...found(part, `${part}/F2`, 0.1), faceFound: true, faceDistance: 2, faceDescriptor: 'plane, z = 4.5', faceNormal: [0, 0, 1], facePoint: [5, 3, 4.5] }))
+      })
+      expect(await run()).toBe(true)
+      expect(anchorsOf(asked[0].args as never)[0]).toMatchObject({ part: 'base', face: 'base/F7' })
+      const mark = (await byId()).M1 as PinMark
+      expect(mark.anchorState).toBe('ok')
+      expect(mark.anchor).toEqual({ point: [5, 3, 4.5], normal: [0, 0, 1], part: 'base', ref: 'base/F7', descriptor: 'plane, z = 4.5', tag: 'top', arranged: [0, 0, 0] })
+    })
+
+    it('keeps the person’s point while it is on the face', async () => {
+      await store.add('bracket', pin(TOPPED))
+      taller()
+      answer = (_name, args) => ({ anchors: anchorsOf(args).map(({ part }) => ({ ...found(part, `${part}/F7`, 0), faceFound: true, faceDistance: 0, faceDescriptor: 'plane', faceNormal: [0, 0, 1], facePoint: [5, 3, 2.5] })) })
+      await run()
+      expect(((await byId()).M1 as PinMark).anchor.point).toEqual([5, 3, 2.5])
+    })
+
+    it('follows an edge the same way, asking for it by the edge', async () => {
+      const edge: Anchor = { point: [5, 3, 2.5], part: 'base', ref: 'base/E3', edge: 'base/E3', tag: 'rim' }
+      await store.add('bracket', pin(edge))
+      taller({ rim: { edges: [9] } })
+      answer = (_name, args) => ({
+        anchors: anchorsOf(args).map(({ part }) => ({ ...found(part, `${part}/F2`, 0.1), edgeFound: true, edgeDistance: 3, edgeDescriptor: 'line', edgeBetween: ['base/F1', 'base/F2'], edgePoint: [5, 3, 5.5] }))
+      })
+      await run()
+      expect(anchorsOf(asked[0].args as never)[0]).toMatchObject({ edge: 'base/E9' })
+      const mark = (await byId()).M1 as PinMark
+      expect(mark.anchorState).toBe('ok')
+      expect(mark.anchor).toMatchObject({ ref: 'base/E9', edge: 'base/E9', tag: 'rim', point: [5, 3, 5.5], between: ['base/F1', 'base/F2'] })
+    })
+
+    it('falls back to the nearest face when the build has lost the tag, and keeps the tag for a build that gives it back', async () => {
+      await store.add('bracket', pin(TOPPED))
+      taller({})
+      await run()
+      expect(anchorsOf(asked[0].args as never)[0]).not.toHaveProperty('face')
+      const mark = (await byId()).M1 as PinMark
+      expect(mark.anchor).toMatchObject({ ref: 'base/F1', tag: 'top' })
+    })
+
+    it('does not follow a tag of several faces', async () => {
+      await store.add('bracket', pin(TOPPED))
+      taller({ top: { faces: [7, 8] } })
+      await run()
+      expect(anchorsOf(asked[0].args as never)[0]).not.toHaveProperty('face')
+    })
+  })
 })
 
 describe('checkMarks: the dimensions are measured on every build, once the marks are checked against it', () => {
@@ -1435,6 +1497,19 @@ describe('asPlaced', () => {
     const placed = asPlaced({ ...pin({ ...ON, arranged: [1, 2, 3] }), layout: 'print', revision: 3 } as NewMark, { revision: 4, scene }) as PinMark
     expect(placed.anchor).not.toHaveProperty('arranged')
     expect((asPlaced({ ...pin(ON), layout: 'print', revision: 3 } as NewMark, undefined) as PinMark).anchor).toEqual(ON)
+  })
+})
+
+describe('asPlaced and tags', () => {
+  const scene = sceneOf(['assembly:lid'])
+  scene.parts[0].tags = { top: { faces: [12] }, screws: { faces: [3, 4] } }
+
+  it('says the tag of the face or edge the anchor is on, whatever the window said, when that is its one', () => {
+    const on = (ref: string, tag?: string): PinMark => asPlaced(pin({ point: [0, 0, 1], part: 'lid', ref, ...(tag ? { tag } : {}) }), { revision: 1, scene }) as PinMark
+    expect(on('lid/F12').anchor.tag).toBe('top')
+    expect(on('lid/F12', 'forged').anchor.tag).toBe('top')
+    expect(on('lid/F3', 'top').anchor).not.toHaveProperty('tag')
+    expect(on('lid').anchor).not.toHaveProperty('tag')
   })
 })
 

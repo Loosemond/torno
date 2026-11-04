@@ -8,10 +8,12 @@ import { type HttpRouter, readBody, SESSION_HEADER, startHttp } from '../http'
 import { Trust } from '../trust'
 import { claudeAdapter } from './claude'
 import { killGroup, Sessions } from './manager'
-import type { ChatItem, ChatMeta, Effort } from '../../shared/chat'
+import type { ChatItem, ChatMeta, Effort, Mode } from '../../shared/chat'
 import type { PromptBlock, StreamMessage } from './stream'
 import type { BuildState } from '../../shared/build'
 import type { ViewDrawing } from '../../shared/drawing'
+import { Expectations, withExpectation } from '../mcp/expectTools'
+import type { ToolDeps } from '../mcp/tools'
 import { buildContextFor, contextFor, type ContextDeps, type PromptContext } from '../context'
 import { startKernel } from '../kernel/client'
 import type { Scene } from '../../shared/scene'
@@ -97,6 +99,9 @@ let others: Sessions[] = []
 
 const said = (id: string) => output.get(id) ?? ''
 const sessionFile = (id: string) => JSON.parse(readFileSync(join(root, id, '.torno', 'session.json'), 'utf8'))
+/** The whole READY line: a terminal delivers it in pieces (a Mac's pty cuts at 1 KiB), so the first piece is not it. */
+const READY_LINE = /READY \[[^\n]*\]\r?\n/
+
 /** The arguments the agent was started with, from its READY line. */
 const argv = (id: string): string[] => argv2(said(id))
 const argv2 = (out: string): string[] => JSON.parse(/READY (\[.*\])/.exec(out)![1])
@@ -141,7 +146,7 @@ afterAll(async () => {
 describe('a session', () => {
   it('runs the agent in the object folder with the launch arguments', async () => {
     const { sessionId } = await sessions.start(object('bracket'), { cols: 100, rows: 30 })
-    await expect.poll(() => said(sessionId)).toContain('READY')
+    await expect.poll(() => said(sessionId)).toMatch(READY_LINE)
     const args = argv(sessionId)
     expect(args[args.indexOf('--session-id') + 1]).toMatch(UUID)
     expect(JSON.parse(readFileSync(args[args.indexOf('--mcp-config') + 1], 'utf8')).mcpServers.torno.url).toBe(http.url('/mcp/bracket'))
@@ -151,14 +156,14 @@ describe('a session', () => {
 
   it('echoes what is written to it', async () => {
     const { sessionId } = await sessions.start(object('bracket'), {})
-    await expect.poll(() => said(sessionId)).toContain('READY')
+    await expect.poll(() => said(sessionId)).toMatch(READY_LINE)
     sessions.write(sessionId, 'hello\r')
     await expect.poll(() => said(sessionId)).toContain('> hello')
   })
 
   it('inserts text at the input as a paste, without sending it', async () => {
     const { sessionId } = await sessions.start(object('bracket'), {})
-    await expect.poll(() => said(sessionId)).toContain('READY')
+    await expect.poll(() => said(sessionId)).toMatch(READY_LINE)
     sessions.insert(sessionId, 'base/F5 post/E2')
     // The terminal shows what was put in; the agent has been given no line yet.
     await expect.poll(() => said(sessionId)).toContain('base/F5 post/E2')
@@ -170,7 +175,7 @@ describe('a session', () => {
 
   it('takes escapes and control characters out of what it inserts', async () => {
     const { sessionId } = await sessions.start(object('bracket'), {})
-    await expect.poll(() => said(sessionId)).toContain('READY')
+    await expect.poll(() => said(sessionId)).toMatch(READY_LINE)
     // A newline would send the prompt, and an end-of-paste would let what follows be typed as keys.
     sessions.insert(sessionId, 'a\x1b[201~b\r\nc\x07\x03d\x7f\u009be\tf')
     sessions.write(sessionId, '\r')
@@ -183,7 +188,7 @@ describe('a session', () => {
 
   it('inserts nothing into a session that has ended', async () => {
     const { sessionId } = await sessions.start(object('bracket'), {})
-    await expect.poll(() => said(sessionId)).toContain('READY')
+    await expect.poll(() => said(sessionId)).toMatch(READY_LINE)
     await sessions.stop(sessionId)
     const before = said(sessionId)
     expect(() => sessions.insert(sessionId, 'base/F5')).not.toThrow()
@@ -195,7 +200,7 @@ describe('a session', () => {
   it('goes from starting to idle to working, and gives the prompt its context', async () => {
     const { sessionId } = await sessions.start(object('bracket'), {})
     expect(existsSync(join(root, 'bracket', '.torno', 'session.json'))).toBe(false)
-    await expect.poll(() => said(sessionId)).toContain('READY')
+    await expect.poll(() => said(sessionId)).toMatch(READY_LINE)
     expect(statuses.get(sessionId)).toEqual(['starting', 'idle'])
     sessions.write(sessionId, 'hook\r')
     await expect.poll(() => said(sessionId)).toContain('context: context for bracket')
@@ -220,6 +225,25 @@ describe('a session', () => {
     await expect.poll(() => statuses.get(sessionId)?.at(-1)).toBe('idle')
   })
 
+  // #132: a question of torno's own (`ask`) is open as long as the person takes, and no hook says so.
+  it('shows needs_input while a question of torno\'s own is held, whatever the hooks of other tools say, and works again after', async () => {
+    const { sessionId } = await sessions.start(object('bracket'), {})
+    await expect.poll(() => said(sessionId)).toMatch(READY_LINE)
+    sessions.write(sessionId, 'hook PreToolUse\r')
+    await expect.poll(() => statuses.get(sessionId)?.at(-1)).toBe('working')
+    const release = sessions.holdAsk('bracket')
+    expect(statuses.get(sessionId)?.at(-1)).toBe('needs_input')
+    // A tool that ran side by side with it ends: that is no answer.
+    sessions.write(sessionId, 'hook PostToolUse\r')
+    await expect.poll(() => said(sessionId)).toContain('PostToolUse')
+    expect(statuses.get(sessionId)?.at(-1)).toBe('needs_input')
+    release()
+    release()
+    expect(statuses.get(sessionId)?.at(-1)).toBe('working')
+    // None for an object with no session.
+    expect(() => sessions.holdAsk('nothing')()).not.toThrow()
+  })
+
   it("consumes the drafts of the prompt's own object, once, and of no other", async () => {
     drafts = new Map([
       ['bracket', ['M1', 'M2']],
@@ -227,8 +251,8 @@ describe('a session', () => {
     ])
     const a = await sessions.start(object('bracket'), {})
     const b = await sessions.start(object('cover'), {})
-    await expect.poll(() => said(a.sessionId)).toContain('READY')
-    await expect.poll(() => said(b.sessionId)).toContain('READY')
+    await expect.poll(() => said(a.sessionId)).toMatch(READY_LINE)
+    await expect.poll(() => said(b.sessionId)).toMatch(READY_LINE)
 
     sessions.write(a.sessionId, 'hook\r')
     await expect.poll(() => said(a.sessionId)).toContain('context: context for bracket')
@@ -250,7 +274,7 @@ describe('a session', () => {
   it('consumes nothing when the agent hung up before the answer was written', async () => {
     drafts = new Map([['bracket', ['M1']]])
     const { sessionId } = await sessions.start(object('bracket'), {})
-    await expect.poll(() => said(sessionId)).toContain('READY')
+    await expect.poll(() => said(sessionId)).toMatch(READY_LINE)
     let open!: () => void
     gate = new Promise<void>((resolve) => (open = resolve))
     const asked = new Promise<void>((resolve) => (asking = resolve))
@@ -284,7 +308,7 @@ describe('a session', () => {
       return `context for ${id}`
     }
     const { sessionId } = await sessions.start(object('bracket'), {})
-    await expect.poll(() => said(sessionId)).toContain('READY')
+    await expect.poll(() => said(sessionId)).toMatch(READY_LINE)
     for (const event of ['Stop', 'Notification', 'PermissionRequest', 'PreToolUse', 'PostToolUse', 'SessionEnd']) {
       sessions.write(sessionId, `hook ${event}\r`)
       await expect.poll(() => said(sessionId)).toContain(`${event}: ok`)
@@ -300,7 +324,7 @@ describe('a session', () => {
     drafts = new Map([['bracket', ['M1']]])
     context = () => ''
     const { sessionId } = await sessions.start(object('bracket'), {})
-    await expect.poll(() => said(sessionId)).toContain('READY')
+    await expect.poll(() => said(sessionId)).toMatch(READY_LINE)
     sessions.write(sessionId, 'hook\r')
     await expect.poll(() => said(sessionId)).toContain('context: (none)')
     context = () => {
@@ -318,7 +342,7 @@ describe('a session', () => {
   it('answers a prompt with nothing when there is no context', async () => {
     context = () => ''
     const { sessionId } = await sessions.start(object('bracket'), {})
-    await expect.poll(() => said(sessionId)).toContain('READY')
+    await expect.poll(() => said(sessionId)).toMatch(READY_LINE)
     sessions.write(sessionId, 'hook\r')
     await expect.poll(() => said(sessionId)).toContain('context: (none)')
   })
@@ -327,7 +351,7 @@ describe('a session', () => {
     // Claude Code posts SessionEnd, with the id it was started with, even when nothing was asked:
     // it keeps no such conversation, and `--resume` of it fails.
     const { sessionId } = await sessions.start(object('lid'), {})
-    await expect.poll(() => said(sessionId)).toContain('READY')
+    await expect.poll(() => said(sessionId)).toMatch(READY_LINE)
     for (const event of ['Notification', 'SessionEnd']) {
       sessions.write(sessionId, `hook ${event}\r`)
       await expect.poll(() => said(sessionId)).toContain(`${event}: ok`)
@@ -339,7 +363,7 @@ describe('a session', () => {
   it('follows the conversation when the agent starts another, and resumes that one', async () => {
     const other = '7c1f0c0e-3a54-4f0b-8a3e-5d2b9f6a1c11'
     const first = await sessions.start(object('lid'), {})
-    await expect.poll(() => said(first.sessionId)).toContain('READY')
+    await expect.poll(() => said(first.sessionId)).toMatch(READY_LINE)
     expect(sessions.resumable(object('lid'))).toBe(false)
     sessions.write(first.sessionId, `hook Stop ${other}\r`)
     await expect.poll(() => said(first.sessionId)).toContain('Stop: ok')
@@ -357,7 +381,7 @@ describe('a session', () => {
 
     expect(sessions.resumable(object('lid'))).toBe(true)
     const second = await sessions.start(object('lid'), { resume: true })
-    await expect.poll(() => said(second.sessionId)).toContain('READY')
+    await expect.poll(() => said(second.sessionId)).toMatch(READY_LINE)
     const args = argv(second.sessionId)
     expect(args[args.indexOf('--resume') + 1]).toBe(other)
     expect(args).not.toContain('--session-id')
@@ -375,7 +399,7 @@ describe('a session', () => {
     let listening = true
     real.on('data', (m) => void (listening && (out += m.data)))
     const first = await real.start(obj, {})
-    await expect.poll(() => out).toContain('READY')
+    await expect.poll(() => out).toMatch(READY_LINE)
     real.write(first.sessionId, 'hook\r')
     await expect.poll(() => out).toContain('reference/: photo-1.jpg')
     // The next prompt of that conversation is not told again.
@@ -387,7 +411,7 @@ describe('a session', () => {
 
     out = ''
     const second = await real.start(obj, { resume: true })
-    await expect.poll(() => out).toContain('READY')
+    await expect.poll(() => out).toMatch(READY_LINE)
     expect(argv2(out)).toContain('--resume')
     real.write(second.sessionId, 'hook\r')
     await expect.poll(() => out).toContain('context: ')
@@ -399,7 +423,7 @@ describe('a session', () => {
   it('says the first prompt of a session is the first, resumed or not, and no other', async () => {
     const obj = object('first')
     const fresh = await sessions.start(obj, {})
-    await expect.poll(() => said(fresh.sessionId)).toContain('READY')
+    await expect.poll(() => said(fresh.sessionId)).toMatch(READY_LINE)
     asked = []
     for (let i = 1; i <= 3; i += 1) {
       sessions.write(fresh.sessionId, 'hook\r')
@@ -408,7 +432,7 @@ describe('a session', () => {
     expect(asked.map((a) => a.first)).toEqual([true, false, false])
     await sessions.stop(fresh.sessionId)
     const resumed = await sessions.start(obj, { resume: true })
-    await expect.poll(() => said(resumed.sessionId)).toContain('READY')
+    await expect.poll(() => said(resumed.sessionId)).toMatch(READY_LINE)
     asked = []
     for (let i = 1; i <= 2; i += 1) {
       sessions.write(resumed.sessionId, 'hook\r')
@@ -427,7 +451,7 @@ describe('a session', () => {
   it('says where it stands when it is started: starting when new, as it is when it was already running', async () => {
     const first = await sessions.start(object('bracket'), {})
     expect(first.status).toBe('starting')
-    await expect.poll(() => said(first.sessionId)).toContain('READY')
+    await expect.poll(() => said(first.sessionId)).toMatch(READY_LINE)
     expect(await sessions.start(object('bracket'), {})).toMatchObject({ sessionId: first.sessionId, status: 'idle' })
     sessions.write(first.sessionId, 'hook\r')
     await expect.poll(() => statuses.get(first.sessionId)?.at(-1)).toBe('working')
@@ -445,20 +469,20 @@ describe('a session', () => {
 
   it('gives way to a new session as soon as it is told to stop', async () => {
     const first = await sessions.start(object('bracket'), {})
-    await expect.poll(() => said(first.sessionId)).toContain('READY')
+    await expect.poll(() => said(first.sessionId)).toMatch(READY_LINE)
     const gone = sessions.stop(first.sessionId)
     const second = await sessions.start(object('bracket'), {})
     expect(second.sessionId).not.toBe(first.sessionId)
     expect(sessions.current('bracket')?.sessionId).toBe(second.sessionId)
     await gone
-    await expect.poll(() => said(second.sessionId)).toContain('READY')
+    await expect.poll(() => said(second.sessionId)).toMatch(READY_LINE)
     expect(statuses.get(first.sessionId)?.at(-1)).toBe('exited')
     expect(sessions.current('bracket')).toMatchObject({ sessionId: second.sessionId, status: 'idle' })
   })
 
   it('stops: the process ends, the status is exited, its hooks are gone', async () => {
     const { sessionId } = await sessions.start(object('bracket'), {})
-    await expect.poll(() => said(sessionId)).toContain('READY')
+    await expect.poll(() => said(sessionId)).toMatch(READY_LINE)
     const pid = sessions.current('bracket')!.pid
     expect(alive(pid)).toBe(true)
     await sessions.stop(sessionId)
@@ -476,7 +500,7 @@ describe('a session', () => {
 
   it('is exited when the agent exits by itself', async () => {
     const { sessionId } = await sessions.start(object('bracket'), {})
-    await expect.poll(() => said(sessionId)).toContain('READY')
+    await expect.poll(() => said(sessionId)).toMatch(READY_LINE)
     sessions.write(sessionId, 'exit\r')
     await expect.poll(() => statuses.get(sessionId)?.at(-1)).toBe('exited')
   })
@@ -485,7 +509,7 @@ describe('a session', () => {
     process.env.FAKE_AGENT_STUBBORN = '1'
     try {
       const { sessionId } = await sessions.start(object('bracket'), {})
-      await expect.poll(() => said(sessionId)).toContain('READY')
+      await expect.poll(() => said(sessionId)).toMatch(READY_LINE)
       const pid = sessions.current('bracket')!.pid
       const began = Date.now()
       await sessions.stopAll()
@@ -501,7 +525,7 @@ describe('a session', () => {
     process.env.FAKE_AGENT_STUBBORN = '1'
     try {
       const { sessionId } = await sessions.start(object('bracket'), {})
-      await expect.poll(() => said(sessionId)).toContain('READY')
+      await expect.poll(() => said(sessionId)).toMatch(READY_LINE)
       sessions.write(sessionId, 'child\r')
       await expect.poll(() => said(sessionId)).toMatch(/child: \d+/)
       const child = Number(/child: (\d+)/.exec(said(sessionId))![1])
@@ -520,7 +544,7 @@ describe('a session', () => {
     process.env.FAKE_AGENT_STUBBORN = '1'
     try {
       const { sessionId } = await sessions.start(object('hungup'), {})
-      await expect.poll(() => said(sessionId)).toContain('READY')
+      await expect.poll(() => said(sessionId)).toMatch(READY_LINE)
       const gone = sessions.stop(sessionId)
       // The agent has two seconds left, and posts a hook in them.
       sessions.write(sessionId, 'hook\r')
@@ -610,7 +634,7 @@ describe('a session', () => {
     writeFileSync(join(obj.dir, '.torno', 'session.json'), JSON.stringify({ conversationId: '3d1e5a52-6d0c-4f6e-9a55-2f4a3c1d9e10', agent: 'copilot', kept: { claude: { conversationId: claudes } } }))
     expect(sessions.resumable(obj)).toBe(true)
     const { sessionId } = await sessions.start(obj, { resume: true })
-    await expect.poll(() => said(sessionId)).toContain('READY')
+    await expect.poll(() => said(sessionId)).toMatch(READY_LINE)
     const args = argv(sessionId)
     expect(args[args.indexOf('--resume') + 1]).toBe(claudes)
     // Written anew, it is Claude Code's alone.
@@ -678,7 +702,7 @@ describe('the hook endpoint', () => {
 
   it('knows only the hooks of the agent: no other name moves the status', async () => {
     const { sessionId } = await sessions.start(object('bracket'), {})
-    await expect.poll(() => said(sessionId)).toContain('READY')
+    await expect.poll(() => said(sessionId)).toMatch(READY_LINE)
     // `exit` and `output` are what the PTY tells the session, not hooks.
     for (const name of ['exit', 'output', 'SessionStart', 'stop']) {
       const reply = await fetch(http.url(`/hooks/${sessionId}/${name}`), { method: 'POST', body: '{}', headers: as(sessionId) })
@@ -693,7 +717,7 @@ describe('the hook endpoint', () => {
 
   it('reads what a Notification says: one that the agent has only been idle a while is no question', async () => {
     const { sessionId } = await sessions.start(object('bracket'), {})
-    await expect.poll(() => said(sessionId)).toContain('READY')
+    await expect.poll(() => said(sessionId)).toMatch(READY_LINE)
     const notify = (body: object) => fetch(http.url(`/hooks/${sessionId}/Notification`), { method: 'POST', body: JSON.stringify(body), headers: as(sessionId) })
     // Seen on a visible screen: the header said "Needs input" with Claude Code at its empty prompt.
     expect((await notify({ hook_event_name: 'Notification', notification_type: 'idle_prompt', message: 'Claude is waiting for your input' })).status).toBe(200)
@@ -704,7 +728,7 @@ describe('the hook endpoint', () => {
 
   it('does not read what a tool hook carries: a tool result of megabytes moves the status and is answered', async () => {
     const { sessionId } = await sessions.start(object('bracket'), {})
-    await expect.poll(() => said(sessionId)).toContain('READY')
+    await expect.poll(() => said(sessionId)).toMatch(READY_LINE)
     const body = JSON.stringify({ tool_response: 'x'.repeat(2 * 1024 * 1024) })
     for (const event of ['PreToolUse', 'PostToolUse']) {
       const reply = await fetch(http.url(`/hooks/${sessionId}/${event}`), { method: 'POST', body, headers: as(sessionId) })
@@ -718,7 +742,7 @@ describe('the hook endpoint', () => {
 
   it('says a prompt is in a conversation that has not seen the marks when the agent names another than before, once', async () => {
     const { sessionId } = await sessions.start(object('bracket'), {})
-    await expect.poll(() => said(sessionId)).toContain('READY')
+    await expect.poll(() => said(sessionId)).toMatch(READY_LINE)
     asked = []
     const prompt = async (conversation = ''): Promise<void> => {
       const before = asked.length
@@ -733,6 +757,23 @@ describe('the hook endpoint', () => {
     await prompt('11111111-2222-4333-8444-555555555555')
     await prompt('99999999-2222-4333-8444-555555555555')
     expect(asked.map((a) => a.fresh)).toEqual([false, false, true, false, true])
+  })
+
+  it('tells the marks and the references again after a compaction (PostCompact), once, and the hook moves no status', async () => {
+    const { sessionId } = await sessions.start(object('bracket'), {})
+    await expect.poll(() => said(sessionId)).toMatch(READY_LINE)
+    asked = []
+    const prompt = async (event = 'UserPromptSubmit'): Promise<void> => {
+      const before = asked.length
+      sessions.write(sessionId, `hook ${event}\r`)
+      if (event === 'UserPromptSubmit') await expect.poll(() => asked.length).toBe(before + 1)
+    }
+    await prompt()
+    await prompt('PostCompact')
+    await expect.poll(() => sessions.current('bracket')?.status).toBe('working')
+    await prompt()
+    await prompt()
+    expect(asked.map((a) => a.fresh)).toEqual([false, true, false])
   })
 
   it('refuses a body over 1 MB', async () => {
@@ -754,7 +795,7 @@ describe('the hook endpoint', () => {
   it("is nothing to a request without this session's token in its header: 404, and the session is where it was", async () => {
     const { sessionId } = await sessions.start(object('bracket'), {})
     const other = await sessions.start(object('lid'), {})
-    await expect.poll(() => said(sessionId)).toContain('READY')
+    await expect.poll(() => said(sessionId)).toMatch(READY_LINE)
     const token = tokenOf(sessionId)
     const url = http.url(`/hooks/${sessionId}/UserPromptSubmit`)
     const refused: Array<[string, Record<string, string>]> = [
@@ -791,7 +832,7 @@ describe('the hook endpoint', () => {
       made.on('data', (m) => (all += m.data))
       const obj = object('secret')
       const { sessionId } = await made.start(obj, {})
-      await expect.poll(() => all).toContain('READY')
+      await expect.poll(() => all).toMatch(READY_LINE)
       const token = tokenOf(sessionId)
       expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/)
       // Its arguments, which `ps` shows every user, name the addresses and hold no token.
@@ -903,6 +944,7 @@ describe('a chat session', () => {
     if (!r) records.set(sessionId, (r = { messages: [], data: [], asks: [], asked: [], contexts: [], statuses: [] }))
     return r
   }
+  const chatFresh: boolean[] = []
   const chatDelivered: Array<{ objectId: string; sentMarkIds: string[] }> = []
 
   beforeAll(async () => {
@@ -912,7 +954,10 @@ describe('a chat session', () => {
       http: chatHttp,
       adapter: claudeAdapter(`node ${FAKE}`),
       viewFor: () => 'chat',
-      contextFor: async (id) => contextOf(id, (calls += 1)),
+      contextFor: async (id, opts) => {
+        chatFresh.push(opts.fresh)
+        return contextOf(id, (calls += 1))
+      },
       onDelivered: (objectId, sentMarkIds) => chatDelivered.push({ objectId, sentMarkIds }),
       systemPromptFor: () => '',
       mcpUrlFor: (id) => chatHttp.url(`/mcp/${id}`)
@@ -930,6 +975,7 @@ describe('a chat session', () => {
     contextOf = (id, call) => ({ text: `context ${call} for ${id}`, sentMarkIds: [] })
     calls = 0
     chatDelivered.length = 0
+    chatFresh.length = 0
   })
 
   afterAll(async () => {
@@ -987,6 +1033,19 @@ describe('a chat session', () => {
     expect(c.results()[0]).toMatchObject({ subtype: 'success', is_error: false })
   })
 
+  it('tells the marks again in the prompt after a compaction of the stream, once', async () => {
+    const c = await chat()
+    c.send('say before')
+    await expect.poll(() => c.results().length).toBe(1)
+    c.send('/compact')
+    await expect.poll(() => c.results().length).toBe(2)
+    c.send('say after')
+    await expect.poll(() => c.results().length).toBe(3)
+    c.send('say later')
+    await expect.poll(() => c.results().length).toBe(4)
+    expect(chatFresh).toEqual([false, true, false])
+  })
+
   it('keeps going past what it does not know: a line that is no JSON, an object of a type from the future', async () => {
     const c = await chat()
     c.send('garbage\nsay still here')
@@ -1009,7 +1068,7 @@ describe('a chat session', () => {
     const heard: Array<{ text: string; prompt?: string }> = []
     sessions.on('context', (m) => heard.push(m))
     const { sessionId } = await sessions.start(object('bracket'), {})
-    await expect.poll(() => said(sessionId)).toContain('READY')
+    await expect.poll(() => said(sessionId)).toMatch(READY_LINE)
     sessions.write(sessionId, 'hook\r')
     await expect.poll(() => said(sessionId)).toContain('context: context for bracket')
     expect(heard).toMatchObject([{ objectId: 'bracket', text: 'context for bracket', sentMarkIds: [], prompt: 'hello' }])
@@ -1163,6 +1222,17 @@ describe('a chat session', () => {
     expect(c.sessions.history(c.sessionId)!.meta.effort).toBe('max')
   })
 
+  it('sets the permission mode of the session through a control request, and the next init reports it', async () => {
+    const c = await chat()
+    await c.sessions.setMode(c.sessionId, 'acceptEdits')
+    expect(c.sessions.history(c.sessionId)!.meta.permissionMode).toBe('acceptEdits')
+    c.send('say hi')
+    await expect.poll(() => c.results().length).toBe(1)
+    expect(c.messages.find((m) => m.type === 'system' && m.subtype === 'init')).toMatchObject({ permissionMode: 'acceptEdits' })
+    await expect(c.sessions.setMode(c.sessionId, 'loud' as Mode)).rejects.toThrow(/unknown mode/)
+    expect(c.sessions.history(c.sessionId)!.meta.permissionMode).toBe('acceptEdits')
+  })
+
   it('sets the model of the session through a control request', async () => {
     const c = await chat()
     expect(await c.sessions.control(c.sessionId, { subtype: 'set_model', model: 'haiku' })).toEqual({})
@@ -1181,7 +1251,7 @@ describe('a chat session', () => {
     expect(c.data).toEqual([])
     // A terminal session takes none of the chat calls.
     const { sessionId } = await sessions.start(object('bracket'), {})
-    await expect.poll(() => said(sessionId)).toContain('READY')
+    await expect.poll(() => said(sessionId)).toMatch(READY_LINE)
     const before = said(sessionId)
     sessions.prompt(sessionId, [{ type: 'text', text: 'hello' }])
     sessions.answer(sessionId, 'r1', { behavior: 'allow', updatedInput: {} })
@@ -1353,6 +1423,52 @@ describe('the transcript of a chat session', () => {
     expect(turn).toMatchObject({ kind: 'turn', ok: true, stopped: false })
     expect(tSessions.history(c.id)!.meta).toMatchObject({ model: 'fake-model', tornoConnected: true })
     expect(tSessions.history(c.id)!.earlier).toEqual([])
+  })
+
+  it('keeps what a turn changed in the .py files of the folder, in memory, and tells it by the id of the turn', async () => {
+    const c = await start()
+    writeFileSync(join(c.obj.dir, 'part.py'), 'W = 1\nH = 5\n')
+    writeFileSync(join(c.obj.dir, 'notes.md'), 'W = 1\n')
+    await c.send('say first')
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
+    const quiet = c.items().find((i) => i.kind === 'turn')!
+    expect(await tSessions.changesOf(c.id, quiet.id)).toBeUndefined()
+    // The person saves between the turns: not the next turn's.
+    writeFileSync(join(c.obj.dir, 'part.py'), 'W = 1\nH = 6\n')
+    await c.send('edit part.py "W = 1" "W = 2"\nsay done')
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(2)
+    const turn = c.items().filter((i) => i.kind === 'turn')[1]
+    const changes = await tSessions.changesOf(c.id, turn.id)
+    expect(changes).toEqual({ files: [{ file: 'part.py', before: 'W = 1\nH = 6\n', after: 'W = 2\nH = 6\n' }] })
+    // Nothing of it in the log, which is text of the chat only.
+    for (const file of c.logFile()) expect(readFileSync(file, 'utf8')).not.toContain('H = 6')
+    expect(await tSessions.changesOf(c.id, 'no-such-turn')).toBeUndefined()
+  })
+
+  it('asks the agent to undo the last turn with a prompt of torno\'s own, after a note, and writes nothing itself', async () => {
+    const c = await start()
+    writeFileSync(join(c.obj.dir, 'part.py'), 'W = 1\nH = 5\n')
+    await c.send('edit part.py "W = 1" "W = 2"\nsay done')
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
+    const turn = c.items().find((i) => i.kind === 'turn')!
+    // Only the last turn, and one main holds the changes of.
+    await expect(tSessions.undoTurn(c.id, 'no-such-turn')).rejects.toThrow('Only the last turn can be undone')
+    await tSessions.undoTurn(c.id, turn.id)
+    // The stand-in only plays the words it knows: the file is as the turn left it, because torno wrote nothing.
+    expect(readFileSync(join(c.obj.dir, 'part.py'), 'utf8')).toBe('W = 2\nH = 5\n')
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(2)
+    const items = c.items()
+    const note = items.find((i) => i.kind === 'note' && i.text.startsWith('Undo:'))
+    expect(note).toMatchObject({ tone: 'quiet' })
+    expect((note as { text: string }).text).toContain('part.py')
+    const asked = items.filter((i) => i.kind === 'user')[1] as { text: string }
+    expect(asked.text).toContain('Undo your last turn')
+    expect(asked.text).toContain('part.py, from line 1:\n- W = 2\n+ W = 1\n  H = 5')
+    expect(items.indexOf(note!)).toBeLessThan(items.indexOf(asked as ChatItem))
+    // The first turn is no longer the last, and a turn that changed nothing has nothing to undo.
+    await expect(tSessions.undoTurn(c.id, turn.id)).rejects.toThrow('Only the last turn can be undone')
+    const last = c.items().filter((i) => i.kind === 'turn')[1]
+    await expect(tSessions.undoTurn(c.id, last.id)).rejects.toThrow('Nothing is kept of what that turn changed')
   })
 
   it('does not leave a queued command that is no turn queued, and puts a prompt that begins after the one at work', async () => {
@@ -1655,6 +1771,29 @@ describe('the transcript of a chat session', () => {
     expect(c.items().find((i) => i.kind === 'user' && i.text === 'say after')).toMatchObject({ state: 'sent' })
   })
 
+  it('says once that the hooks do not reach torno when the agent posts none, and moves no status', async () => {
+    process.env.FAKE_AGENT_NO_HOOKS = '1'
+    try {
+      const c = await start()
+      await c.send('say one')
+      await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
+      await c.send('say two')
+      await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(2)
+      const notes = c.items().filter((i) => i.kind === 'note' && i.text.startsWith("Claude Code's hooks did not reach torno"))
+      expect(notes).toHaveLength(1)
+      expect(notes[0]).toMatchObject({ tone: 'warn' })
+    } finally {
+      delete process.env.FAKE_AGENT_NO_HOOKS
+    }
+  })
+
+  it('says nothing of hooks when they arrive', async () => {
+    const c = await start()
+    await c.send('say one')
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
+    expect(c.items().some((i) => i.kind === 'note' && i.text.includes('hooks did not reach'))).toBe(false)
+  })
+
   it('closes what is open when the session ends: the request is not answered, the queued prompt not sent', async () => {
     const c = await start()
     await c.send('ask Bash {"command":"ls"}')
@@ -1841,7 +1980,7 @@ describe('the transcript of a chat session', () => {
     expect(tSessions.endedChat(c.obj.id)).toBeUndefined()
     await tSessions.stop(c.id)
     expect(tSessions.endedChat(c.obj.id)).toBe(c.id)
-    const again = await start({ folder: c.obj.id.replace('transcript-', 'transcript-') })
+    const again = await start({ folder: c.obj.id })
     expect(again.obj.id).toBe(c.obj.id)
     expect(tSessions.endedChat(c.obj.id)).toBeUndefined()
   })
@@ -1919,7 +2058,7 @@ describe('what Claude Code says of itself', () => {
     expect(c.meta().pluginLoaded).toBe(false)
     expect(c.notes()).toMatchObject([{ tone: 'warn', text: "torno's skills did not load: the agent is told to read skills it does not have" }])
     await c.send('argv')
-    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(2)
+    await expect.poll(() => c.turns(), { timeout: 15000 }).toBe(2)
     const first = JSON.parse((c.items().filter((i) => i.kind === 'text').at(-1) as { text: string }).text) as string[]
     expect(first).toContain('--plugin-dir')
     expect(first[first.indexOf('--append-system-prompt') + 1]).toBe('WITH SKILLS')
@@ -1929,7 +2068,7 @@ describe('what Claude Code says of itself', () => {
     const again = await chat({ plugins: [] }, { folder: c.obj.id, resume: true, skills: false })
     expect(again.id).not.toBe(c.id)
     await again.send('argv')
-    await expect.poll(() => again.turns(), { timeout: 5000 }).toBe(1)
+    await expect.poll(() => again.turns(), { timeout: 15000 }).toBe(1)
     const second = JSON.parse((again.items().filter((i) => i.kind === 'text').at(-1) as { text: string }).text) as string[]
     expect(second).not.toContain('--plugin-dir')
     expect(second[second.indexOf('--append-system-prompt') + 1]).toBe('FULL PROMPT')
@@ -2061,7 +2200,7 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
       grace?: number
       /** How long a Stop waits for a build that runs. */
       stop?: number
-      context?: (id: string) => PromptContext
+      context?: (id: string) => PromptContext | Promise<PromptContext>
       scene?: (id: string) => { revision: number; scene: Scene } | undefined
       verdicts?: (id: string, revision: number | undefined) => BuildVerdicts | undefined
       settled?: (id: string, revision: number, until: number) => Promise<void>
@@ -2098,7 +2237,7 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
     const seen: SessionStatus[] = []
     made.on('status', (m) => seen.push(m.status))
     const { sessionId } = await made.start(obj, {})
-    await expect.poll(() => all).toContain('READY')
+    await expect.poll(() => all).toMatch(READY_LINE)
     const post = async (event: string, body: unknown) => (await fetch(server.url(`/hooks/${sessionId}/${event}`), { method: 'POST', body: typeof body === 'string' ? body : JSON.stringify(body), headers: as(sessionId) })).json()
     const edit = (file = join(obj.dir, 'part.py'), tool = 'Edit') => post('PostToolUse', { tool_name: tool, tool_use_id: 'toolu_1', tool_input: { file_path: file } })
     /** The agent begins to edit the model: what a build begun after it is the turn's. */
@@ -2744,6 +2883,33 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
       rmSync(ws, { recursive: true, force: true })
     }
   }, 60_000)
+
+  it('tells what the agent expected of an edit in the answer to that edit, once', async () => {
+    let kept: { revision: number; scene: Scene } = keptAs(1)
+    const store = new Expectations()
+    const toolDeps = { scene: () => kept } as unknown as ToolDeps
+    // As index.ts makes it: the context of the build, and the verdict of the expectation, by the same function.
+    const { obj, post, edit } = await begun({ scene: () => kept, context: async (id) => withExpectation(store, toolDeps, id, told(id)) })
+    states.set(obj.id, ok(obj.id, 1))
+    store.hold(obj.id, 1, kept.scene, 'assembly', { checks: [{ part: 'plate', volume: { change: -100, tolerance: 1 }, faces: { change: 1 } }, { unchanged: ['plate'] }], note: 'thin it' })
+    await post('UserPromptSubmit', { prompt: 'thin the plate' })
+    const first = edit()
+    setTimeout(() => land(building(obj.id, 1)), 50)
+    setTimeout(() => {
+      kept = keptAs(8)
+      land(ok(obj.id, 8))
+    }, 200)
+    const text = ((await first) as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput.additionalContext
+    expect(text).toContain('r8 ok\nexpected (r8) "thin it": 2 met, 1 not: plate changed')
+    // The next edit's build is told without it: it was told once.
+    const second = edit()
+    setTimeout(() => land(building(obj.id, 8)), 50)
+    setTimeout(() => {
+      kept = keptAs(9)
+      land(ok(obj.id, 9))
+    }, 200)
+    expect(await second).toEqual(context('r9 ok'))
+  })
 
   it('holds no Stop back for a defect of the first build of an object, in a turn that edited nothing', async () => {
     let kept: { revision: number; scene: Scene } | undefined

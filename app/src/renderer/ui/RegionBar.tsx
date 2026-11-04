@@ -56,7 +56,7 @@ export function RegionBar() {
             <span className="regionbar-label" title="How far the brush reaches round the pointer. [ and ] change it by a quarter">
               Radius
             </span>
-            <span aria-keyshortcuts={`${hint('region.brush', 0)} ${hint('region.brush', 1)}`}>
+            <span className="regionbar-radius" aria-keyshortcuts={`${hint('region.brush', 0)} ${hint('region.brush', 1)}`}>
               <Field label="Brush radius" unit="mm" value={shown === null ? '' : number(shown)} commit={(value) => regionStore.setState({ radius: radiusOf(value) })} />
             </span>
           </>

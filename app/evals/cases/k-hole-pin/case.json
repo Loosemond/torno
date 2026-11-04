@@ -1,0 +1,61 @@
+{
+  "object": "holes",
+  "track": "marks against text",
+  "prompts": [
+    "Do what my mark says, and nothing else."
+  ],
+  "answers": {
+    "default": "I don't know: choose, and say what you chose."
+  },
+  "checks": [
+    {
+      "id": "valid",
+      "kind": "valid"
+    },
+    {
+      "id": "big",
+      "kind": "hole",
+      "part": "plate",
+      "diameter": 8,
+      "through": true,
+      "count": 1,
+      "tol": 0.02,
+      "near": [
+        30,
+        0,
+        0
+      ]
+    },
+    {
+      "id": "small",
+      "kind": "hole",
+      "part": "plate",
+      "diameter": 5,
+      "through": true,
+      "count": 2,
+      "tol": 0.02
+    },
+    {
+      "id": "plate-x",
+      "kind": "size",
+      "part": "plate",
+      "axis": "x",
+      "expect": 90,
+      "tol": 0.05
+    },
+    {
+      "id": "plate-volume",
+      "kind": "volume",
+      "part": "plate",
+      "min": 21041.725,
+      "max": 21083.85
+    },
+    {
+      "id": "diff",
+      "kind": "diff",
+      "only": [
+        "plate"
+      ]
+    }
+  ]
+}

@@ -36,6 +36,7 @@ from .frames import write_frame
 DEFAULT_TIMEOUT = 600.0
 MAX_TIMEOUT = 86400.0  # a day; a longer wait is also more than the event loop can sleep
 MAX_LIVE = 4  # object folders whose last good build is kept for queries
+MOST_TRIAL_QUERIES = 20  # queries a trial may carry
 QUERY_TIMEOUT = 30.0  # seconds a live worker has to answer a query
 # Seconds it has to make a file of the build, or read one back (``export``): a mesh at a print tolerance takes longer.
 EXPORT_TIMEOUT = 120.0
@@ -70,6 +71,28 @@ def build_timeout(value: Any) -> float | None:
     if not math.isfinite(value) or value <= 0:
         return None
     return min(float(value), MAX_TIMEOUT)
+
+
+def _no_room_for_trial(dir: str) -> str:
+    return (
+        f"there is not memory to build {dir} a second time for a trial without letting a built project go; "
+        "try again when a build has finished, or after closing a project"
+    )
+
+
+def _is_overrides(value: Any) -> bool:
+    """Field name to a bool, a finite number or a string: the only values a field of `Params` is offered with."""
+    return (
+        isinstance(value, dict)
+        and len(value) <= 1000
+        and all(
+            isinstance(k, str)
+            and isinstance(v, (bool, int, str, float))
+            and (not isinstance(v, float) or math.isfinite(v))
+            for k, v in value.items()
+        )
+        and _unwritable(value) is None
+    )
 
 
 def _is_result(header: Any) -> bool:
@@ -232,6 +255,9 @@ class Supervisor:
         self._outbox = _Outbox(lambda data: os.write(proto_out.fileno(), data))
         self._requests = _Decoder()
         self._building: _Worker | None = None
+        # A trial: a worker forked to build the model with other values of its Params, answer some queries and leave.
+        # It is never live, holds no build and is refused when there is no room (``_trial_request``).
+        self._trial: _Worker | None = None
         # By object folder, the least recently built or queried first.
         self._live: dict[str, _Worker] = {}
         # The folders whose build was let go for memory and that have had none since.
@@ -247,7 +273,7 @@ class Supervisor:
         except BrokenPipeError:
             pass  # the client is gone
         finally:
-            for worker in (self._building, *self._live.values()):
+            for worker in (self._building, self._trial, *self._live.values()):
                 if worker:
                     self._stop(worker, signal.SIGKILL)
         self._drain()
@@ -272,6 +298,9 @@ class Supervisor:
         if self._building:
             workers.append(self._building)
             deadlines.append(self._building.deadline)
+        if self._trial:
+            workers.append(self._trial)
+            deadlines.append(self._trial.deadline)
         wait = max(0.0, min(deadlines) - time.monotonic()) if deadlines else None
         reading = [self._stdin_fd, *(w.sock for w in workers)]
         writing = [w.sock for w in workers if w.outbox]
@@ -284,13 +313,15 @@ class Supervisor:
             if worker.sock in writable and self._is_live(worker):
                 self._send_queries(worker)
             # An earlier iteration may have retired this worker.
-            if worker.sock in readable and (worker is self._building or self._is_live(worker)):
+            if worker.sock in readable and (worker is self._building or worker is self._trial or self._is_live(worker)):
                 self._read_worker(worker)
         now = time.monotonic()
         for worker in list(self._live.values()):
             self._time_out_queries(worker, now)
         if self._building and now >= self._building.deadline:
             self._time_out(self._building)
+        if self._trial and now >= self._trial.deadline:
+            self._trial_time_out(self._trial)
         if self._stdin_fd in readable:
             chunk = os.read(self._stdin_fd, 1 << 16)
             if not chunk:
@@ -318,6 +349,8 @@ class Supervisor:
             self._build(id, request)
         elif op == "query":
             self._query(id, request)
+        elif op == "trial":
+            self._trial_request(id, request)
         elif op == "cancel":
             self._cancel_building("cancelled by request")
         elif op == "shutdown":
@@ -344,11 +377,109 @@ class Supervisor:
                 id, "bad_request", "build timeout must be a positive, finite number of seconds"
             )
             return
+        overrides = request.get("overrides")
+        if overrides is not None and not _is_overrides(overrides):
+            self._fail(id, "bad_request", "build overrides must be an object of field name to a bool, number or string")
+            return
+        self._cancel_trial("a build started")
         self._cancel_building("replaced by a newer build")
         retired = self._make_room(dir)
-        self._building = self._fork(id, dir, model, timeout)
+        self._building = self._fork(id, dir, model, timeout, overrides)
         started = {"id": id, "event": "build.started", "pid": self._building.pid}
         self._send({**started, "retired": retired})
+
+    def _trial_request(self, id: Any, request: dict[str, Any]) -> None:
+        """Build ``dir`` with other values of its Params in a worker of its own, answer ``queries`` there, reply once.
+
+        Nothing live is touched: no worker is let go to make room (a trial is refused with ``no_room`` when the
+        memory a build needs is not free), and none becomes live. Refused too while a build or another trial runs.
+        """
+        dir, model, timeout = request.get("dir"), request.get("model"), request.get("timeout")
+        overrides, asked = request.get("overrides"), request.get("queries")
+        if not isinstance(dir, str) or not isinstance(model, str):
+            self._fail(id, "bad_request", "trial needs dir and model, both strings")
+            return
+        if not _is_overrides(overrides):
+            self._fail(id, "bad_request", "trial overrides must be an object of field name to a bool, number or string")
+            return
+        if (
+            not isinstance(asked, list)
+            or len(asked) > MOST_TRIAL_QUERIES
+            or not all(isinstance(q, dict) and isinstance(q.get("name"), str) for q in asked)
+        ):
+            self._fail(id, "bad_request", f"trial queries must be a list of at most {MOST_TRIAL_QUERIES} objects with a name")
+            return
+        if (why := _unwritable([dir, model, asked])) is not None:
+            self._fail(id, "bad_request", f"the request {why}")
+            return
+        timeout = build_timeout(timeout)
+        if timeout is None:
+            self._fail(id, "bad_request", "trial timeout must be a positive, finite number of seconds")
+            return
+        if self._building is not None:
+            self._fail(id, "busy", "a build is running; a trial waits for it")
+            return
+        if self._trial is not None:
+            self._fail(id, "busy", "another trial is running")
+            return
+        if not self._has_room(dir):
+            self._fail(id, "no_room", _no_room_for_trial(dir))
+            return
+        self._trial = self._fork(id, dir, model, timeout, overrides, trial=asked)
+        self._send({"id": id, "event": "trial.started", "pid": self._trial.pid})
+
+    def _has_room(self, dir: str) -> bool:
+        """Whether a build of ``dir`` could be forked now without letting any worker go (see ``_make_room``)."""
+        if os.environ.get("TORNO_KEEP_BUILDS") == "1":
+            return True
+        available = _available()
+        own = self._live.get(dir)
+        held = _rss(own.pid) if own else 0
+        if available is None or held is None:
+            return True
+        return available >= max(held, ROOM_LEAST) + ROOM_SPARE
+
+    def _cancel_trial(self, reason: str) -> None:
+        worker = self._trial
+        if worker is None:
+            return
+        self._trial = None
+        self._stop(worker, signal.SIGKILL)
+        self._fail(worker.request_id, "cancelled", reason, output=self._take_output(worker))
+
+    def _trial_finished(self, worker: _Worker, result: dict[str, Any]) -> None:
+        self._trial = None
+        output = self._take_output(worker)
+        self._stop(worker, signal.SIGKILL)
+        if not result.get("ok"):
+            self._send({"id": worker.request_id, "ok": False, "error": {**result["error"], "output": output}})
+            return
+        scene = {**result["scene"], "seconds": time.monotonic() - worker.started, "output": output}
+        self._send({"id": worker.request_id, "ok": True, "scene": scene, "answers": result.get("answers", [])})
+
+    def _trial_died(self, worker: _Worker) -> None:
+        self._trial = None
+        worker.sock.close()
+        status = _wait(worker.pid, _EXIT_GRACE)
+        if status is None:
+            _kill(worker.pid, signal.SIGKILL)
+            _, status = os.waitpid(worker.pid, 0)
+        how = (
+            f"was killed by {signal.Signals(os.WTERMSIG(status)).name}"
+            if os.WIFSIGNALED(status)
+            else f"exited with status {os.WEXITSTATUS(status)}"
+        )
+        self._fail(worker.request_id, "crash", f"the trial process {how} before it finished", output=self._take_output(worker))
+
+    def _trial_time_out(self, worker: _Worker) -> None:
+        self._trial = None
+        self._stop(worker, signal.SIGKILL)
+        self._fail(
+            worker.request_id,
+            "timeout",
+            f"the trial did not finish within {worker.timeout:g} s and was stopped",
+            output=self._take_output(worker),
+        )
 
     def _make_room(self, dir: str) -> list[str]:
         """Let live workers go until there is memory for a build of ``dir``. The folders let go.
@@ -437,7 +568,15 @@ class Supervisor:
 
     # Workers
 
-    def _fork(self, id: Any, dir: str, model: str, timeout: float) -> _Worker:
+    def _fork(
+        self,
+        id: Any,
+        dir: str,
+        model: str,
+        timeout: float,
+        overrides: dict[str, Any] | None = None,
+        trial: list[dict[str, Any]] | None = None,
+    ) -> _Worker:
         ours, theirs = socket.socketpair()
         if sys.platform == "darwin":
             # For speed only: a system that refuses the size keeps its own, and the build goes on.
@@ -459,7 +598,7 @@ class Supervisor:
                 for live in self._live.values():
                     live.sock.close()
             finally:
-                worker_module.run(theirs, capture.fileno(), dir, model, parent, deadline)
+                worker_module.run(theirs, capture.fileno(), dir, model, parent, deadline, overrides, trial)
         theirs.close()
         ours.setblocking(False)
         now = time.monotonic()
@@ -478,10 +617,18 @@ class Supervisor:
         if not chunk:
             if worker is self._building:
                 self._build_died(worker)
+            elif worker is self._trial:
+                self._trial_died(worker)
             else:
                 self._live_died(worker)
             return
         for header, blob in worker.decoder.feed(chunk):
+            if worker is self._trial:
+                if _is_result(header):
+                    self._trial_finished(worker, header)
+                else:
+                    self._trial_died(worker)
+                return
             if worker is self._building:
                 if _is_result(header):
                     self._build_finished(worker, header, blob)

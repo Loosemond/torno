@@ -16,6 +16,8 @@ from .ocp import (
 )
 
 _SUBSHAPE = re.compile(r"^(?P<key>.+)/(?P<kind>[FE])(?P<index>\d+)$")
+# `lid/@top`: a face or an edge the model named (`tags(p, parts)`), with the part's key in front.
+_TAGGED = re.compile(r"^(?P<key>.+)/@(?P<tag>[A-Za-z_][A-Za-z0-9_.-]*)$")
 # No part has a face or an edge of a million: a longer number is not one, and
 # one of thousands of digits is more than int() takes.
 _INDEX_DIGITS = 6
@@ -74,6 +76,10 @@ def run(
         from . import export
 
         return export.export(shapes, args, kept) if name == "export" else export.export_check(shapes, args, kept)
+    if name == "features":
+        from . import features
+
+        return features.features(shapes, args, kept)
     if name == "try_fillet":
         return try_fillet(shapes, args)
     if name == "match_edges":
@@ -82,7 +88,7 @@ def run(
         ref = args.get("ref")
         if not isinstance(ref, str):
             raise QueryError("bad_request", "describe needs args.ref, a string")
-        return describe(shapes, ref, kept)
+        return describe(shapes, ref, kept, selector=args.get("selector") is True)
     if name == "nearest":
         layout, anchors = args.get("layout"), args.get("anchors")
         if not isinstance(layout, str) or not isinstance(anchors, list):
@@ -93,24 +99,39 @@ def run(
     raise QueryError(
         "bad_request",
         f"unknown query {name!r}; the queries are describe, nearest, measure, section, check, "
-        "scan_clash, scan_deviation, scan_section, export, export_check, try_fillet and match_edges",
+        "scan_clash, scan_deviation, scan_section, export, export_check, features, try_fillet and match_edges",
     )
 
 
 def describe(
-    shapes: dict[str, Any], ref: str, kept: dict[Any, Any] | None = None
+    shapes: dict[str, Any], ref: str, kept: dict[Any, Any] | None = None, selector: bool = False
 ) -> dict[str, Any]:
     """Describe a part (``layout:name``), or one of its faces (``/F<i>``) or edges (``/E<i>``).
 
     Positions and directions are in the object frame. ``descriptor`` says the
-    same in one line. ``kept`` is the worker's (``run``).
+    same in one line. ``kept`` is the worker's (``run``). With ``selector`` a face
+    or an edge also gets a build123d selector that picks it now (``selectors``): it
+    is searched for only when asked, as it costs a pass over the part.
     """
-    key, kind, shape = resolve(shapes, ref)
+    key, kind, shape = resolve(shapes, ref, kept)
     if kind == "part":
         return _describe_part(key, shape, kept)
+    tagged = _TAGGED.match(ref)
+    if tagged:
+        # Told by the face or edge's own ref, which is what other tools take; the tag is said beside it.
+        one = tag_refs(key, tagged["tag"], kept)[0]
+        ref = f"{key}{one[one.index('/'):]}"
     if kind == "face":
-        return _describe_face(ref, shape, _held(kept, "span", key, lambda: extent.span(shapes[key])))
-    return _describe_edge(ref, shape)
+        told = _describe_face(ref, shape, _held(kept, "span", key, lambda: extent.span(shapes[key])))
+    else:
+        told = _describe_edge(ref, shape)
+    if tagged:
+        told["tag"] = tagged["tag"]
+    if selector:
+        from . import selectors
+
+        told.update(selectors.selector_for(shapes[key], shape, kind))
+    return told
 
 
 # The seconds a trial fillet may take of its query's 30: OCC's tries cannot be stopped, so some are left over.
@@ -214,15 +235,20 @@ def _near(a: list[float], b: list[float]) -> bool:
     return all(abs(x - y) <= SAME_EDGE for x, y in zip(a, b, strict=True))
 
 
-def resolve(shapes: dict[str, Any], ref: str) -> tuple[str, str, Any]:
+def resolve(shapes: dict[str, Any], ref: str, kept: dict[Any, Any] | None = None) -> tuple[str, str, Any]:
     """What ``ref`` names: its part's key, ``part``, ``face`` or ``edge``, and the shape.
 
     A part is the shape the model made; a face or an edge is the ``TopoDS``
-    one of that index in the kernel's order (``topo``). Anything else is a
-    ``bad_ref`` that names what there is.
+    one of that index in the kernel's order (``topo``), or the one a tag of the
+    model names (``part/@top``, from ``kept``, which the worker fills from the
+    model's ``tags(p, parts)``; a tag of several is refused, naming them).
+    Anything else is a ``bad_ref`` that names what there is.
     """
     if ref in shapes:
         return ref, "part", shapes[ref]
+    tagged = _TAGGED.match(ref)
+    if tagged:
+        return _resolve_tag(shapes, tagged["key"], tagged["tag"], kept)
     match = _SUBSHAPE.match(ref)
     key = match["key"] if match else ref
     if key not in shapes:
@@ -232,6 +258,27 @@ def resolve(shapes: dict[str, Any], ref: str) -> tuple[str, str, Any]:
     if match["kind"] == "F":
         return key, "face", _pick(topo.faces(shape), index, key, "faces", "F")
     return key, "edge", _pick(topo.edges(shape), index, key, "edges", "E")
+
+
+def tag_refs(key: str, tag: str, kept: dict[Any, Any] | None) -> list[str]:
+    """The refs (``part/F<i>``, ``part/E<j>``, no layout) the tag ``tag`` of the part ``key`` names, faces first.
+    A ``bad_ref`` when the part has no such tag."""
+    named = (kept or {}).get(("tags", key)) or {}
+    if tag not in named:
+        part = key.split(":", 1)[1]
+        have = ", ".join(f"@{t}" for t in named) or "no tags"
+        raise QueryError("bad_ref", f"{part} has no tag @{tag}; its tags: {have}")
+    part = key.split(":", 1)[1]
+    return [f"{part}/F{i}" for i in named[tag].get("faces", [])] + [f"{part}/E{i}" for i in named[tag].get("edges", [])]
+
+
+def _resolve_tag(shapes: dict[str, Any], key: str, tag: str, kept: dict[Any, Any] | None) -> tuple[str, str, Any]:
+    if key not in shapes:
+        raise QueryError("bad_ref", f"no part {key!r}; the parts are {', '.join(shapes)}")
+    refs = tag_refs(key, tag, kept)
+    if len(refs) != 1:
+        raise QueryError("bad_ref", f"{key.split(':', 1)[1]}/@{tag} names {len(refs)} faces and edges, not one: {', '.join(refs)}")
+    return resolve(shapes, f"{key}{refs[0][refs[0].index('/'):]}")
 
 
 def need_layout(shapes: dict[str, Any], layout: str) -> None:
@@ -245,6 +292,19 @@ def need_solid(shape: Any, name: str) -> None:
     """Refuse what has no solid: it has no volume, no inside and no walls to measure."""
     if not topo.solids(shape):
         raise QueryError("bad_request", f"{name} is not a solid: it is {topo.what(shape)}")
+
+
+def is_reference(kept: dict[Any, Any] | None, key: str) -> bool:
+    """Whether the part ``layout:name`` is a reference (``loader.Layouts``): bought, not made. Noted by ``tess.build_scene``."""
+    return bool(kept) and kept.get(("reference", key)) is True
+
+
+def need_made(kept: dict[Any, Any] | None, key: str, name: str, what: str) -> None:
+    """Refuse a reference where the answer is of something to make: ``what`` says what that is asked of it."""
+    if is_reference(kept, key):
+        raise QueryError(
+            "bad_request", f"{name} is a reference (a bought part): {what} is of the parts to make, and it is not one"
+        )
 
 
 def need_part(shapes: dict[str, Any], layout: str, part: str) -> Any:
@@ -354,6 +414,10 @@ def nearest(
     build: the distance is what tells whether the number still means the edge
     the anchor was put on.
 
+    A face too (``"face": "lid/F12"``, the face a tag of the model names now): the answer then says whether the
+    part has it (``faceFound``) and, when it does, how far the point is from it (``faceDistance``), its
+    descriptor (``faceDescriptor``) and its outward normal at the nearest point (``faceNormal``) and the point of it nearest to the anchor (``facePoint``; an edge's is ``edgePoint``).
+
     ``kept`` holds what was worked out of each part asked about (``run``).
     """
     need_layout(shapes, layout)
@@ -362,7 +426,7 @@ def nearest(
     # of another object, every mark added: taking it apart is done once.
     surfaces: dict[str, Any] = {} if kept is None else kept
     found = []
-    for part, point, edge in wanted:
+    for part, point, edge, face in wanted:
         key = f"{layout}:{part}"
         if key not in shapes:
             found.append({"part": part, "found": False})
@@ -377,27 +441,31 @@ def nearest(
             continue
         if edge is not None:
             answer.update(surfaces[key].edge(part, key, edge, point))
+        if face is not None:
+            answer.update(surfaces[key].face(part, key, face, point))
         found.append(answer)
     return found
 
 
-def _anchor(anchor: Any) -> tuple[str, list[float], str | None]:
+def _anchor(anchor: Any) -> tuple[str, list[float], str | None, str | None]:
     part = anchor.get("part") if isinstance(anchor, dict) else None
     point = anchor.get("point") if isinstance(anchor, dict) else None
     edge = anchor.get("edge") if isinstance(anchor, dict) else None
+    face = anchor.get("face") if isinstance(anchor, dict) else None
     if (
         not isinstance(part, str)
         or not isinstance(point, list)
         or len(point) != 3
         or not all(_is_coordinate(c) for c in point)
         or not (edge is None or isinstance(edge, str))
+        or not (face is None or isinstance(face, str))
     ):
         raise QueryError(
             "bad_request",
             "each anchor of nearest needs part, a string, and point, three finite numbers; "
-            "edge, if it names one, is a string",
+            "edge and face, if it names one, are strings",
         )
-    return part, [float(c) for c in point], edge
+    return part, [float(c) for c in point], edge, face
 
 
 def _is_coordinate(value: Any) -> bool:
@@ -537,6 +605,7 @@ class _Surface:
 
     def edge(self, part: str, key: str, ref: str, point: list[float]) -> dict[str, Any]:
         """How far ``point`` is from the edge ``ref`` (``part/E<i>``) names, if the part has it."""
+        from build123d import Vector
         from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
         from OCP.BRepExtrema import BRepExtrema_DistShapeShape
         from OCP.gp import gp_Pnt
@@ -562,8 +631,41 @@ class _Surface:
         return {
             "edgeFound": True,
             "edgeDistance": float(extrema.Value()),
+            "edgePoint": _xyz(Vector(*_pnt(extrema.PointOnShape2(1)))),
             "edgeDescriptor": self._edge_descriptor(key, index, edge),
             "edgeBetween": self._between(part, edge),
+        }
+
+    def face(self, part: str, key: str, ref: str, point: list[float]) -> dict[str, Any]:
+        """How far ``point`` is from the face ``ref`` (``part/F<i>``) names, if the part has it."""
+        from build123d import Face, Vector
+        from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
+        from OCP.BRepExtrema import BRepExtrema_DistShapeShape
+        from OCP.gp import gp_Pnt
+
+        match = _SUBSHAPE.match(ref)
+        if not match or match["key"] != part or match["kind"] != "F" or _index(match) >= len(self._faces):
+            return {"faceFound": False}
+        index = _index(match)
+        try:
+            vertex = BRepBuilderAPI_MakeVertex(gp_Pnt(*point)).Vertex()
+            extrema = BRepExtrema_DistShapeShape(vertex, self._faces[index])
+            measured = extrema.IsDone() and extrema.NbSolution() >= 1
+        except Exception:
+            measured = False
+        if not measured:
+            return {"faceFound": False}
+        at = extrema.PointOnShape2(1)
+        try:
+            normal = _xyz(Face(self._faces[index]).normal_at(Vector(at.X(), at.Y(), at.Z())))
+        except Exception:
+            normal = None
+        return {
+            "faceFound": True,
+            "faceDistance": float(extrema.Value()),
+            "facePoint": _xyz(Vector(at.X(), at.Y(), at.Z())),
+            "faceDescriptor": self._descriptor(key, index),
+            "faceNormal": normal,
         }
 
     def _descriptor(self, key: str, index: int) -> str | None:
@@ -609,6 +711,10 @@ class _Surface:
         return self._around[kind]
 
 
+def _pnt(point: Any) -> tuple[float, float, float]:
+    return point.X(), point.Y(), point.Z()
+
+
 def _index(match: re.Match[str]) -> int:
     """The number a ref ends in; one too long to be the number of anything is past every list."""
     digits = match["index"]
@@ -644,6 +750,8 @@ def _describe_part(key: str, shape: Any, kept: dict[Any, Any] | None) -> dict[st
         "valid": valid_of(shape, key, kept),
         # Which solids are inside out: absent of a sound part.
         **({"reversed": list(volume.reversed)} if volume.reversed else {}),
+        # Bought, not made: present only of a reference.
+        **({"role": "reference"} if is_reference(kept, key) else {}),
     }
     return {**facts, "descriptor": descriptor("part", facts)}
 

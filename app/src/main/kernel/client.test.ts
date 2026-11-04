@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cannotStart, environmentCommand, kernelCommand, kernelEnv, KernelError, type RunningKernel, startKernel, startKernelCommand } from './client'
 
 // These run the client against fake-kernel.mjs. client.itest.ts runs it against the real kernel.
@@ -277,6 +277,8 @@ describe('kernel client', () => {
     const k = start('noisy')
     await k.ready
     await k.query('/ws/a', 'echo', {})
+    // stderr is a pipe of its own: its last chunk may land after the reply on stdout
+    await vi.waitFor(() => expect(k.stderrTail().endsWith('no newline at the end')).toBe(true), { timeout: 10_000 })
     const lines = k.stderrTail().split('\n')
     expect(lines).toHaveLength(201) // 200 whole lines and the unfinished one
     expect(lines[0]).toBe('line 300')

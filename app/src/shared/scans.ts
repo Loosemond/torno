@@ -329,3 +329,44 @@ export function importText(imported: ScanImport): string {
 }
 
 const count = (n: number): string => n.toLocaleString('en-US')
+
+/** How many times longer the scan's diagonal is than the parts' before the sheet asks whether the unit is right. */
+export const UNIT_DOUBT = 100
+
+/**
+ * A scan's size set against the parts of the layout, both as boxes' sides in mm: how many times the scan's diagonal is
+ * the parts', and, when that is more than `UNIT_DOUBT` times either way, the unit that would bring them nearest
+ * (a ratio is read to two figures: it is a guess at a unit, not a measure). Null without parts or without a size.
+ */
+export function sizeAgainst(scan: Vec3, parts: Vec3, readAs: ScanUnit): { ratio: number; suggest: ScanUnit | null } | null {
+  const a = Math.hypot(...scan)
+  const b = Math.hypot(...parts)
+  if (!(a > 0) || !(b > 0)) return null
+  const ratio = a / b
+  if (ratio <= UNIT_DOUBT && ratio >= 1 / UNIT_DOUBT) return { ratio, suggest: null }
+  let best: ScanUnit | null = null
+  let nearest = Math.abs(Math.log(ratio))
+  for (const unit of Object.keys(UNIT_MM) as ScanUnit[]) {
+    if (unit === readAs) continue
+    const off = Math.abs(Math.log((ratio * UNIT_MM[unit]) / UNIT_MM[readAs]))
+    if (off < nearest) [best, nearest] = [unit, off]
+  }
+  return { ratio, suggest: best }
+}
+
+/** The sides of the box that holds all these boxes, or null of none. */
+export function boxSize(boxes: ReadonlyArray<{ min: Vec3; max: Vec3 }>): Vec3 | null {
+  if (boxes.length === 0) return null
+  const side = (a: number): number => Math.max(...boxes.map((b) => b.max[a])) - Math.min(...boxes.map((b) => b.min[a]))
+  return [side(0), side(1), side(2)]
+}
+
+/** How many times longer than the parts a scan's diagonal is before it is taken for their surroundings (a room, an engine bay) and not for a part to fit. */
+export const SURROUNDINGS = 10
+
+/** Whether the scan, as it is read, is much larger than the parts: where the floor is most of the job. False without parts. */
+export function muchLarger(imported: Pick<ScanImport, 'unit' | 'up' | 'bbox'>, parts: ReadonlyArray<{ min: Vec3; max: Vec3 }>): boolean {
+  const size = boxSize(parts)
+  const about = size ? sizeAgainst(sizeAs(imported, imported), size, imported.unit) : null
+  return about !== null && about.ratio > SURROUNDINGS
+}

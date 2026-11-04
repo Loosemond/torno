@@ -19,7 +19,7 @@ export function EmptyWorkspace({ name, hasProject, hasExample, onNew, onExample 
       {hasExample && (
         <p className="show-empty-example">
           or{' '}
-          <button type="button" className="show-empty-link" title="Four small projects of torno's own, copied to a temporary folder: nothing of the repository is opened or written" onClick={onExample}>
+          <button type="button" className="show-empty-link" title="A small project of torno's own, copied to a temporary folder: nothing of the repository is opened or written" onClick={onExample}>
             open the example to look around
           </button>
         </p>

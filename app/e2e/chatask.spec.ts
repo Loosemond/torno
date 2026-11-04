@@ -1,8 +1,11 @@
 import { cpSync, mkdtempSync, readdirSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { _electron as electron, expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import type { TornoState } from '../src/renderer/state/store'
+import { SESSION_HEADER } from '../src/main/http'
 import { openListed, switcher } from './objects'
 
 // What the chat asks of the person and what it offers: a permission request, the questions of `AskUserQuestion`
@@ -108,7 +111,7 @@ test('a request to use a tool is a card with the input, answered with Allow, All
   await write.getByRole('button', { name: /^Show all/ }).click()
   await expect(write.locator('.chat-ask-input')).toContainText('eight')
   await expect(write.getByRole('button', { name: /^Show all/ })).toHaveCount(0)
-  await write.getByLabel('Reason (optional)').fill('not there, please')
+  await write.getByLabel('Tell Claude Code what to do instead (optional)').fill('not there, please')
   await write.getByRole('button', { name: 'Deny', exact: true }).click()
   await expect(write).toHaveAttribute('data-state', 'denied')
   await expect(write).toContainText('Denied')
@@ -251,7 +254,7 @@ test('a plan is drawn as markdown, approved or kept for more planning with a rea
   await expect(plan.locator('li')).toHaveCount(2)
   await expect(plan.locator('li').first()).toHaveText('widen the wall')
   await expect(plan.getByRole('button', { name: 'Allow', exact: true })).toHaveCount(0)
-  await plan.getByLabel('Reason (optional)').fill('make it 3 mm')
+  await plan.getByLabel('Tell Claude Code what to do instead (optional)').fill('make it 3 mm')
   await plan.getByRole('button', { name: 'Keep planning', exact: true }).click()
   await expect(plan).toHaveAttribute('data-state', 'denied')
   await finished()
@@ -265,6 +268,51 @@ test('a plan is drawn as markdown, approved or kept for more planning with a rea
   await expect(again).toContainText('Approved')
   await finished()
   expect(await resultOf(chat().locator('.chat-tool').last())).toContain('allowed: {"plan":"- just do it"}')
+})
+
+test('while a card waits, what is written is the answer: "Deny and send"; Enter on the card allows; Ctrl+C in an empty box stops the turn', async () => {
+  // Text in the box with a permission open: the primary button refuses with it.
+  await say('ask Write {"file_path":"c.txt","content":"one"}')
+  const write = asks().last()
+  await expect(write).toHaveAttribute('data-state', 'open')
+  await expect(composer()).toHaveAttribute('placeholder', 'Answer the card above, or say what to do instead')
+  await composer().fill('thicker than that, please')
+  await expect(dock().getByRole('button', { name: 'Deny and send' })).toHaveClass(/button-primary/)
+  await expect(dock().getByRole('button', { name: 'Queue' })).not.toHaveClass(/button-primary/)
+  await dock().getByRole('button', { name: 'Deny and send' }).click()
+  await expect(write).toHaveAttribute('data-state', 'denied')
+  await expect(write).toContainText('thicker than that, please')
+  await expect(composer()).toHaveValue('')
+  await finished()
+  expect(await resultOf(chat().locator('.chat-tool').last())).toContain('denied: thicker than that, please')
+  await expect(dock().getByRole('button', { name: 'Deny and send' })).toHaveCount(0)
+
+  // Enter in the box does what the primary button does.
+  await say('ask Write {"file_path":"d.txt","content":"two"}')
+  const again = asks().last()
+  await expect(again).toHaveAttribute('data-state', 'open')
+  await composer().fill('no, shorter')
+  await composer().press('Enter')
+  await expect(again).toHaveAttribute('data-state', 'denied')
+  await finished()
+  expect(await resultOf(chat().locator('.chat-tool').last())).toContain('denied: no, shorter')
+
+  // Enter on the card itself allows.
+  await say('ask Bash {"command":"ls"}')
+  const bash = asks().last()
+  await expect(bash).toHaveAttribute('data-state', 'open')
+  await bash.focus()
+  await page.keyboard.press('Enter')
+  await expect(bash).toHaveAttribute('data-state', 'allowed')
+  await finished()
+
+  // Ctrl+C with nothing selected in the box stops the turn.
+  await say('slow 5')
+  await expect(status()).toHaveText('Working')
+  await composer().focus()
+  await page.keyboard.press('Control+C')
+  await expect(turns().last()).toContainText('Stopped', { timeout: 2000 })
+  await finished()
 })
 
 test('/compact is a prompt that is sent, a quiet note with the tokens, and a turn; the session is idle after it', async () => {
@@ -592,6 +640,17 @@ test('the effort menu offers what the model takes, and sets the effort of the se
   await expect(menu).toHaveValue('medium')
 })
 
+test('the edits menu sets how edits are asked for this session only, and the CLI reports it', async () => {
+  const menu = dock().getByRole('combobox', { name: 'Edits' })
+  await expect(menu.locator('option')).toHaveText(['Ask before edits', 'Accept edits', 'Plan only'])
+  await menu.selectOption({ label: 'Accept edits' })
+  await expect(menu).toHaveValue('acceptEdits')
+  await expect(chat().locator('.chat-note').last()).toContainText('Edits: accept edits')
+  await say('say with the new mode')
+  await expect(turns().last()).toContainText('Done in')
+  await expect(menu).toHaveValue('acceptEdits')
+})
+
 test('the foot says, quietly, when a window of the rate limit is half used or more', async () => {
   await expect(chat().locator('.chat-rate')).toHaveCount(0)
   await say('rate 72')
@@ -690,4 +749,34 @@ test('a request that waits for the person shows on the dock\'s toggle when the d
   await expect(toggle().locator('.session-sign')).toHaveCount(0)
   await toggle().click()
   await expect(dock()).toBeVisible()
+})
+
+// #132: the agent's own `ask` is a card of torno's in the chat, above the box, and the session needs input while it is open.
+test('ask is a card above the box of the chat, the session needs input meanwhile, and the option clicked is what the tool returns', async () => {
+  await openListed(page, 'bracket')
+  if (await dock().getByRole('button', { name: 'New session' }).isVisible()) await newSession()
+  await expect(composer()).toBeEnabled()
+  await expect(status()).toHaveText('Idle')
+  const { url, token } = await app.evaluate((_electron, id) => (globalThis as unknown as { __tornoMain: { mcpFor(id: string): { url: string; token: string } } }).__tornoMain.mcpFor(id), 'bracket')
+  const client = new Client({ name: 'torno-e2e', version: '0' })
+  await client.connect(new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers: { [SESSION_HEADER]: token } } }))
+  try {
+    const waiting = client.callTool({ name: 'ask', arguments: { question: 'Which wall do you mean?', options: [{ label: 'The left wall', refs: ['base/F1'] }, { label: 'The right wall', refs: ['base/F2'] }] } })
+    const card = chat().locator('.ask-question')
+    await expect(card).toBeVisible()
+    await expect(card.locator('.ask-text')).toHaveText('Which wall do you mean?')
+    await expect(status()).toHaveText('Needs input')
+    // The viewport does not show it twice while the chat is in sight.
+    await expect(page.locator('.ask-question[data-where="view"]')).toHaveCount(0)
+    await card.getByRole('button', { name: /The right wall/ }).hover()
+    expect(await peeked()).toEqual(['base/F2'])
+    await card.getByRole('button', { name: /The right wall/ }).click()
+    const result = await waiting
+    expect(JSON.parse((result.content as Array<{ text: string }>)[0].text)).toMatchObject({ answered: true, kind: 'option', index: 1, label: 'The right wall', refs: ['base/F2'] })
+    await expect(card).toHaveCount(0)
+    await expect(status()).toHaveText('Idle')
+    expect(await peeked()).toEqual([])
+  } finally {
+    await client.close()
+  }
 })

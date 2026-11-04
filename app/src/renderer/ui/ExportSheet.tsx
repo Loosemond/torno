@@ -1,10 +1,11 @@
 import { hint, pressed } from '../../shared/keys'
 import { useEffect, useRef, useState } from 'react'
-import { type ExportChecked, type ExportFormat, type ExportPlan, type ExportRequest, type ExportSaved, EXPORT_FORMATS, FORMAT_NAMES, MESH_ANGLE, MESH_ANGLES, MESH_TOLERANCE, MESH_TOLERANCES, type ModelFormat, SCAN_WARNING, defaultLayout, megabytes } from '../../shared/exportdata'
+import { type ExportChecked, type ExportFormat, type ExportPlan, type ExportRequest, type ExportSaved, type ShareKind, FORMAT_NAMES, PICTURE_SIZES, MESH_ANGLE, MESH_ANGLES, MESH_TOLERANCE, MESH_TOLERANCES, type ModelFormat, NOT_BUILT, SCAN_WARNING, defaultLayout, megabytes } from '../../shared/exportdata'
 import { count, number } from '../../shared/format'
 import { typed } from './typed'
 import { setExporting } from '../closing'
 import { actions, sceneFileOf, store, useStore } from '../state/store'
+import { pictureForPerson } from '../state/agent'
 
 /** `2 parts`, the number in the face of numbers. */
 function Count({ n, one, many = `${one}s` }: { n: number; one: string; many?: string }) {
@@ -26,11 +27,26 @@ const FORMATS: Record<ExportFormat, { label: string; title: string; heading: str
   '3mf': { label: '3MF', title: 'A plate for a slicer: each part a named object', heading: 'Export a 3MF file', lead: 'A plate for a slicer: each part of the last build a named object in its colour, in millimetres, where the layout has it.' }
 }
 
+/** What each file of the view is, said on its button and above what it holds. */
+const SHARED: Record<ShareKind, { label: string; title: string; heading: string; lead: string }> = {
+  png: { label: 'PNG', title: 'The view as it is, as a picture', heading: 'Save a picture of the view', lead: 'The view as it is on screen (the camera, the layout, the parts that are on, the section or the explode, the scans) as one PNG, for a forum, a chat or a document. It is not for the agent: it may be larger than the pictures the agent is given.' },
+  svg: { label: 'SVG', title: 'The section on screen, at true scale', heading: 'Save a drawing of the section', lead: "The outlines of the section on screen, laid flat in the plane's own axes at true scale in millimetres, with a scale bar, a title block and the dimensions that lie in the plane. For someone who will make the part." },
+  pdf: { label: 'PDF', title: 'The same drawing, on a page of its size', heading: 'Save a drawing of the section as a PDF', lead: 'The drawing of the section on screen (the SVG), printed on a page of its own size in millimetres: print it at 100 % and it is at true scale.' }
+}
+
+/** The readers a file can be for, and what is offered each: the sheet is grouped by who will open the file. The view's own files need the open project's view. */
+const READERS: Array<{ name: string; kinds: Array<ExportFormat | ShareKind>; ofView?: true }> = [
+  { name: 'A page to look at', kinds: ['html'] },
+  { name: 'The CAD file', kinds: ['step', 'stl', '3mf'] },
+  { name: 'A picture', kinds: ['png'], ofView: true },
+  { name: 'A drawing of a section', kinds: ['svg', 'pdf'], ofView: true }
+]
+
 type LayoutParts = NonNullable<ExportPlan['objects'][number]['layoutParts']>[number]['parts']
 
-/** The parts a file of the model holds unless the person ticks others: those switched on, of solids alone for a mesh, one for an STL. */
+/** The parts a file of the model holds unless the person ticks others: those switched on, of solids alone for a mesh, one for an STL. A bought part (a reference) is in none unless ticked, and in a mesh never. */
 function partsByDefault(format: ModelFormat, parts: LayoutParts): string[] {
-  const going = parts.filter((part) => !part.off && (format === 'step' || part.solid)).map((part) => part.name)
+  const going = parts.filter((part) => !part.off && !part.reference && (format === 'step' || part.solid)).map((part) => part.name)
   return format === 'stl' ? going.slice(0, 1) : going
 }
 
@@ -69,13 +85,13 @@ function Checked({ checked }: { checked: ExportChecked }) {
  * scans are off until ticked: a note may be private, and a scan may show the real world. "Export" asks main,
  * which asks where to save; the window never names a path.
  */
-export function ExportSheet() {
+export function ExportSheet({ onOpen }: { onOpen: (id: string, ticked: string[]) => void }) {
   const of = useStore((s) => s.exportOf)
   if (of === null) return null
-  return <Sheet key={of === 'all' ? 'all' : of.join('\n')} of={of} />
+  return <Sheet key={of === 'all' ? 'all' : of.join('\n')} of={of} onOpen={onOpen} />
 }
 
-function Sheet({ of }: { of: string[] | 'all' }) {
+function Sheet({ of, onOpen }: { of: string[] | 'all'; onOpen: (id: string, ticked: string[]) => void }) {
   const names = useStore((s) => s.workspace?.objects ?? NONE)
   const [objects, setObjects] = useState<string[] | null>(of === 'all' ? null : of)
   const [marks, setMarks] = useState(false)
@@ -84,7 +100,7 @@ function Sheet({ of }: { of: string[] | 'all' }) {
   const [scans, setScans] = useState<string[]>([])
   const [plan, setPlan] = useState<ExportPlan | null>(null)
   const [busy, setBusy] = useState<'planning' | 'saving' | null>('planning')
-  const [said, setSaid] = useState<{ saved?: ExportSaved; nothing?: true; error?: string } | null>(null)
+  const [said, setSaid] = useState<{ saved?: ExportSaved; kept?: ShareKind; nothing?: true; error?: string } | null>(null)
   // A file of the model: its format, layout and parts (null until the person picks: the format's defaults), the tolerance and angle of a mesh as typed, and whether a 3MF is opened once saved.
   const [format, setFormat] = useState<ExportFormat>('html')
   const [layout, setLayout] = useState<string | null>(null)
@@ -92,6 +108,15 @@ function Sheet({ of }: { of: string[] | 'all' }) {
   const [tolerance, setTolerance] = useState(String(MESH_TOLERANCE))
   const [angle, setAngle] = useState(String(MESH_ANGLE))
   const [openAfter, setOpenAfter] = useState(false)
+  // A file of the open project's view (a picture, a drawing of its section) instead of one of the project: null for the others.
+  const [shared, setShared] = useState<ShareKind | null>(null)
+  const [pictureSize, setPictureSize] = useState(PICTURE_SIZES[0])
+  const [pictureMarks, setPictureMarks] = useState(true)
+  const [pictureCues, setPictureCues] = useState(true)
+  const openId = useStore((s) => s.objectId)
+  const onObject = useStore((s) => s.page === 'object')
+  const cut = useStore((s) => s.section !== null)
+  const ofView = openId !== null && onObject
   const sheet = useRef<HTMLElement>(null)
   const asked = useRef(0)
   const saving = useRef(false)
@@ -146,7 +171,8 @@ function Sheet({ of }: { of: string[] | 'all' }) {
   }, [])
 
   const ticked = objects ?? []
-  const model = format === 'html' ? null : format
+  const model = shared !== null || format === 'html' ? null : format
+  const html = shared === null && model === null
   // Of a file of the model: the one object, its layouts, the layout and the parts that go, and the mesh's tolerances.
   const modelEntry = model ? plan?.objects.find((object) => object.exportable && object.id === ticked[0]) : undefined
   const layouts = modelEntry?.layoutParts ?? []
@@ -160,6 +186,12 @@ function Sheet({ of }: { of: string[] | 'all' }) {
     model
       ? { objects: ticked.slice(0, 1), marks: false, scans: [], format: model, layout: layoutNow, parts: partsNow, ...(model === 'step' ? {} : { tolerance: toleranceNow!, angle: angleNow! }), ...(model === '3mf' && openAfter ? { open: true } : {}) }
       : { objects: ticked, marks, scans: scans.filter((key) => ticked.some((id) => key.startsWith(`${id}/`))), hidden, resolved }
+  const choose = (next: ExportFormat | ShareKind): void => {
+    changed()
+    if (next === 'png' || next === 'svg' || next === 'pdf') return setShared(next)
+    setShared(null)
+    chooseFormat(next)
+  }
   const chooseFormat = (next: ExportFormat): void => {
     changed()
     setFormat(next)
@@ -171,7 +203,22 @@ function Sheet({ of }: { of: string[] | 'all' }) {
   const tick = (list: string[], key: string, on: boolean): string[] => (on ? [...new Set([...list, key])] : list.filter((one) => one !== key))
   const changed = (): void => setSaid(null)
 
+  /** A picture of the view, or a drawing of its section: made of the open project as it is on screen, saved where main's dialog says. */
+  async function keep(kind: ShareKind) {
+    if (openId === null) return
+    setBusy('saving')
+    setSaid(null)
+    try {
+      const saved = kind === 'png' ? await window.torno.export.savePicture(openId, (await pictureForPerson(pictureSize, pictureMarks, pictureCues)).png) : await window.torno.export.saveSection(openId, kind)
+      setSaid(saved ? { saved, kept: kind } : { nothing: true })
+    } catch (e) {
+      setSaid({ error: e instanceof Error ? e.message : String(e) })
+    }
+    setBusy(null)
+  }
+
   async function save() {
+    if (shared !== null) return keep(shared)
     setBusy('saving')
     setSaid(null)
     // Whatever was changed in the view behind the sheet since it came up is in the file too.
@@ -184,6 +231,15 @@ function Sheet({ of }: { of: string[] | 'all' }) {
       setSaid({ error: e instanceof Error ? e.message : String(e) })
     }
     setBusy(null)
+  }
+
+  /** "Show in folder" or "Open in browser" of the file just saved: main knows which; a refusal is told like any error. */
+  async function after(done: Promise<void>): Promise<void> {
+    try {
+      await done
+    } catch (e) {
+      setSaid((was) => ({ ...was, error: e instanceof Error ? e.message : String(e) }))
+    }
   }
 
   const can = (plan?.objects ?? []).filter((object) => object.exportable)
@@ -224,7 +280,7 @@ function Sheet({ of }: { of: string[] | 'all' }) {
         }}
       >
         <header className="export-head">
-          <h2>{FORMATS[format].heading}</h2>
+          <h2>{shared ? SHARED[shared].heading : FORMATS[format].heading}</h2>
           <button type="button" className="icon-button" aria-label="Close" title={`Close (${hint('sheet.close')})`} disabled={busy === 'saving'} onClick={() => actions.exportSheet(null)}>
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" aria-hidden="true">
               <path d="m4 4 8 8M12 4l-8 8" />
@@ -232,14 +288,51 @@ function Sheet({ of }: { of: string[] | 'all' }) {
           </button>
         </header>
         <div className="export-body">
-          <div className="segmented export-formats" role="group" aria-label="Format">
-            {EXPORT_FORMATS.map((one) => (
-              <button key={one} type="button" title={FORMATS[one].title} aria-pressed={one === format} disabled={busy === 'saving'} onClick={() => chooseFormat(one)}>
-                {FORMATS[one].label}
-              </button>
+          {/* Grouped by who will open the file. The picture and the drawing are of the open project's view, so only where that is what the sheet is of. */}
+          <div className="export-readers" role="group" aria-label="Format">
+            {READERS.filter((reader) => !reader.ofView || ofView).map((reader) => (
+              <div key={reader.name} className="export-reader" role="group" aria-label={reader.name}>
+                <span className="export-reader-name">{reader.name}</span>
+                <div className="segmented export-formats">
+                  {reader.kinds.map((one) => {
+                    const kept = one === 'png' || one === 'svg' || one === 'pdf'
+                    return (
+                      <button key={one} type="button" title={kept ? SHARED[one].title : FORMATS[one].title} aria-pressed={kept ? shared === one : shared === null && one === format} disabled={busy === 'saving'} onClick={() => choose(one)}>
+                        {kept ? SHARED[one].label : FORMATS[one].label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
             ))}
           </div>
-          <p className="export-lead">{FORMATS[format].lead}</p>
+          <p className="export-lead">{shared ? SHARED[shared].lead : FORMATS[format].lead}</p>
+
+          {shared !== null && (
+            <ViewChoices
+              kind={shared}
+              project={openId === null ? '' : nameOf(openId)}
+              cut={cut}
+              size={pictureSize}
+              marks={pictureMarks}
+              cues={pictureCues}
+              disabled={busy === 'saving'}
+              setSize={(next) => {
+                changed()
+                setPictureSize(next)
+              }}
+              setMarks={(next) => {
+                changed()
+                setPictureMarks(next)
+              }}
+              setCues={(next) => {
+                changed()
+                setPictureCues(next)
+              }}
+            />
+          )}
+          {shared === null && (
+          <>
 
           <h3 className="section-title">{model ? 'Project' : 'Projects'}</h3>
           <ul className="export-list">
@@ -292,13 +385,37 @@ function Sheet({ of }: { of: string[] | 'all' }) {
             {plan === null && <li className="export-what">Looking at what there is…</li>}
           </ul>
           {/* What cannot be exported, in a line for each reason: an object with no build of this run is not built for an export. */}
-          {[...new Set(cannot.map((object) => object.why))].map((why) => (
-            <p key={why} className="export-cannot">
-              {why}: {cannot.filter((object) => object.why === why).map((object) => nameOf(object.id)).join(', ')}
-            </p>
-          ))}
+          {[...new Set(cannot.map((object) => object.why))].map((why) => {
+            const left = cannot.filter((object) => object.why === why)
+            const unbuilt = why === NOT_BUILT
+            return (
+              <p key={why} className="export-cannot">
+                {why}:{' '}
+                {left.map((object, n) => (
+                  <span key={object.id}>
+                    {n > 0 && ', '}
+                    {unbuilt ? (
+                      <button type="button" className="link-button" disabled={busy === 'saving'} title={`Open ${nameOf(object.id)}, wait for its build, and come back here`} onClick={() => onOpen(object.id, objects ?? can.map((one) => one.id))}>
+                        {nameOf(object.id)}
+                      </button>
+                    ) : (
+                      nameOf(object.id)
+                    )}
+                  </span>
+                ))}
+                {unbuilt && (
+                  <>
+                    . <span className="num">{count(left.length)}</span> not built in this run.
+                  </>
+                )}
+              </p>
+            )
+          })}
 
-          {model && modelEntry && (
+          </>
+          )}
+
+          {shared === null && model && modelEntry && (
             <ModelChoices
               format={model}
               layouts={layouts.map((one) => one.layout)}
@@ -335,7 +452,7 @@ function Sheet({ of }: { of: string[] | 'all' }) {
             />
           )}
 
-          {!model && off > 0 && (
+          {html && off > 0 && (
             <>
               <h3 className="section-title">Parts</h3>
               <label className="export-row">
@@ -356,7 +473,7 @@ function Sheet({ of }: { of: string[] | 'all' }) {
             </>
           )}
 
-          {!model && (
+          {html && (
           <>
           <h3 className="section-title">Marks</h3>
           <label className="export-row">
@@ -407,7 +524,7 @@ function Sheet({ of }: { of: string[] | 'all' }) {
           </>
           )}
 
-          {!model && withScans.length > 0 && (
+          {html && withScans.length > 0 && (
             <>
               <h3 className="section-title">Scans</h3>
               <p className="export-warning">{SCAN_WARNING} What was painted on a scan is never in the file.</p>
@@ -443,14 +560,18 @@ function Sheet({ of }: { of: string[] | 'all' }) {
           )}
 
           <p className="export-never">
-            {model
+            {shared
+              ? 'Nothing about this computer is in the file. It goes where you say, and only there.'
+              : model
               ? 'Never in the file: where anything is on this computer, the marks, the scans, the views, the session with the agent. It is read back and checked before it takes the name you give it: a file that fails is not saved.'
               : 'Never in the file: where anything is on this computer, the session with the agent, what a model printed, a view the agent proposed and you did not keep.'}
           </p>
         </div>
         <footer className="export-foot">
           <div className="export-size" aria-live="polite" data-bytes={plan && !plan.refusal ? plan.bytes : undefined}>
-            {plan?.refusal ? (
+            {shared ? (
+              !said?.saved && <p>{busy === 'saving' ? 'Making the file…' : shared === 'png' ? 'Drawn from the view as it is now' : cut ? 'Made from the kernel’s outlines of the section on screen' : 'There is no section on screen: close this, cut the project (the Section tool, X), and come back'}</p>
+            ) : plan?.refusal ? (
               <p data-tone={plan.bytes > 0 ? 'fail' : undefined}>{plan.refusal}</p>
             ) : model ? (
               !said?.saved && <p>{busy === 'saving' ? 'Making the file and reading it back…' : 'Made by the kernel when you export, then read back and checked'}</p>
@@ -459,19 +580,29 @@ function Sheet({ of }: { of: string[] | 'all' }) {
                 {busy === 'planning' ? 'Weighing… ' : ''}about <span className="num">{megabytes(plan.bytes)}</span>
               </p>
             ) : null}
-            {plan?.dropped.map((sentence) => (
+            {shared === null && plan?.dropped.map((sentence) => (
               <p key={sentence} data-tone="warn">
                 To keep it small: {sentence}
               </p>
             ))}
-            {plan?.over && !plan.refusal && (
+            {shared === null && plan?.over && !plan.refusal && (
               <p data-tone="warn">
                 The parts alone are over the <span className="num">{megabytes(plan.budget)}</span> torno keeps a file to. Export fewer projects, or go ahead.
               </p>
             )}
             {said?.saved && (
               <p className="export-saved">
-                Saved to <span className="export-path">{said.saved.path}</span>
+                Saved to <span className="export-path">{said.saved.path}</span>{' '}
+                <span className="export-after">
+                  <button type="button" className="link-button" onClick={() => void after(window.torno.export.reveal())}>
+                    Show in folder
+                  </button>
+                  {!said.kept && (said.saved.checked?.format ?? 'html') === 'html' && (
+                    <button type="button" className="link-button" onClick={() => void after(window.torno.export.openSaved())}>
+                      Open in browser
+                    </button>
+                  )}
+                </span>
                 {said.saved.checked && (
                   <>
                     {' '}
@@ -495,7 +626,7 @@ function Sheet({ of }: { of: string[] | 'all' }) {
             <button type="button" className="button" disabled={busy === 'saving'} onClick={() => actions.exportSheet(null)}>
               {said?.saved ? 'Done' : 'Cancel'}
             </button>
-            <button type="button" className="button button-primary" disabled={busy !== null || plan === null || plan.refusal !== undefined || (model !== null && (partsNow.length === 0 || !meshOk))} onClick={() => void save()}>
+            <button type="button" className="button button-primary" disabled={shared !== null ? busy !== null || openId === null || (shared !== 'png' && !cut) : busy !== null || plan === null || plan.refusal !== undefined || (model !== null && (partsNow.length === 0 || !meshOk))} onClick={() => void save()}>
               {busy === 'saving' ? 'Exporting…' : 'Export'}
             </button>
           </div>
@@ -506,6 +637,49 @@ function Sheet({ of }: { of: string[] | 'all' }) {
 }
 
 const NONE: never[] = []
+
+/** Of a picture of the view or a drawing of its section: of the open project as it is on screen, so no list of projects; the size of a picture and what is in it. */
+function ViewChoices(props: { kind: ShareKind; project: string; cut: boolean; size: number; marks: boolean; cues: boolean; disabled: boolean; setSize(size: number): void; setMarks(on: boolean): void; setCues(on: boolean): void }) {
+  const { kind, disabled } = props
+  return (
+    <>
+      <h3 className="section-title">Project</h3>
+      <p className="export-what">
+        {props.project}, as it is on screen
+      </p>
+      {kind === 'png' ? (
+        <>
+          <h3 className="section-title">Size</h3>
+          <div className="segmented export-sizes" role="group" aria-label="Long edge, in pixels">
+            {PICTURE_SIZES.map((one) => (
+              <button key={one} type="button" className="num" aria-pressed={props.size === one} disabled={disabled} onClick={() => props.setSize(one)}>
+                {one}
+              </button>
+            ))}
+          </div>
+          <p className="export-what">The long edge, in pixels: up to 4000, which the pictures the agent is given may not be.</p>
+          <h3 className="section-title">In the picture</h3>
+          <label className="export-row">
+            <input type="checkbox" checked={props.marks} disabled={disabled} onChange={(e) => props.setMarks(e.target.checked)} />
+            <span className="export-name">Marks</span>
+            <span className="export-what">With their numbers, as on screen</span>
+          </label>
+          <label className="export-row">
+            <input type="checkbox" checked={props.cues} disabled={disabled} onChange={(e) => props.setCues(e.target.checked)} />
+            <span className="export-name">Axes and scale bar</span>
+            <span className="export-what">Bottom left and bottom right</span>
+          </label>
+        </>
+      ) : (
+        <p className="export-what" data-tone={props.cut ? undefined : 'warn'}>
+          {props.cut
+            ? 'Within 0.01 mm of the true outlines, in millimetres. Each dimension that lies in the plane, not resolved and measured on the last build, is drawn with the value torno measured and what was expected of it.'
+            : 'There is no section on screen: close this, cut the project (the Section tool, X), and come back.'}
+        </p>
+      )}
+    </>
+  )
+}
 
 /** Of a file of the model: the layout, its parts, and of a mesh the tolerance and angle it is made at. */
 function ModelChoices(props: {
@@ -546,7 +720,7 @@ function ModelChoices(props: {
       <h3 className="section-title">{one ? 'Part' : 'Parts'}</h3>
       <ul className="export-list">
         {parts.map((part) => {
-          const cannot = format !== 'step' && !part.solid
+          const cannot = format !== 'step' && (!part.solid || part.reference === true)
           return (
             <li key={part.name}>
               <label className="export-row">
@@ -558,7 +732,7 @@ function ModelChoices(props: {
                   onChange={(e) => props.setParts(one ? [part.name] : e.target.checked ? [...chosen, part.name] : chosen.filter((name) => name !== part.name))}
                 />
                 <span className="export-name">{part.name}</span>
-                {(cannot || part.off) && <span className="export-what">{cannot ? 'No solid: a mesh is of solids alone' : 'Switched off here'}</span>}
+                {(cannot || part.off || part.reference) && <span className="export-what">{cannot ? (part.reference ? 'A bought part: not in a mesh' : 'No solid: a mesh is of solids alone') : part.off ? 'Switched off here' : 'A bought part: in the STEP only if ticked'}</span>}
               </label>
             </li>
           )

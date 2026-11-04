@@ -1,15 +1,21 @@
 import { useEffect, useState } from 'react'
 import { letGoText, rebuildHelps } from '../../shared/build'
+import { landingText } from '../../shared/diff'
 import { hint } from '../../shared/keys'
 import { unmetDimensions } from '../../shared/dimension'
 import type { Part } from '../../shared/scene'
 import { partDefects } from '../../shared/sanity'
 import { makesEnvironment } from './readyLines'
+import { landedOn } from '../state/landing'
 import { actions, partsInLayout, useStore } from '../state/store'
 import { BuildErrorSheet } from './BuildErrorSheet'
+import { HistorySheet } from './HistorySheet'
 import { UNCHECKED_AFTER_MS, useLasting } from './MarkRow'
 import { AGENT_LABEL } from '../../shared/agents'
 import { focusAsk, waitingObjects } from './sessionSign'
+import { gitFilesSaid } from '../../shared/git'
+import { GitText } from './GitText'
+import { useGit } from './useGit'
 
 /** `2 dimensions fail`, `1 dimension not measured`. */
 export function dimensionCount(count: number, what: 'fail' | 'not measured'): string {
@@ -32,6 +38,8 @@ export function defectsSaid(parts: readonly Part[]): string {
  * build no longer has is only made active.
  */
 export function goToRow(id: string): void {
+  // A list cut to one part may not hold its row.
+  actions.listMarksOnPart(null)
   actions.selectMark(id)
   actions.setActiveMark(id)
   // Its row is there already, whichever layout is shown: an open mark is never folded away.
@@ -76,6 +84,12 @@ export function BuildStatus({ onOpen }: { onOpen: (id: string) => void }) {
   const defects = useStore((s) => defectsSaid(partsInLayout(s)))
   const broken = defects === '' ? 0 : defects.split('; ').length
   const build123d = useStore((s) => s.versions.build123d)
+  // What the build on show did to the parts, against the build before it of the same object ('' for a first build). Strings, so that the line is drawn again only when they change.
+  const landedText = useStore((s) => {
+    const told = landedOn(s)
+    return told ? landingText(told) : ''
+  })
+  const landedLines = useStore((s) => landedOn(s)?.lines.join('\n') ?? '')
   // The kernel is starting and torno's own Python environment is not made: this build is the one that makes it, once.
   const firstTime = useStore((s) => makesEnvironment(s.ready))
   const marks = useStore((s) => s.marks)
@@ -94,6 +108,13 @@ export function BuildStatus({ onOpen }: { onOpen: (id: string) => void }) {
   const asking = useStore((s) => waitingObjects(s.workspace?.objects ?? [], s.sessions).map((o) => o.name).join('\n'))
   const askingId = useStore((s) => waitingObjects(s.workspace?.objects ?? [], s.sessions)[0]?.id ?? null)
   const askingNames = asking === '' ? [] : asking.split('\n')
+  // What git says of the sources: read by main, never written.
+  const git = useGit()
+
+  // The builds kept of the project, in a sheet of their own (`HistorySheet`).
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const compare = useStore((st) => st.compare)
+  useEffect(() => setHistoryOpen(false), [objectId])
 
   // The sheet shows the failure of the build it was opened for, no longer.
   useEffect(() => {
@@ -121,6 +142,11 @@ export function BuildStatus({ onOpen }: { onOpen: (id: string) => void }) {
             {build.status === 'ok' && (
               <span>Built{build.seconds !== undefined && <> in <span className="num">{seconds(build.seconds)}</span> s</>}</span>
             )}
+            {build.status === 'ok' && hasScene && landedText !== '' && (
+              <span className="status-landed" data-part="landing" title={landedLines === '' ? undefined : `Since the build before:\n${landedLines}`}>
+                {landedText}
+              </span>
+            )}
             {build.status === 'failed' && (
               <button type="button" className="status-fail" aria-expanded={errorOpen} onClick={() => actions.setErrorOpen(!errorOpen)}>
                 Build failed
@@ -145,6 +171,21 @@ export function BuildStatus({ onOpen }: { onOpen: (id: string) => void }) {
             <span data-part="revision">
               {build.stale && 'showing '}
               <span className="num">r{build.revision}</span>
+            </span>
+          )}
+          {compare !== null && (
+            <button type="button" className="status-compare" title="An earlier build is drawn over the current one, for looking only. Put it away" onClick={() => actions.compareWith(null)}>
+              Showing <span className="num">{compare}</span> over this build · Stop
+            </button>
+          )}
+          {hasScene && (
+            <button type="button" className="status-history" aria-expanded={historyOpen} title="The builds kept of this project: compare, read their source, ask the agent to go back" onClick={() => setHistoryOpen(!historyOpen)}>
+              History
+            </button>
+          )}
+          {git && (
+            <span className="status-git" data-part="git" title={git.changed > 0 ? gitFilesSaid(git) : undefined}>
+              <GitText git={git} />
             </span>
           )}
           {hasScene && failing.length > 0 && (
@@ -199,6 +240,7 @@ export function BuildStatus({ onOpen }: { onOpen: (id: string) => void }) {
         </button>
       )}
       {build123d && <span className="num">build123d {build123d}</span>}
+      {historyOpen && name !== null && <HistorySheet objectName={name} onClose={() => setHistoryOpen(false)} />}
       {errorOpen && error && name !== null && (
         <BuildErrorSheet objectName={name} error={error} onClose={() => actions.setErrorOpen(false)} />
       )}

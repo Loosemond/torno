@@ -57,7 +57,20 @@ describe('cardsOf', () => {
   it('says of one not opened only what its files say, and no verdict of a build it has not seen', async () => {
     const [, b] = await cardsOf(deps())
     // What its one dimension said when it was last measured is of a run before: told as that, never as a verdict.
-    expect(b).toEqual({ id: 'b', name: 'b', opened: false, thumb: { at: '2026-10-08T21:14:03.000Z', layout: 'assembly', behind: true }, marks: { open: 2, drafts: 1 }, dimensions: null, lastRun: { dimensions: 1, failed: 1 }, session: null })
+    expect(b).toEqual({ id: 'b', name: 'b', opened: false, thumb: { at: '2026-10-08T21:14:03.000Z', layout: 'assembly', behind: true }, marks: { open: 2, drafts: 1 }, dimensions: null, lastRun: { dimensions: 1, failed: 1 }, session: null, sourcesMtimeMs: 2000 })
+  })
+
+  it('carries what git says of an object that has a model, and nothing where it says nothing', async () => {
+    const state = { head: 'a1b2c3d', branch: 'main', files: ['a/a.py'], changed: 1 }
+    const asked: string[] = []
+    const [a, b, c] = await cardsOf(deps({ git: async (dir) => (asked.push(dir), dir === '/ws/a' ? state : null) }))
+    expect(a.git).toEqual(state)
+    expect('git' in b).toBe(false)
+    // An object with no model is not asked about.
+    expect('git' in c).toBe(false)
+    expect(asked).toEqual(['/ws/a', '/ws/b'])
+    const [failed] = await cardsOf(deps({ git: () => Promise.reject(new Error('boom')) }))
+    expect('git' in failed).toBe(false)
   })
 
   it('says a marks file could not be read, and carries a problem', async () => {
@@ -122,6 +135,38 @@ describe('a picture is behind when anything its object is built from is newer', 
     expect((await cardsOf(deps({ sourcesMtimeMs: helper })))[1].thumb).toMatchObject({ behind: true })
     const level = async (dir: string): Promise<number | null> => (dir === '/ws/b' ? 1000 : dir === '/ws/common' ? 900 : null)
     expect((await cardsOf(deps({ sourcesMtimeMs: level })))[1].thumb).toMatchObject({ behind: false })
+  })
+
+  it('is behind by a file the last build imported from another project, and the card names it', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'torno-uses-'))
+    try {
+      mkdirSync(join(root, 'box'))
+      writeFileSync(join(root, 'box', 'box.py'), 'x = 1\n')
+      utimesSync(join(root, 'box', 'box.py'), 3, 3) // 3000 ms
+      const dir = join(root, 'lid')
+      const files: Record<string, string> = {
+        [join(dir, '.torno', 'thumb.json')]: JSON.stringify({ at: '2026-10-08T21:14:03.000Z', layout: 'assembly', parts: 1, model: 'lid.py', sourcesMtimeMs: 1000, bytes: 200, hash: 'x' }),
+        [join(dir, '.torno', 'marks.json')]: JSON.stringify({ next: 1, marks: [] })
+      }
+      const over = (uses: string[]): Partial<CardDeps> => ({
+        objects: () => [{ id: 'lid', name: 'lid', dir, model: 'lid.py' }],
+        opened: () => true,
+        build: () => ({ objectId: 'lid', status: 'ok', revision: 1, stale: false }),
+        marks: async () => [],
+        readFile: async (path) => files[path] ?? missing(),
+        sourcesMtimeMs: async (d) => (d === dir ? 1000 : null),
+        size: async () => 200,
+        uses: () => uses
+      })
+      const [card] = await cardsOf(deps(over(['box/box.py'])))
+      expect(card.thumb).toMatchObject({ behind: true })
+      expect(card.uses).toEqual(['box/box.py'])
+      const [plain] = await cardsOf(deps(over([])))
+      expect(plain.thumb).toMatchObject({ behind: false })
+      expect(plain.uses).toBeUndefined()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   it('looks at the common folder once for all the cards', async () => {

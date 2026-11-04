@@ -87,7 +87,8 @@ test('a row has the name and the value in the monospace face, the comment as wri
   await expect(row('ribs').locator('.param-value')).toHaveText('4')
   // The numbers of a comment are in the monospace face too, the words round them are not.
   await expect(row('gap').locator('.param-doc .num')).toHaveText(['0.2'])
-  expect(await face('.left .param-doc .num')).toBe(await face('.left .layer-row .row-name'))
+  expect(await face('.left .param-doc .num')).toBe(await face('.left .param-value'))
+  expect(await face('.left .param-value')).toContain('Mono')
   // Four digits at most, the whole value in the title.
   await expect(row('gap').locator('.param-value')).toHaveText('0.1235')
   await expect(row('gap').locator('.param-value')).toHaveAttribute('title', '0.123456')
@@ -95,9 +96,8 @@ test('a row has the name and the value in the monospace face, the comment as wri
   await expect(row('inner').locator('.param-worked')).toHaveText('worked out in the model')
   await expect(row('inner').locator('.param-value')).toHaveText('36')
   await expect(row('side').locator('.param-worked')).toHaveCount(0)
-  // The face of the numbers, the one of the layers' names.
-  expect(await face('.left .param-value')).toBe(await face('.left .layer-row .row-name'))
-  expect(await face('.left .param-name')).toBe(await face('.left .layer-row .row-name'))
+  // The face of the numbers: the monospace one, a name of a field too.
+  expect(await face('.left .param-name')).toBe(await face('.left .param-value'))
   expect(await face('.left .param-doc')).not.toBe(await face('.left .param-value'))
 })
 
@@ -121,6 +121,33 @@ test('with a session, a click puts Params.<name> at the cursor of the box and se
   await expect(dock().locator('.chat-user')).toHaveCount(0)
   // Nothing was written: the model is as it was.
   expect(readFileSync(join(root, 'hollow', 'hollow.py'), 'utf8')).toContain('wall: float = 2\n')
+})
+
+test('trying a value builds the model with it, says it differs from the file, and Reset goes back; the file is never written', async () => {
+  const before = (await state()).build?.revision ?? 0
+  const row = section().locator('[data-param="wall"]')
+  await expect(row).not.toHaveAttribute('data-tried', '')
+  const box = row.getByRole('spinbutton', { name: 'Try wall' })
+  await box.fill('3')
+  await box.press('Enter')
+  await expect(row).toHaveAttribute('data-tried', '', { timeout: 30_000 })
+  await expect(row.locator('.param-differs')).toContainText('differs from the file')
+  await expect(box).toHaveValue('3')
+  // The file's default stays on the row, and the scene says what the build used.
+  await expect(row.locator('.param-value')).toHaveText('2')
+  expect((await state()).build?.revision ?? 0).toBeGreaterThan(before)
+  expect(readFileSync(join(root, 'hollow', 'hollow.py'), 'utf8')).toContain('wall: float = 2\n')
+  expect(JSON.parse(readFileSync(join(root, 'hollow', '.torno', 'params.json'), 'utf8'))).toEqual({ overrides: { wall: { value: 3, default: 2 } } })
+  expect(readFileSync(join(root, 'hollow', '.torno', '.gitignore'), 'utf8')).toContain('params.json')
+  // The agent's request to bake it in goes to the box and is not sent.
+  await composer().fill('')
+  await section().getByRole('button', { name: 'Ask the agent to bake it in' }).click()
+  await expect(composer()).toHaveValue('Make Params.wall to 3 (the file has 2) the default in the model: I tried it in torno and want to keep it. ')
+  await expect(dock().locator('.chat-user')).toHaveCount(0)
+  await row.getByRole('button', { name: 'Reset wall to 2' }).click()
+  await expect(row).not.toHaveAttribute('data-tried', '', { timeout: 30_000 })
+  await expect(box).toHaveValue('2')
+  expect(JSON.parse(readFileSync(join(root, 'hollow', '.torno', 'params.json'), 'utf8'))).toEqual({ overrides: {} })
 })
 
 test('a fold is the window\'s: it is kept when another object is opened', async () => {

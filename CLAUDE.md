@@ -36,10 +36,10 @@ introduces it and says how to run it; `docs/manual.md` says everything it does; 
   window's `app/resources/icon.png` is made from it with `resvg -w 512 -h 512`, and `ui/Logo.tsx` draws both
   in the window. `src/launcher.test.ts` holds the three to one drawing: change the SVG, render the PNG again.
 
-- The packaged app (`app/electron-builder.yml`; `pnpm dist:mac` makes `torno.app`, `pnpm pack:check` the same files
-  as a Linux folder, a stand-in for checking and no release): the asar holds `out/**` and the dependencies of main
+- The packaged app (`app/electron-builder.yml`; `pnpm dist:mac` makes `torno.app`, `pnpm dist:linux` an AppImage and a tar.gz,
+  `pnpm pack:check` the same files as a Linux folder, for checking): the asar holds `out/**` and the dependencies of main
   and preload (renderer-only ones are `devDependencies`, bundled by Vite), node-pty unpacked; `Resources/` holds
-  `kernel` (`pyproject.toml`, `uv.lock`, `src/`), `agent-plugin`, `icon.png` and `example` (the four objects). It
+  `kernel` (`pyproject.toml`, `uv.lock`, `src/`), `agent-plugin`, `icon.png` and `example` (the project it opens). It
   never writes inside its bundle: the kernel and the import process run with `--frozen` and
   `UV_PROJECT_ENVIRONMENT=<userData>/kernel-env` (`kernelRun` in `main/paths.ts`, `kernelEnv` in
   `main/kernel/client.ts`; not for a workspace with a `pyproject.toml`, whose `.venv` is its own). Signed ad hoc, not
@@ -73,7 +73,7 @@ to headings the manual has; the reference goes in the manual.
 
 ## Global Constraints
 
-- Never write inside a user workspace except under `<object>/.torno/`. Two exceptions. One: making a new object (`main/objects/create.ts`, the "Create" of the onboarding) writes ONE new folder `<workspace>/<name>/` with torno's template model, `brief.md` and `reference/`, made in a hidden `.<name>.torno-new-<random>` beside it and renamed into place as the last step, so it is whole or not there; it never writes into or replaces a folder that exists (compared without regard to case; the one case is an empty folder of the name, which a crash between the claim and the rename leaves and which is renamed onto, failing should anything be put in it meanwhile), never follows a link, and reads the files it copies as plain files only, size-capped. The only other thing it removes is the hidden `.<name>.torno-new-<12 hex>` folders, real folders more than ten minutes old, swept when a workspace is opened. It writes nothing else in the workspace: the scans are imported and the chat started after, under `.torno/`. The other: an export writes one file, to the path the person chose in the save dialog (`main/export/save.ts`), whole or not at all: through `<path>.<random>.tmp` beside it, which is gone when the write ends (a STEP, STL or 3MF is read back from it by the kernel's worker and checked first, and one that fails is never named); no folder is made for it; the path never comes from the window or from an agent, and no agent has a tool for it. The kernel never writes a file: it gives the bytes. Never run `uv sync` there: always `uv run --no-sync`, and only when `<workspace>/.venv` exists: without it uv would create one, so no kernel is started and builds fail saying to run `uv sync`. torno's own kernel project is not a workspace: "Make it now" on the first screen runs `uv sync` there (`main/readiness.ts`), and nowhere else.
+- Never write inside a user workspace except under `<object>/.torno/`. Three exceptions. One: making a new object (`main/objects/create.ts`, the "Create" of the onboarding) writes ONE new folder `<workspace>/<name>/` with torno's template model, `brief.md` and `reference/`, made in a hidden `.<name>.torno-new-<random>` beside it and renamed into place as the last step, so it is whole or not there; it never writes into or replaces a folder that exists (compared without regard to case; the one case is an empty folder of the name, which a crash between the claim and the rename leaves and which is renamed onto, failing should anything be put in it meanwhile), never follows a link, and reads the files it copies as plain files only, size-capped. The only other thing it removes is the hidden `.<name>.torno-new-<12 hex>` folders, real folders more than ten minutes old, swept when a workspace is opened. It writes nothing else in the workspace: the scans are imported and the chat started after, under `.torno/`. Two: an export (an HTML page, a file of the model, a picture of the view, a drawing of its section as SVG or PDF) writes one file, to the path the person chose in the save dialog (`main/export/save.ts`), whole or not at all: through `<path>.<random>.tmp` beside it, which is gone when the write ends (a STEP, STL or 3MF is read back from it by the kernel's worker and checked first, and one that fails is never named); no folder is made for it; the path never comes from the window or from an agent, and no agent has a tool for it. Three: "Keep this as a folder" on the example (`keepExample` in `main/example.ts`, `workspace:keepExample`) writes ONE new folder at the path the person chose in the save dialog, which is not in a workspace but beside any folder they name: all of it is written in a hidden `.<name>.torno-new-<random>` beside it and renamed into place as the last step, so it is whole or not there; it never writes into or replaces a folder or file of that name (compared without regard to case), never follows a link (a link or anything not a plain file or folder is left out; each file is read through a handle opened without following one), is size-capped, and keeps only a copy that torno made and whose marker names it (the path of the copy is main's, never the window's). The path never comes from the window or from an agent, and no agent has a tool for it. The kernel never writes a file: it gives the bytes. Never run `uv sync` there: always `uv run --no-sync`, and only when `<workspace>/.venv` exists: without it uv would create one, so no kernel is started and builds fail saying to run `uv sync`. torno's own kernel project is not a workspace: "Make it now" on the first screen runs `uv sync` there (`main/readiness.ts`), and nowhere else.
 - The kernel supervisor only imports. It never loads a model, builds, tessellates or answers a query. Workers never fork.
 - Kernel stdout carries protocol frames only. Model output goes to a captured buffer.
 - Units are millimetres, Z up. Coordinates crossing a process boundary are in the object frame unless named `local`.
@@ -93,7 +93,16 @@ to headings the manual has; the reference goes in the manual.
   output) and never written to `state.md`, `.torno/chat/` or any other file. The test hook `__tornoMain.mcpFor(id)`
   gives an object's MCP address and a token that opens it; the stand-in agent reads `--mcp-config` from its file and
   expands both placeholders from its environment, as Claude Code does.
-- Images for the agent: long edge at most 2000 px, default 1280.
+- The second door (#54, a spike, only with `TORNO_OUTSIDE_AGENTS=1`; `main/door.ts`, `scripts/torno-mcp.mjs`): one
+  Unix socket, `door.sock` in `$XDG_RUNTIME_DIR/torno/` (else `$TMPDIR/torno-<uid>/`), the folder `0700` (a link or
+  another user's is refused, other bits taken off) and the socket `0600`; never a TCP port, never in a workspace,
+  never a file with a secret. A connection's first line names a folder; main maps it to a project of the open
+  workspace (or refuses every request) and answers nothing until the person allows that connection in the window,
+  asked for each connection. Allowed, main grants it a token of its own (`HttpRouter.grant`, that project's
+  `/mcp/<object id>` only, never hooks) and posts each line to the MCP server with it in the header: the token never
+  leaves main, and is revoked when the connection closes. What the bridge says of its client is its word only, shown
+  as such. Tested with the MCP SDK's client over stdio (`door.itest.ts`), never a real CLI.
+- Images for the agent: long edge at most 2000 px, default 1280. A picture of the view the person saves for themselves (the "A picture" reader of the export sheet, `export:savePicture`) is not for the agent and is not held to that: its long edge is at most 4000 px (`MAX_PICTURE_EDGE`), asked only by the window itself (`ImageRequest.person`, never a field of an agent's `look`), and kept nowhere but at the path the person chose.
 - No control-room look: no black/red/amber, no condensed uppercase labels, no corner-tick frames. Follow spec section 10 and the tokens in Task 4.
 - UI text is sentence case. Every number and ref is set in the monospace face.
 - Tests must not open a visible window: `show: false` when `TORNO_TEST=1`.
@@ -113,8 +122,13 @@ What main, the window, the kernel and an agent must all hold to. The detail of e
   (`src/main/marks/store.ts`): one change at a time per object, written
   atomically before it is told. The renderer and the MCP tools go through it.
 - Coordinates and refs of a mark are in the object frame of the mark's layout.
-  A ref is `<part>`, `<part>/F<i>`, `<part>/E<i>` or `M<n>`; to the kernel it
-  is sent with the layout in front (`assembly:lid/F12`).
+  A ref is `<part>`, `<part>/F<i>`, `<part>/E<i>`, `<part>/@<tag>` or `M<n>`; to the kernel it
+  is sent with the layout in front (`assembly:lid/F12`). A tag is a name the model gives a face or an edge
+  (`tags(p, parts)`, read by the loader beside `groups(p)`; `shared/tags.ts`); `@` keeps it apart from the other
+  forms, a tag name has no `/` and does not start with `@`, and a tag may name several faces and edges. A mark never
+  stores a tag as its `ref`: its anchor keeps the face's or edge's own ref and the tag beside it (`Anchor.tag`),
+  which only main sets (`withTag`, on placing and on every check) and which a check follows before the
+  nearest-point rule.
 - What only main says of a mark (`MAIN_ONLY_KEYS` in `shared/marks.ts`:
   `resolvedBy`, `acknowledged`, `sentBefore`, `reopened`, `checkedRevision`) is never
   taken from the window or from a tool's arguments. A mark the agent resolved
@@ -125,6 +139,11 @@ What main, the window, the kernel and an agent must all hold to. The detail of e
   not a part's name: the loader refuses those). Wherever a tool takes part names a group's name stands for its parts
   in the layout (`shared/groups.ts` `partsNamed`, in main before a request and in the window alike). torno never
   writes the model: the only thing it keeps of groups is which are folded (`folded` in `scene.json`).
+- The model's `Params` can be tried without editing the model: the person's overrides are `<object>/.torno/params.json`
+  (main the only writer; the file always wins: an override is dropped when the file's default of its field changes),
+  every build of the object carries them, and the agent is told so with every prompt; the agent's `try_params` builds
+  a throwaway copy in a trial worker and keeps nothing. torno still never writes the model: a value is baked in by the
+  agent editing it (`app/src/main/CLAUDE.md`, Params the person tries; `kernel/CLAUDE.md`).
 - Lengths are millimetres, angles degrees, areas mm², volumes mm³, masses
   grams. Numbers shown go through `shared/format.ts` (four significant
   digits at most); numbers stored and returned as data are in full.
@@ -143,7 +162,7 @@ What main, the window, the kernel and an agent must all hold to. The detail of e
 - Claude Code is the one agent torno runs. It is shown as a chat by default (`view` in `.torno/agent.json`). The
   chat is the CLI's own headless mode (`-p --input-format stream-json --output-format stream-json`) on pipes,
   under the person's own login, never run by a test. Hooks stay the one source of status and of the marks sent;
-  the stream adds only that a request waiting for the person is `needs_input`; what the CLI says of itself (its `init`,
+  the stream adds only that a request waiting for the person is `needs_input`, and torno's own `ask` (below, `Sessions.holdAsk`) does the same while a question of its is open; what the CLI says of itself (its `init`,
   `api_retry`, the denials of a `result`, a turn it marks `authentication_failed`) is shown as notes and meta, and never
   changes the status. `Sessions` drives the chat through `AgentTransport` (`sessions/transport.ts`); the CLI on pipes
   (`ClaudeStream`) is the one transport. `.torno/chat/` holds text only:
@@ -187,3 +206,10 @@ needs it (the manual's last section lists what is still to be checked). The one 
 `claude --version` and `claude auth status`, for what the first screen says is ready (`main/ready.ts`): once, outside tests
 only, each within 3 s. Under `TORNO_TEST=1` the command is only looked for on `PATH`; the stand-in answers both for the
 test of that check, which is given its runner.
+
+The one exception is the evals, `app/evals/` (`pnpm -C app eval`): a harness the person runs by hand, that drives the
+built app hidden with the real `claude` and spends their subscription. It is no test: no suite and no glob picks it up
+(vitest excludes `evals/**`, Playwright ignores it), and it refuses to start unless `TORNO_EVAL=1` is set, when `CI`
+is set, and until the person, told the model and the budget, types `spend my subscription` (`evals/guard.mjs`, held by
+`src/evals.test.ts`). No agent and no test runs it with the real CLI; an agent may smoke-test it only with the
+stand-in (`TORNO_EVAL_AGENT="node app/test/fake-agent.mjs"`), which the guard still asks for.

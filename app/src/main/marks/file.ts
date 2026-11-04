@@ -4,6 +4,7 @@ import { verdictOf } from '../../shared/dimension'
 import type { Anchor, DimensionMark, Mark, MarksFile, Quat, RegionMark, ShapeKind, StrokeMark, Vec3 } from '../../shared/marks'
 import type { Camera } from '../../shared/view'
 import { MAX_STROKE_POINTS, MIN_SHAPE_SIZE } from '../../shared/marks'
+import { TAG_NAME } from '../../shared/tags'
 import { FOLDER, ownTorno, writeOwn } from '../own'
 
 const NAME = 'marks.json'
@@ -303,6 +304,7 @@ function anchorOf(value: unknown): Anchor | null {
   if (arranged) anchor.arranged = arranged
   if (typeof value.edge === 'string') anchor.edge = value.edge
   if (Array.isArray(value.between) && value.between.length === 2 && value.between.every((ref) => typeof ref === 'string')) anchor.between = [value.between[0], value.between[1]]
+  if (typeof value.tag === 'string' && TAG_NAME.test(value.tag)) anchor.tag = value.tag
   return anchor
 }
 

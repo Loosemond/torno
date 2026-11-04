@@ -2,11 +2,11 @@ import { promisify } from 'node:util'
 import { deflate } from 'node:zlib'
 import { dimensionText, expectedText, notMeasuredText, shownDimension, unitOf } from '../../shared/dimension'
 import { type ExplodeState, explodeOf } from '../../shared/explode'
-import { type ExportData, type ExportMark, type ExportObject, type ExportPart, type ExportPlan, type ExportRequest, type ExportScan, type PackedMesh, megabytes, own, packMesh, packScan, record } from '../../shared/exportdata'
+import { type ExportData, type ExportMark, type ExportObject, type ExportPart, type ExportPlan, type ExportRequest, type ExportScan, type PackedMesh, NOT_BUILT, megabytes, own, packMesh, packScan, record } from '../../shared/exportdata'
 import { isFaceted } from '../../shared/faceted'
 import { count, number } from '../../shared/format'
 import { type Mark, type Vec3, isUnchecked, markAnchors, markEndParts, shapeOutline, strokePoints } from '../../shared/marks'
-import { colorFor, colorsByName } from '../../shared/palette'
+import { colorFor, colorsOfParts } from '../../shared/palette'
 import { meshIdentity } from '../../shared/regions'
 import { type ScanInfo, alignmentOf, parseScanMesh } from '../../shared/scans'
 import { type Part, type Scene, bufView } from '../../shared/scene'
@@ -56,7 +56,7 @@ export const EXPORT_MOST = 64 * 1024 * 1024
 /** What a scan is reduced to, and then to when the file is over its budget. */
 export const SCAN_TRIANGLES = [60_000, 30_000, 15_000] as const
 
-export const NOT_BUILT = 'Open it first: torno exports the last build of this run'
+export { NOT_BUILT }
 export const NO_OBJECT = 'There is no project of that name'
 export const NOTHING_CHOSEN = 'Choose a project to export'
 export const ONE_OBJECT = 'A STEP, STL or 3MF file is of one project: tick one'
@@ -173,7 +173,7 @@ const exportable = (mark: Mark): mark is Exclude<Mark, { kind: 'region' }> => ma
 
 /** The colour of each part as torno draws it, by name: the one the person gave it, or the palette's. */
 export function partColors(scene: Scene, file: SceneFile): Map<string, string> {
-  const palette = colorsByName(scene.parts.map((part) => part.name))
+  const palette = colorsOfParts(scene.parts)
   return new Map(
     scene.parts.map((part) => {
       const layer = own(file.layers, part.name)
@@ -397,7 +397,7 @@ export async function exportPlan(deps: ExportDeps, req: ExportRequest, assets: P
       scans: placedScans(scans, scene.layouts).map(({ scan }) => ({ id: scan.id, name: scan.name, triangles: scan.imported.triangles })),
       layoutParts: scene.layouts.map((layout) => ({
         layout,
-        parts: scene.parts.filter((part) => part.layout === layout).map((part) => ({ name: part.name, solid: hasSolid(part), ...(off.has(part.name) ? { off: true as const } : {}), ...(part.arranged?.some((d) => d !== 0) ? { arranged: true as const } : {}) }))
+        parts: scene.parts.filter((part) => part.layout === layout).map((part) => ({ name: part.name, solid: hasSolid(part), ...(off.has(part.name) ? { off: true as const } : {}), ...(part.arranged?.some((d) => d !== 0) ? { arranged: true as const } : {}), ...(part.role === 'reference' ? { reference: true as const } : {}) }))
       }))
     })
   }

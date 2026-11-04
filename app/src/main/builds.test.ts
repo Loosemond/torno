@@ -5,28 +5,29 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { BuildError, BuildState } from '../shared/build'
 import type { Scene } from '../shared/scene'
 import type { ObjectInfo } from '../shared/workspace'
-import { Builds, NotBuilding, buildTimeout, watchFolder } from './builds'
+import { Builds, NotBuilding, type OverridesPort, buildTimeout, watchFolder } from './builds'
 import { type KernelClient, KernelError, startKernel } from './kernel/client'
 import { probe } from '../test/diagnosisFixtures'
+import type { FilletDiagnosis } from '../shared/diagnosis'
 
 type BuildResult = { ok: true; scene: Scene; blob: Buffer } | { ok: false; error: BuildError }
 
-function sceneOf(model: string, seconds = 0.5): Scene {
-  return { model, layouts: ['assembly'], parts: [], seconds, output: '' }
+function sceneOf(model: string, seconds = 0.5, checks?: Scene['checks']): Scene {
+  return { model, layouts: ['assembly'], parts: [], seconds, output: '', ...(checks ? { checks } : {}) }
 }
 
 /** A kernel whose builds finish when the test says so. Like the real one, a new build cancels the one running. */
 class FakeKernel implements KernelClient {
   onState(): void {}
   ready = Promise.resolve({ versions: {} })
-  calls: Array<{ dir: string; model: string; timeout?: number; settle: (r: BuildResult) => void; settled: boolean }> = []
+  calls: Array<{ dir: string; model: string; timeout?: number; overrides?: Record<string, number | boolean | string>; settle: (r: BuildResult) => void; settled: boolean }> = []
   cancels = 0
   tail = ''
   private exitCbs: Array<(code: number | null) => void> = []
 
   /** The folders whose builds the kernel lets go to make room as the next build starts. */
   retiring: string[] = []
-  build(dir: string, model: string, opts?: { timeout?: number; onStarted?: (started: { retired: string[] }) => void }): Promise<BuildResult> {
+  build(dir: string, model: string, opts?: { timeout?: number; overrides?: Record<string, number | boolean | string>; onStarted?: (started: { retired: string[] }) => void }): Promise<BuildResult> {
     const running = this.calls.at(-1)
     if (running && !running.settled) running.settle({ ok: false, error: { kind: 'cancelled', message: 'replaced' } })
     return new Promise((resolve) => {
@@ -34,6 +35,7 @@ class FakeKernel implements KernelClient {
         dir,
         model,
         timeout: opts?.timeout,
+        overrides: opts?.overrides,
         settled: false,
         settle: (r: BuildResult) => {
           call.settled = true
@@ -44,10 +46,10 @@ class FakeKernel implements KernelClient {
       opts?.onStarted?.({ retired: this.retiring })
     })
   }
-  succeed(index: number, seconds = 0.5): void {
+  succeed(index: number, seconds = 0.5, uses?: string[], checks?: Scene['checks']): void {
     const call = this.calls[index]
     this.retired.delete(call.dir)
-    call.settle({ ok: true, scene: sceneOf(call.model, seconds), blob: Buffer.from([index]) })
+    call.settle({ ok: true, scene: { ...sceneOf(call.model, seconds, checks), ...(uses ? { uses } : {}) }, blob: Buffer.from([index]) })
   }
   fail(index: number, error: BuildError): void {
     this.calls[index].settle({ ok: false, error })
@@ -66,6 +68,11 @@ class FakeKernel implements KernelClient {
     if (this.retired.has(dir)) return Promise.reject(new KernelError('no_build', `no build of ${dir} to ask`, this.retiredFor))
     const answer = this.answers.get(name)
     return this.queryError ? Promise.reject(this.queryError) : Promise.resolve((answer ? answer(args) : { dir, name, args }) as T)
+  }
+  trials: Array<{ dir: string; model: string; overrides: object; queries: object[] }> = []
+  async trial(dir: string, model: string, overrides: Record<string, number | boolean | string>, queries: Array<{ name: string; args: object }>) {
+    this.trials.push({ dir, model, overrides, queries })
+    return { ok: true as const, scene: sceneOf(model), answers: [] }
   }
   cancel(): void {
     this.cancels += 1
@@ -93,7 +100,7 @@ const gear: ObjectInfo = { id: 'gear', name: 'gear', dir: '/ws/gear', model: 'ge
 
 const widget: ObjectInfo = { id: 'widget', name: 'widget', dir: '/ws/widget', model: 'widget.py' }
 
-function setup(over: { timeout?: number; exists?: (path: string) => boolean } = {}) {
+function setup(over: { timeout?: number; exists?: (path: string) => boolean; overrides?: OverridesPort } = {}) {
   const kernel = new FakeKernel()
   const watched = new Map<string, (paths?: string[]) => void>()
   let clock = 1000
@@ -514,6 +521,27 @@ describe('Builds', () => {
     expect(builds.scenes('bracket')).toEqual([{ revision: 1, scene: scenes[0].scene }])
   })
 
+  it('notes a check of the model that a later build makes easier to pass, or drops, and no other', async () => {
+    const { kernel, builds } = setup()
+    const walls = (min: number) => ({ name: 'walls', kind: 'thin', status: 'pass' as const, min, max: null, unit: 'mm', declared: { name: 'walls', kind: 'thin', a: 'tub', min } })
+    builds.open(bracket)
+    kernel.succeed(0, 0.5, undefined, [walls(1.2)])
+    await flush()
+    expect(builds.scene('bracket')?.scene.checkNotes).toBeUndefined()
+    builds.changed('bracket', ['/ws/bracket/bracket.py'])
+    kernel.succeed(1, 0.5, undefined, [walls(0.6)])
+    await flush()
+    expect(builds.scene('bracket')?.scene.checkNotes?.map((n) => [n.name, n.what, n.since, n.text])).toEqual([['walls', 'loosened', 2, 'walls: min 1.2 → 0.6 mm']])
+    builds.changed('bracket', ['/ws/bracket/bracket.py'])
+    kernel.succeed(2, 0.5, undefined, [])
+    await flush()
+    expect(builds.scene('bracket')?.scene.checkNotes?.map((n) => [n.what, n.since])).toEqual([['removed', 2]])
+    builds.changed('bracket', ['/ws/bracket/bracket.py'])
+    kernel.succeed(3, 0.5, undefined, [walls(1.2)])
+    await flush()
+    expect(builds.scene('bracket')?.scene.checkNotes).toEqual([])
+  })
+
   it('keeps the last two successful scenes, oldest first, through a failure', async () => {
     const { kernel, builds, scenes } = setup()
     builds.open(bracket)
@@ -545,7 +573,7 @@ describe('Builds', () => {
       builds.changed('bracket', ['/ws/bracket/bracket.py'])
       kernel.fail(1, failing())
       await flush()
-      const edges = builds.state('bracket')?.error?.diagnosis?.edges ?? []
+      const edges = (builds.state('bracket')?.error?.diagnosis as FilletDiagnosis | undefined)?.edges ?? []
       expect(edges.map((e) => e.sameAs)).toEqual([{ ref: 'plate/E12', layout: 'assembly', revision: 1 }, undefined, undefined, { ref: 'plate/E3', layout: 'assembly', revision: 1 }])
       const asked = kernel.queries.find((q) => q.name === 'match_edges')
       expect(asked).toMatchObject({ dir: '/ws/bracket', args: { edges: [{ type: 'line', start: [-6, -6, -2.5], end: [-6, -6, 2.5], length: 5 }, {}, {}, {}] } })
@@ -560,7 +588,7 @@ describe('Builds', () => {
       builds.changed('bracket', ['/ws/bracket/bracket.py'])
       kernel.fail(1, failing())
       await flush()
-      const edges = builds.state('bracket')?.error?.diagnosis?.edges ?? []
+      const edges = (builds.state('bracket')?.error?.diagnosis as FilletDiagnosis | undefined)?.edges ?? []
       expect(edges.map((e) => e.sameAs)).toEqual([undefined, { ref: 'lid/E2', layout: 'assembly', revision: 1 }, undefined, undefined])
     })
 
@@ -640,6 +668,35 @@ describe('Builds', () => {
     watched.get('/ws/bracket')!()
     watched.get('/ws/common')!()
     expect(kernel.calls).toHaveLength(3)
+  })
+
+  it('watches what the model imported from another project, and builds again when that file is saved', async () => {
+    const { kernel, builds, watched } = setup()
+    builds.open(bracket)
+    kernel.succeed(0, 0.5, ['gear/gear.py', 'common/screws.py'])
+    await flush()
+    // The folder of the used file is watched; the project's own and common/ already were.
+    expect([...watched.keys()]).toEqual(['/ws/bracket', '/ws/common', '/ws/gear'])
+    watched.get('/ws/gear')!(['/ws/gear/notes.txt']) // not a file it imported
+    expect(kernel.calls).toHaveLength(1)
+    watched.get('/ws/gear')!(['/ws/gear/gear.py'])
+    expect(kernel.calls).toHaveLength(2)
+    kernel.succeed(1, 0.5, ['gear/gear.py'])
+    await flush()
+    // Used no longer: not watched for it any more once a build says so; closing stops the watch.
+    builds.rebuild('bracket')
+    kernel.succeed(2, 0.5, [])
+    await flush()
+    expect([...watched.keys()]).toEqual(['/ws/bracket', '/ws/common'])
+  })
+
+  it('does not watch what a closed project used', async () => {
+    const { kernel, builds, watched } = setup()
+    builds.open(bracket)
+    kernel.succeed(0, 0.5, ['gear/gear.py'])
+    await flush()
+    builds.close('bracket')
+    expect([...watched.keys()]).toEqual([])
   })
 
   it('shows only the second build when a change arrives mid-build', async () => {
@@ -1074,9 +1131,12 @@ describe('watchFolder', () => {
 
   const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
-  async function watching(path: string): Promise<{ changes: () => number; paths: () => string[][] }> {
+  async function watching(
+    path: string,
+    debounceMs?: number
+  ): Promise<{ changes: () => number; paths: () => string[][] }> {
     const bursts: string[][] = []
-    stop = watchFolder(path, (paths) => bursts.push(paths))
+    stop = watchFolder(path, (paths) => bursts.push(paths), debounceMs)
     await sleep(150) // let the watcher settle on what is already there
     if (process.platform === 'darwin') {
       // FSEvents replays what was written just before the watch began (the files this test made): let it, and drop it.
@@ -1087,14 +1147,17 @@ describe('watchFolder', () => {
   }
 
   it('reports a burst of saves once, after the debounce', async () => {
-    const { changes } = await watching(join(dir, 'obj'))
+    // A long debounce, so that a slow runner stretching a sleep cannot let it end between the saves.
+    const { changes } = await watching(join(dir, 'obj'), 2500)
     writeFileSync(join(dir, 'obj', 'model.py'), 'x = 2\n')
     await sleep(100)
     writeFileSync(join(dir, 'obj', 'model.py'), 'x = 3\n')
     writeFileSync(join(dir, 'obj', 'notes.txt'), 'hello')
-    await sleep(200)
-    expect(changes()).toBe(0) // still inside the 300 ms after the last change
-    await sleep(400)
+    await sleep(300)
+    expect(changes()).toBe(0) // still inside the debounce after the last change
+    for (let i = 0; i < 100 && changes() === 0; i++) await sleep(100)
+    expect(changes()).toBe(1)
+    await sleep(300)
     expect(changes()).toBe(1)
   })
 
@@ -1165,5 +1228,59 @@ describe('Rebuild pressed while a build runs', () => {
     expect(builds.rebuild('bracket')).toBe(true)
     expect(kernel.calls).toHaveLength(2)
     expect(builds.rebuild('nowhere')).toBe(false)
+  })
+})
+
+describe("the person's overrides of Params", () => {
+  it('go with every build of the folder, and with none when there are none', async () => {
+    let held: Record<string, number | boolean | string> = {}
+    const { kernel, builds } = setup({ overrides: { values: () => held, reconcile: async () => ({ stale: false }) } })
+    builds.open(bracket)
+    expect(kernel.calls[0].overrides).toBeUndefined()
+    kernel.succeed(0)
+    await flush()
+    held = { wall: 2.4 }
+    builds.rebuild('bracket')
+    expect(kernel.calls[1].overrides).toEqual({ wall: 2.4 })
+  })
+
+  it('make another build when the good one found one that could not stand, with the scene already told which', async () => {
+    let stale = true
+    const told: Array<Scene['overrides']> = []
+    const { kernel, builds, scenes } = setup({
+      overrides: {
+        values: () => ({ wall: 2.4 }),
+        reconcile: async (_dir, scene) => {
+          scene.overrides = { applied: {}, dropped: [{ name: 'wall', reason: 'the file wins' }] }
+          told.push(scene.overrides)
+          const was = stale
+          stale = false
+          return { stale: was }
+        }
+      }
+    })
+    builds.open(bracket)
+    kernel.succeed(0)
+    await flush()
+    expect(scenes[0].scene.overrides?.dropped).toEqual([{ name: 'wall', reason: 'the file wins' }])
+    expect(kernel.calls).toHaveLength(2)
+    kernel.succeed(1)
+    await flush()
+    expect(kernel.calls).toHaveLength(2)
+    expect(scenes).toHaveLength(2)
+  })
+
+  it('are the ground of a trial, which asks for its own on top and starts and changes no build', async () => {
+    const { kernel, builds } = setup({ overrides: { values: () => ({ wall: 2.4, lid: true }), reconcile: async () => ({ stale: false }) } })
+    builds.open(bracket)
+    kernel.succeed(0)
+    await flush()
+    const scenes = builds.scenes('bracket').length
+    const tried = await builds.trial('bracket', { wall: 3 }, [{ name: 'measure', args: {} }])
+    expect(tried.ok).toBe(true)
+    expect(kernel.trials).toEqual([{ dir: '/ws/bracket', model: 'bracket.py', overrides: { wall: 3, lid: true }, queries: [{ name: 'measure', args: {} }] }])
+    expect(kernel.calls).toHaveLength(1)
+    expect(builds.scenes('bracket')).toHaveLength(scenes)
+    await expect(builds.trial('never-opened', {}, [])).rejects.toMatchObject({ kind: 'no_build' })
   })
 })

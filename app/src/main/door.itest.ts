@@ -1,0 +1,141 @@
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import type { Part } from '../shared/scene'
+import { type Door, openDoor, projectFor } from './door'
+import { type HttpRouter, startHttp } from './http'
+import { SERVER_INSTRUCTIONS } from './mcp/schemas'
+import { mountMcp } from './mcp/server'
+import type { ToolDeps } from './mcp/tools'
+
+// The second door end to end: a fake MCP client (the SDK's, over stdio) runs the bridge, which reaches the MCP server
+// through the socket. No agent CLI is run.
+const BRIDGE = resolve(__dirname, '../../../scripts/torno-mcp.mjs')
+const BASE = { key: 'main:base', name: 'base', layout: 'main', bbox: { min: [0, 0, 0], max: [40, 30, 5] }, volume: 6000, faceCount: 6, edgeCount: 12, valid: true } as Part
+
+// The whole temporary workspace sits under a link, as a Mac's temporary folder does (`/var` is `/private/var`), so a
+// folder that does not exist yet is named through the link and only its nearest parent resolves.
+const outer = mkdtempSync(join(tmpdir(), 'torno-door-'))
+mkdirSync(join(outer, 'real'))
+symlinkSync(join(outer, 'real'), join(outer, 'alias'))
+const work = join(outer, 'alias', 'w')
+mkdirSync(work)
+const runtime = join(work, 'run')
+const project = join(work, 'ws', 'bracket')
+mkdirSync(project, { recursive: true })
+// The workspace is also reached through a link, as a Mac's temporary folder (`/var`, really `/private/var`) is: the
+// project torno knows is named through the link, the folder the agent is in through the real path, or the other way.
+const linked = join(work, 'linked')
+symlinkSync(join(work, 'ws'), linked)
+const known = [{ id: 'bracket', name: 'bracket', dir: join(linked, 'bracket') }]
+
+const deps = {
+  object: (id: string) => (id === 'bracket' ? { id, name: id, dir: project, model: 'bracket.py' } : undefined),
+  build: (id: string) => (id === 'bracket' ? { objectId: id, status: 'ok', revision: 2, seconds: 0.5, stale: false } : undefined),
+  scene: (id: string) => (id === 'bracket' ? { revision: 2, scene: { model: 'bracket.py', layouts: ['main'], parts: [BASE], seconds: 0.5, output: '' } } : undefined),
+  view: () => undefined,
+  openObjectId: () => 'bracket',
+  marks: async () => [],
+  views: async () => [],
+  scans: async () => [],
+  scansBusy: () => [],
+  scanPaths: () => undefined
+} as unknown as ToolDeps
+
+let http: HttpRouter
+let door: Door
+let answer = true
+const asked: Array<{ objectId: string; client: string; pid: number | null }> = []
+const revoked: string[] = []
+const clients: Client[] = []
+
+async function bridge(folder = project, dir = runtime): Promise<Client> {
+  const client = new Client({ name: 'fake-agent', version: '0' })
+  clients.push(client)
+  await client.connect(new StdioClientTransport({ command: process.execPath, args: [BRIDGE, folder], env: { PATH: process.env.PATH ?? '', XDG_RUNTIME_DIR: dir } }))
+  return client
+}
+
+beforeAll(async () => {
+  http = await startHttp()
+  const revoke = http.revoke
+  http.revoke = (token) => (revoked.push(token), revoke(token))
+  mountMcp(http, deps)
+  door = await openDoor(
+    {
+      http,
+      objectFor: (folder) => projectFor(known, folder),
+      approve: async (ask) => (asked.push(ask), answer)
+    },
+    join(runtime, 'torno')
+  )
+})
+
+afterEach(async () => {
+  answer = true
+  asked.length = 0
+  await Promise.all(clients.splice(0).map((c) => c.close()))
+})
+
+afterAll(async () => {
+  await door.close()
+  await http.close()
+  rmSync(outer, { recursive: true, force: true })
+})
+
+describe('the door for an agent torno did not start', () => {
+  it('is a socket only the person may open, and nothing else is written', () => {
+    expect(statSync(join(runtime, 'torno')).mode & 0o777).toBe(0o700)
+    expect(statSync(door.path).mode & 0o777).toBe(0o600)
+    expect(readdirSync(join(runtime, 'torno'))).toEqual(['door.sock'])
+  })
+
+  it('serves the tools once the person allows it, with the instructions', async () => {
+    const client = await bridge()
+    expect(asked).toEqual([{ objectId: 'bracket', name: 'bracket', client: expect.any(String), pid: expect.any(Number) }])
+    expect(client.getInstructions()).toBe(SERVER_INSTRUCTIONS)
+    const tools = await client.listTools()
+    expect(tools.tools.map((t) => t.name)).toContain('scene')
+    const scene = await client.callTool({ name: 'scene', arguments: {} })
+    expect(JSON.stringify(scene.content)).toContain('base')
+  })
+
+  it('finds the project of a folder named through a link', async () => {
+    const client = await bridge(join(linked, 'bracket'))
+    expect(asked).toEqual([{ objectId: 'bracket', name: 'bracket', client: expect.any(String), pid: expect.any(Number) }])
+    expect(JSON.stringify((await client.callTool({ name: 'scene', arguments: {} })).content)).toContain('base')
+  })
+
+  it('takes the token back when the client goes', async () => {
+    const before = revoked.length
+    const client = await bridge()
+    await client.close()
+    await new Promise((r) => setTimeout(r, 200))
+    expect(revoked.length).toBe(before + 1)
+  })
+
+  it('answers nothing when the person says no', async () => {
+    answer = false
+    await expect(bridge()).rejects.toThrow(/did not allow/)
+  })
+
+  it('asks nothing for a folder that is no project of the workspace', async () => {
+    await expect(bridge(work)).rejects.toThrow(/no project of the workspace/)
+    expect(asked).toEqual([])
+  })
+
+  it('knows no project for a folder beside one, or a link that leads out of the workspace', () => {
+    mkdirSync(join(work, 'ws', 'bracket-2'), { recursive: true })
+    symlinkSync(tmpdir(), join(work, 'ws', 'out'))
+    expect(projectFor(known, join(work, 'ws', 'bracket-2'))).toBeUndefined()
+    expect(projectFor(known, join(work, 'ws', 'out'))).toBeUndefined()
+    expect(projectFor(known, join(project, 'sub', 'missing'))?.id).toBe('bracket')
+  })
+
+  it('says how to start torno when it is not running', async () => {
+    await expect(bridge(project, join(work, 'none'))).rejects.toThrow(/torno is not running/)
+  })
+})

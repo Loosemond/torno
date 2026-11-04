@@ -1,12 +1,15 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
+import { peek } from '../state/agent'
 import { actions, layerOf, useStore } from '../state/store'
-import { colorFor, colorsByName } from '../../shared/palette'
+import { colorFor, colorsOfParts } from '../../shared/palette'
 import { groupsIn, groupVisibility } from '../../shared/groups'
 import type { Part, PartGroup } from '../../shared/scene'
 import type { LayerSettings } from '../../shared/scenefile'
 import { DEFECT_MEANS, partDefects } from '../../shared/sanity'
 import { SectionTitle } from './SectionTitle'
+import { type PartMarks, marksByPart } from './layerMarks'
 import { layersSaid } from './sectionSaid'
+import { giveKeysBack } from './typing'
 
 /**
  * The parts of the layout shown: colour, name, an opacity slider that appears
@@ -15,6 +18,11 @@ import { layersSaid } from './sectionSaid'
  * a header that folds, hides or shows its parts, or shows only them; the parts
  * in no group follow, in the model's order. A part whose build says its shape is broken (`partDefects`) has the
  * first defect in a word beside its name, and every one in its title.
+ *
+ * For a model of ten parts or twenty the row is also the way to the part: the pointer on it lights the part in the
+ * view (`peek`, as a mention in the chat does; no highlight of the agent's), a click on its name selects it as a
+ * ref, a double click brings it into view, "Show only" shows it alone, and the count of open marks on it lists
+ * only those in the Marks panel. When parts are switched off the title says how many, with "Show all".
  */
 export function Layers() {
   const scene = useStore((s) => s.scene)
@@ -22,18 +30,46 @@ export function Layers() {
   const layers = useStore((s) => s.layers)
   const folded = useStore((s) => s.folded)
   const sectionFolded = useStore((s) => s.column.folded.layers)
+  const marks = useStore((s) => s.marks)
+  const revision = useStore((s) => (s.scene ? s.revision : 0))
+  const onPart = useStore((s) => s.marksOnPart)
   // The same assignment as the viewport's, so a swatch matches its part.
-  const colors = useMemo(() => colorsByName((scene?.parts ?? []).map((p) => p.name)), [scene])
+  const colors = useMemo(() => colorsOfParts(scene?.parts ?? []), [scene])
   if (!scene) return null
   const parts = scene.parts.filter((p) => p.layout === layout)
   const groups = groupsIn(scene, layout)
   const grouped = new Set(groups.flatMap((g) => g.parts))
   const byName = new Map(parts.map((p) => [p.name, p]))
-  const row = (part: Part, inGroup?: string) => <LayerRow key={part.key} part={part} layer={layerOf(layers, part.name)} color={colors.get(part.name)} inGroup={inGroup} />
+  const counts = marksByPart(marks, layout, revision)
+  const hidden = parts.filter((p) => layerOf(layers, p.name)?.visible === false)
+  const row = (part: Part, inGroup?: string) => (
+    <LayerRow key={part.key} part={part} layout={layout} layer={layerOf(layers, part.name)} color={colors.get(part.name)} inGroup={inGroup} marks={counts.get(part.name)} listed={onPart === part.name} />
+  )
 
   return (
     <section className="section layers" aria-label="Layers" data-folded={sectionFolded ? '' : undefined}>
-      <SectionTitle section="layers" title="Layers" said={layersSaid(parts.length, parts.filter((p) => layerOf(layers, p.name)?.visible === false).length)} />
+      <SectionTitle section="layers" title="Layers" said={layersSaid(parts.length, hidden.length)}>
+        {hidden.length > 0 && (
+          <span className="layers-hidden">
+            {!sectionFolded && (
+              <>
+                <span className="num">{hidden.length}</span> hidden ·{' '}
+              </>
+            )}
+            <button
+              type="button"
+              className="link-button"
+              title="Switch every part of this layout on"
+              onClick={(e) => {
+                actions.setLayers(parts.map((p) => p.name), { visible: true })
+                if (e.detail > 0) giveKeysBack(e.currentTarget)
+              }}
+            >
+              Show all
+            </button>
+          </span>
+        )}
+      </SectionTitle>
       {!sectionFolded && parts.length === 0 && <p className="section-note">This layout has no parts.</p>}
       {!sectionFolded && (
         <ul className="rows">
@@ -91,15 +127,59 @@ function GroupRow({ group, layout, layers, folded }: { group: PartGroup; layout:
   )
 }
 
-function LayerRow({ part, layer, color, inGroup }: { part: Part; layer: LayerSettings | undefined; color: string | undefined; inGroup?: string }) {
+function LayerRow({ part, layout, layer, color, inGroup, marks, listed }: { part: Part; layout: string; layer: LayerSettings | undefined; color: string | undefined; inGroup?: string; marks: PartMarks | undefined; listed: boolean }) {
   const { name } = part
+  const selected = useStore((s) => s.selection.includes(name))
+  // The pointer or the keys' focus on the row lights its part in the view; a row that goes while it does takes the light with it.
+  const lit = useRef(false)
+  const light = (on: boolean): void => {
+    lit.current = on
+    peek(on ? [name] : [])
+  }
+  useEffect(
+    () => () => {
+      if (lit.current) peek([])
+    },
+    []
+  )
   const visible = layer?.visible !== false
   const opacity = layer?.opacity ?? 1
   const defects = partDefects(part)
   return (
-    <li className="row layer-row" data-layer={name} data-in-group={inGroup} data-hidden={visible ? undefined : ''}>
+    <li
+      className="row layer-row"
+      data-layer={name}
+      data-in-group={inGroup}
+      data-hidden={visible ? undefined : ''}
+      data-selected={selected ? '' : undefined}
+      onPointerEnter={() => light(true)}
+      onPointerLeave={() => light(false)}
+      onFocus={(e) => {
+        if (e.target.matches(':focus-visible')) light(true)
+      }}
+      onBlur={(e) => {
+        if (!(e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget))) light(false)
+      }}
+    >
       <span className="swatch" style={{ background: layer?.color ?? color ?? colorFor(name, -1) }} aria-hidden="true" />
-      <span className="row-name num">{name}</span>
+      <button
+        type="button"
+        className="row-name layer-name num"
+        aria-pressed={selected}
+        title="Select this part. Double click to bring it into view"
+        onClick={(e) => {
+          actions.setSelection([name])
+          if (e.detail > 0) giveKeysBack(e.currentTarget)
+        }}
+        onDoubleClick={() => actions.framePart(name)}
+      >
+        {name}
+      </button>
+      {part.role === 'reference' && (
+        <span className="layer-bought" data-part="reference" title="A bought part, put in the model to see and to check against. It is not printed, weighed or exported as a part">
+          bought
+        </span>
+      )}
       {defects.length > 0 && (
         <span className="layer-defect" data-part="defect" title={defects.map((d) => `${d[0].toUpperCase()}${d.slice(1)}: ${DEFECT_MEANS[d]}`).join('. ')}>
           {defects[0]}
@@ -109,6 +189,22 @@ function LayerRow({ part, layer, color, inGroup }: { part: Part; layer: LayerSet
             </>
           )}
         </span>
+      )}
+      {marks && (
+        <button
+          type="button"
+          className="layer-marks num"
+          data-failing={marks.failing ? '' : undefined}
+          aria-pressed={listed}
+          aria-label={`${marks.open} open ${marks.open === 1 ? 'mark' : 'marks'} on ${name}${marks.failing ? ', one of them a check that fails' : ''}`}
+          title={listed ? 'Show the marks on every part' : `${marks.failing ? 'A check that fails is among them. ' : ''}List only the marks on ${name}`}
+          onClick={(e) => {
+            actions.listMarksOnPart(listed ? null : name)
+            if (e.detail > 0) giveKeysBack(e.currentTarget)
+          }}
+        >
+          {marks.open}
+        </button>
       )}
       <input
         type="range"
@@ -122,6 +218,18 @@ function LayerRow({ part, layer, color, inGroup }: { part: Part; layer: LayerSet
         title={`Opacity ${Math.round(opacity * 100)} %`}
         onChange={(e) => actions.setLayer(name, { opacity: Number(e.target.value) })}
       />
+      <button
+        type="button"
+        className="icon-button layer-solo"
+        aria-label={`Show only ${name}`}
+        title="Show only this part"
+        onClick={(e) => {
+          actions.soloLayers(layout, [name])
+          if (e.detail > 0) giveKeysBack(e.currentTarget)
+        }}
+      >
+        <SoloIcon />
+      </button>
       <button
         type="button"
         className="icon-button"

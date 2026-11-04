@@ -12,7 +12,7 @@ const word = (state: Tool['state']): string => {
 }
 
 describe('the word on a tool card', () => {
-  it('says denied and cancelled as they are, and failed only for an error', () => {
-    expect([word('denied'), word('cancelled'), word('error'), word('stopped'), word('done')]).toEqual(['denied', 'cancelled', 'failed', 'stopped', 'done'])
+  it('says denied and cancelled as they are, and failed only for an error; a tool that went well says nothing', () => {
+    expect([word('denied'), word('cancelled'), word('error'), word('stopped'), word('running'), word('done')]).toEqual(['denied', 'cancelled', 'failed', 'stopped', 'running', ''])
   })
 })

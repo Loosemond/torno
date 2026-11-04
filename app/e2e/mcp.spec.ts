@@ -124,7 +124,7 @@ let whole: string
 test('before an object has been built, scene and look say there is no build', async () => {
   await page.emulateMedia({ colorScheme: 'light' })
   bracket = await connect('bracket')
-  expect((await bracket.listTools()).tools.map((t) => t.name).sort()).toEqual(['add_mark', 'check', 'describe', 'diff', 'highlight', 'look', 'marks', 'measure', 'resolve_mark', 'save_view', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show', 'try_fillet'])
+  expect((await bracket.listTools()).tools.map((t) => t.name).sort()).toEqual(['add_mark', 'ask', 'check', 'describe', 'diff', 'expect', 'features', 'highlight', 'history', 'look', 'marks', 'measure', 'resolve_mark', 'save_view', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show', 'try_fillet', 'try_params'])
   const asked: Array<[string, Record<string, unknown>]> = [
     ['scene', {}],
     ['look', {}],
@@ -132,7 +132,8 @@ test('before an object has been built, scene and look say there is no build', as
     ['highlight', { refs: ['base'] }],
     ['show', { view: 'top' }],
     ['add_mark', { kind: 'pin', note: '', ref: 'base' }],
-    ['try_fillet', { part: 'base', edges: ['base/E0'], radius: 1 }]
+    ['try_fillet', { part: 'base', edges: ['base/E0'], radius: 1 }],
+    ['features', { part: 'base' }]
   ]
   for (const [name, args] of asked) {
     const result = await call(bracket, name, args)
@@ -140,7 +141,7 @@ test('before an object has been built, scene and look say there is no build', as
     expect(result.text, name).toBe('no build yet: bracket has not been opened in the torno window')
   }
   // The marks are the object's, built or not: there are none yet.
-  expect(await call(bracket, 'marks')).toMatchObject({ isError: false, text: '{"revision":null,"marks":[]}' })
+  expect(await call(bracket, 'marks')).toMatchObject({ isError: false, text: '{"revision":null,"marks":[],"listed":"open marks; resolved ones with status resolved, or by ids"}' })
   const nothing = await call(await connect('no such object'), 'scene')
   expect(nothing).toMatchObject({ isError: true, text: 'unknown project: no such object' })
 })
@@ -161,7 +162,7 @@ test('scene reports the build, the parts and what the window shows', async () =>
     camera: { ortho: false }
   })
   expect(scene).not.toHaveProperty('note')
-  expect(scene.parts.map((p: { layout: string; name: string }) => `${p.layout}:${p.name}`)).toEqual(['assembly:base', 'assembly:post', 'print:base', 'print:post'])
+  expect(scene.parts.map((p: { layout: string; name: string }) => `${p.layout}:${p.name}`)).toEqual(['assembly:base', 'assembly:post'])
   expect(scene.parts[0]).toMatchObject({ name: 'base', visible: true, size: [40, 30, 5], bbox: { min: [-20, -15, -2.5], max: [20, 15, 2.5] }, volume: 6000, faces: 6, edges: 12, valid: true })
   expect(scene.parts[1]).toMatchObject({ name: 'post', visible: true, size: [8, 8, 20], volume: 1005.31 })
 })
@@ -176,6 +177,40 @@ test('try_fillet tries a fillet on the last build, throws it away and says so', 
   expect(fails.together.worksUpTo).toBeLessThan(5)
   expect(fails.reading).toMatch(/^Tried on r1 and thrown away, nothing changed: fillet R6 of 1 edge: the edge works up to R4.99/)
   expect((await call(bracket, 'scene')).text).toContain('"revision":1')
+})
+
+test('history lists the build kept of the project, with copies of its sources, and diff names it by id (#56)', async () => {
+  await expect
+    .poll(async () => JSON.parse((await call(bracket, 'history')).text).kept)
+    .toBeGreaterThan(0)
+  const listed = JSON.parse((await call(bracket, 'history')).text)
+  const first = listed.builds.at(-1)
+  expect(first).toMatchObject({ id: expect.stringMatching(/^h[1-9][0-9]*$/), revision: 1, changed: 'first build kept' })
+  const one = JSON.parse((await call(bracket, 'history', { id: first.id })).text)
+  expect(one.copies.length).toBeGreaterThan(0)
+  for (const copy of one.copies) {
+    expect(copy.path).toBe(join(root, 'bracket', '.torno', 'history', first.id, 'source', ...copy.file.split('/')))
+    expect(existsSync(copy.path)).toBe(true)
+  }
+  expect((await call(bracket, 'history', { id: 'h999' })).isError).toBe(true)
+  // A kept build is compared by its id; against itself nothing changed.
+  const same = JSON.parse((await call(bracket, 'diff', { from: first.id, to: 1 })).text)
+  expect(same).toMatchObject({ from: first.id, to: 1 })
+  expect(same.layouts[0].parts.every((p: { changed: boolean }) => !p.changed)).toBe(true)
+})
+
+test('try_params builds the model with another value of a field, in a worker thrown away, and changes nothing', async () => {
+  const tried = await call(bracket, 'try_params', { set: { width: 55 }, measure: [{ kind: 'bbox', a: 'base' }] })
+  expect(tried.isError).toBe(false)
+  const said = JSON.parse(tried.text)
+  expect(said).toMatchObject({ trial: true, of: 1, set: { width: 55 }, applied: { width: 55 }, built: true })
+  expect(said.reading).toContain('Tried width 55 (file 40) on the model of r1 and thrown away, nothing changed (these are of the trial, not of any build)')
+  // What is not a field, a type or a whole part is refused, saying what it takes.
+  expect((await call(bracket, 'try_params', { set: { nope: 1 } })).text).toContain("nope is not a field of the model's Params; those that can be tried: width")
+  expect((await call(bracket, 'try_params', { set: { width: 55 }, measure: [{ kind: 'bbox', a: 'base/F1' }] })).text).toContain('a trial measures whole parts by name')
+  // The build on screen is as it was.
+  expect((await call(bracket, 'scene')).text).toContain('"revision":1')
+  expect(readFileSync(join(root, 'bracket', 'bracket.py'), 'utf8')).toContain('width: float = 40')
 })
 
 test('look returns the picture the window draws, and keeps a copy under .torno/views', async () => {
@@ -439,6 +474,11 @@ test("add_mark places the agent's own marks, by ref and by point, which the user
 
   const row = page.locator('.mark-row[data-mark="M2"]')
   await expect(row).toHaveAttribute('data-author', 'agent')
+  // Its own group, for the person to read or answer; the person's sent M1 stays with the agent.
+  await expect(page.getByRole('list', { name: 'From the agent' }).locator('.mark-row[data-mark="M2"]')).toHaveCount(1)
+  await expect(page.getByRole('list', { name: 'With the agent' }).locator('.mark-row[data-mark="M1"]')).toHaveCount(1)
+  await expect(page.getByRole('list', { name: 'With the agent' }).locator('.mark-row[data-mark="M2"]')).toHaveCount(0)
+  await expect(row.getByRole('button', { name: 'Resolve M2' })).toHaveAttribute('title', 'Seen: resolve it')
   // --agent-mark, outlined: the user's own are filled with --user-mark.
   await expect(row.locator('.mark-chip')).toHaveCSS('border-top-color', 'rgb(40, 129, 86)')
   await expect(row.locator('.mark-chip')).toHaveCSS('color', 'rgb(40, 129, 86)')
@@ -532,6 +572,59 @@ test('highlight shows the user what the agent means, until they click', async ()
   await expect(line).toHaveCount(0)
 })
 
+// #132: the agent asks, the user answers in the window, and the tool returns what they chose.
+test('ask puts a card to the user, lights the refs under the pointer, and returns the option they click, the face they pick, or none', async () => {
+  const card = page.locator('.ask-question')
+  await expect(card).toHaveCount(0)
+  const options = [
+    { label: 'The top of the base', refs: ['base/F5'] },
+    { label: 'The post', refs: ['post'] }
+  ]
+  const first = call(bracket, 'ask', { question: 'Which one do you mean?', options })
+  await expect(card).toBeVisible()
+  await expect(card.locator('.ask-text')).toHaveText('Which one do you mean?')
+  await expect(card.getByRole('button')).toHaveText(['The top of the base base/F5', 'The post post', 'None of these'])
+  await card.getByRole('button', { name: /The post/ }).hover()
+  await expect.poll(() => page.evaluate(() => window.__tornoTest!.peeked())).toEqual(['post'])
+  await card.getByRole('button', { name: /The post/ }).click()
+  const chosen = await first
+  expect(chosen.isError).toBe(false)
+  expect(JSON.parse(chosen.text)).toMatchObject({ answered: true, kind: 'option', index: 1, label: 'The post', refs: ['post'], layout: 'assembly' })
+  await expect(card).toHaveCount(0)
+  expect(await page.evaluate(() => window.__tornoTest!.peeked())).toEqual([])
+
+  // Two at once are refused; the first goes on waiting.
+  const second = call(bracket, 'ask', { question: 'Which face?', options: [], pick: true })
+  await expect(card).toBeVisible()
+  expect((await call(bracket, 'ask', { question: 'And this?', options })).text).toContain('already waiting')
+  // A face the user selects in the view is offered as the answer.
+  await expect(card.getByText('Or select one face or edge in the view.')).toBeVisible()
+  const box = (await canvas().boundingBox())!
+  const hit = await page.evaluate(() => {
+    for (let fy = 0.3; fy < 0.8; fy += 0.05) for (let fx = 0.3; fx < 0.8; fx += 0.05) {
+      const h = window.__tornoTest!.pickAt(fx, fy)
+      if (h && (h.kind === 'face' || h.kind === 'edge')) return { fx, fy, ref: h.ref }
+    }
+    return null
+  })
+  expect(hit).not.toBeNull()
+  await page.mouse.click(box.x + box.width * hit!.fx, box.y + box.height * hit!.fy)
+  await card.getByRole('button', { name: /^Answer with / }).click()
+  const picked = JSON.parse((await second).text)
+  expect(picked).toMatchObject({ answered: true, kind: 'pick', ref: hit!.ref, layout: 'assembly' })
+
+  const third = call(bracket, 'ask', { question: 'Either?', options })
+  await card.getByRole('button', { name: 'None of these' }).click()
+  expect(JSON.parse((await third).text)).toEqual({ answered: false, reason: 'not answered: the user chose none of the options' })
+  await expect(card).toHaveCount(0)
+
+  // A ref the build does not have is refused before the user is asked.
+  const wrong = await call(bracket, 'ask', { question: 'Which?', options: [{ label: 'A', refs: ['lid'] }] })
+  expect(wrong).toMatchObject({ isError: true })
+  expect(wrong.text).toContain("nothing was asked: no part 'lid'")
+  await expect(card).toHaveCount(0)
+})
+
 test('resolve_mark resolves a mark, which the user sees as resolved by the agent with what it did, and then moves under Resolved', async () => {
   const result = await call(bracket, 'resolve_mark', { id: 'M1', note: 'made the corner 2 mm thicker' })
   expect(result).toMatchObject({ isError: false, text: `resolved: ${describeMark(pin)}\nnote: made the corner 2 mm thicker` })
@@ -544,7 +637,7 @@ test('resolve_mark resolves a mark, which the user sees as resolved by the agent
   await expect(awaiting).toHaveAttribute('data-awaiting', '')
   await expect(awaiting.locator('.mark-resolution-note')).toHaveText('Resolved by the agent: made the corner 2 mm thicker')
   await awaiting.getByRole('button', { name: 'OK', exact: true }).click()
-  await expect(marks.locator('.marks-review')).toHaveCount(0)
+  await expect(marks.locator('.marks-review')).toContainText('Reviewed 1: 1 OK')
   await expect(marks.locator('.mark-row[data-mark]')).toHaveCount(3)
   await marks.getByRole('button', { name: /Resolved/ }).click()
   const resolved = marks.getByRole('list', { name: 'Resolved marks' }).locator('[data-mark="M1"]')
@@ -590,7 +683,7 @@ test('for an object that is not the one open, look refuses and scene says what i
   const scene = JSON.parse((await call(bracket, 'scene')).text)
   expect(scene).toMatchObject({ object: 'bracket', build: { status: 'ok', revision: 1 }, layout: null, camera: null })
   expect(scene.note).toContain('not the project open in the torno window (open: plain)')
-  expect(scene.parts).toHaveLength(4)
+  expect(scene.parts).toHaveLength(2)
   expect(scene.parts[0]).not.toHaveProperty('visible')
 
   // The object that is open answers at its own address.
@@ -753,7 +846,7 @@ let plateFaces: Array<{ ref: string; descriptor: string }>
 test('measure answers with the exact value, how it was taken and a reading, through refs, points and marks', async () => {
   await openObject('measures')
   measures = await connect('measures')
-  expect((await measures.listTools()).tools.map((t) => t.name).sort()).toEqual(['add_mark', 'check', 'describe', 'diff', 'highlight', 'look', 'marks', 'measure', 'resolve_mark', 'save_view', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show', 'try_fillet'])
+  expect((await measures.listTools()).tools.map((t) => t.name).sort()).toEqual(['add_mark', 'ask', 'check', 'describe', 'diff', 'expect', 'features', 'highlight', 'history', 'look', 'marks', 'measure', 'resolve_mark', 'save_view', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show', 'try_fillet', 'try_params'])
   const whole = JSON.parse((await call(measures, 'describe', { ref: 'plate' })).text) as { faceCount: number }
   plateFaces = []
   for (let i = 0; i < whole.faceCount; i += 1) plateFaces.push({ ref: `plate/F${i}`, descriptor: JSON.parse((await call(measures, 'describe', { ref: `plate/F${i}` })).text).descriptor })

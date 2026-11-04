@@ -70,7 +70,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   which changes once per measurement. The strip shows it (`Last: …`, only for the object and build on show)
   until the next first end, Escape with nothing under way or the tool put down. It is kept as a dimension only
   by `measure.keep` (Enter) or the strip's "Keep as a dimension", both `keepHeld`, which commits the same
-  anchors through `commitMark` (main measures it again); the strip then says `Kept as M7`. A readout is not a
+  anchors through `commitMark` (main measures it again); the strip then says `Kept as M7`. The kernel's two points (`Held.points`) draw it in the view until then: a `held` draft (`Draft.held`, the value text) in `--ink`, not faint, with its value at the middle (`viewport/heldValue.ts`); a distance's strip adds `Δx Δy Δz` (`componentsOf`). A readout is not a
   mark and is never drawn in a mark's colour. In Angle, before the second click, an end the kernel takes by its axis, only if
   flat or straight, or never (`angleTaking`, by the descriptor's type, the kernel's rule) is said at the pointer
   in place of the `≈` estimate; it is a hint, never a gate: the click is sent whatever it says. A tool is a `Tool`
@@ -119,15 +119,34 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `chipSays` (a note in the face of the UI, `Readout.note`, one line cut to its width; a dimension's numbers as a
   ref's). A click opens it whatever tool is in hand (the head ruling of #74): `goToRow` (active, row in view, the
   camera stays as it is in view) and, for a draft of the person's, `actions.openNote`. A drag that starts on a chip
-  is the orbit's; a press that began beside one is the tool's to the end. A failing dimension's chip says by how
+  is the orbit's with Select in hand. With a tool that takes presses (`ChipHost.tool`: not Select, not with the parts stale
+  or apart, not with Alt) the camera is held (`Viewport.holdCamera`) from the press; past the click threshold (4 px) the
+  tool is handed the press as it was made and every event after it (a tool that does not drag, as Pin, gives the camera
+  back at that point), and a click still opens the row. Moves over a chip with no button held are handed to the tool too,
+  with no hit, so its preview does not freeze. A press that began beside a chip is the tool's to the end. A failing dimension's chip says by how
   much it misses after its cross, in `--fail` (`40 mm ✗ 2 under`: `labelValue`'s `off`, from `offBy`), on screen
   and in a picture for the agent alike. A spec that hands a tool a press at a point checks first that no chip is
   drawn there (`__tornoTest.chipAt`, `clearOfChips` in `e2e/tools.spec.ts` and `e2e/measure.spec.ts`).
-- The Marks list is grouped by what is to be done (`ui/markGroups.ts`): "To send" (drafts), "With the agent"
-  (sent), "To review" and the fold "Resolved"; a heading only for a group that has marks, and the heading says
+- When the project has checks (`isCheck`: an open dimension with an expected value) a line heads the Marks, outside
+  the list's scroll (`ui/ChecksSummary.tsx`): `Checks on r12: 3 pass · 1 fails · 1 not measured`, each count a
+  button to the first such check (`goToRow`), in `--ok`, `--fail`, `--warn`, never a mark's colour. The not
+  measured count is said only when it lasts (`useLasting`, as the status line's does). The group "Checks"
+  (`groupMarks(marks, revision).checks`) holds those checks, drafts too (their row says `to send`), the failing first, then
+  those with no value of the build, then those that pass, ahead of the other groups; a dimension with nothing
+  expected stays in the group its status gives. An open check lists what it measured on the builds of this run
+  (`dimension-history`, `r9 38.6 ✗ · r10 40 ✓`, at most 8, all in its title) and, where worth saying, `fails since
+  r12; passed on r11` (`since`); both are main's `history`, never kept by the window.
+- The Marks list is grouped by what is to be done (`ui/markGroups.ts`): "To send" (drafts, headed `To send N · with your next prompt`),
+  "From the agent" (its own open marks, for the person to read or answer: "Answer in chat" puts the id in the
+  prompt), "To review", "With the agent" (the person's sent marks) and the fold "Resolved"; a heading only for a group that has marks, and the heading says
   the status, so a row has no status word but a pinned dimension's `pinned`, which is never cut. "To review" is
-  one summary (`ui/ResolvedSummary.tsx`): "The agent resolved N marks.", "Review" opening each row with its
-  resolution, OK and Reopen, and "OK all" (`marks.acknowledge`, no key).
+  one summary (`ui/ResolvedSummary.tsx`): "The agent resolved N marks.", "Review" walking them (an index held in the
+  component over the ids as they were: `Reviewing 1 of 5 · M5`, the mark active and `focusMark`ed, its row with OK,
+  `Reopen…` and Skip; Reopen opens the note at its end and writes note and `status: 'draft'` in one `update` when the
+  field is left; the end says `Reviewed 5: 4 OK, 1 reopened` for 10 s), and "OK all" (`marks.acknowledge`, no key).
+- A row's resolve is a tick in a box (`ResolveIcon`), never the bare tick of a passing check; on a dimension with an
+  expected value it asks in the row first (`Confirm`). Delete is immediate and the panel offers `Deleted M3 · Undo` for
+  10 s (`marks.restore`), no key.
 - A mark's row is one line, its note cut to the room there is, and the active row (`aria-current`) shows its
   note whole, wrapped on a line of its own (`late.css`). Its chip is the id alone (`rowLabel`): `~` and `?` are
   the view's chips' and the pictures' (`labelText`). What the last build did to its mark (`moved:
@@ -135,8 +154,50 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   than the column). A dimension opened out leaves its value and verdict to its fields under the first line, so
   that `Add a note` is whole beside the buttons of the row (`marks.css`, `e2e/measure.spec.ts`).
 
+## What a build changed
+
+- When a build lands over another of the same object, `actions.applyScene` keeps the one before as `before`, and the
+  status line (`ui/BuildStatus.tsx`, `state/landing.ts`) says which parts of the layout shown changed
+  (`landing`, `landingText` of `shared/diff.ts`: `tub changed, lid same`), with the `diff` lines in its title; the
+  one rule of what a part's change is is `partChanged` (another mesh, or another `loc`). Nothing of it for a first
+  build, a build running or a failed one.
+- The ghosts (`viewport/ghosts.ts`, `Viewport.setScene`): of each part that changed, its old edges in `--muted`
+  (seen through the part) where it stood, and its new edges in the accent, for `GHOST_HOLD_MS` and then one fade of
+  `GHOST_FADE_MS`, by `invalidate()` steps and by a clock of their own (never endless, never waiting on a frame).
+  Any key or a press on the canvas, another layout, a section or an explode ends them at once; none is made with a
+  section or an explode on, for a part switched off, or of another layout, and they are hidden for a picture
+  (`hideGizmo` in the host of `PictureMaker`). Not a mark, in no mark colour. `__tornoTest.ghosts()` and
+  `holdGhosts()` are for tests.
+- The parts fade for a build only once it has run `FADE_AFTER_MS` (`fadeIn` of `shared/build.ts`, applied by
+  `ViewportPane`); a failed build fades them at once; the pick lock does not wait.
+
+## History of builds
+
+- `ui/HistorySheet.tsx` (#56), opened by **History** in the status line (`ui/BuildStatus.tsx`, `status-history`), has the error
+  sheet's shape (`.sheet`, `data-sheet='history'`, `sheet.close`): a strip of cards (`ol.history-strip`, `button.history-card`,
+  `data-build`), newest first, each with the picture kept with the build (`history.thumbnail`, an object URL revoked when
+  the card goes), `nameOf` (`h41`, and `· r3` beside it only for a build of this run: a revision is of one run), `ago`, the
+  change line and what it had then (`marksOf`: checks that failed, defects, dimensions that failed; all as of then). The chosen
+  card's facts, **Show the source** (`history.source`, one copied file at a time, read only in a `pre`), **Star**
+  (`history.star`, main's) and **Ask the agent to go back to this build**: the request is `goBackPrompt` (`ui/historyBits.ts`:
+  the copies by their paths, "Change the files of … to match them", "Do not edit the copies"), put in the box of the session by
+  `insertIntoSession`, or kept for a session the pane starts (`setFixRequest`), and never sent. The window reads the list
+  (`useHistory`, `history.list`, again at `history:changed`) and writes nothing; nothing here restores a file or puts a build on
+  screen. A build with no copies (too large, or changed while read) has both buttons off, with `NO_COPY` in the title.
+- **An earlier build over the current one** (`viewport/earlier.ts` `Earlier`, `Viewport.setEarlier`): the sheet's "Show over the
+  current build" sets `store.compare` (`actions.compareWith`), and `ViewportPane` asks main for that build's scene and meshes
+  (`history.ghost`; only a build of this run whose meshes main still holds, `HistoryList.ghosts`) and draws its parts of the layout
+  shown translucent (`EARLIER_SURFACE_OPACITY`) with their edges, in `--muted` (the colour of the old edges of the ghosts of a build that
+  just landed, and no mark's; it follows the theme), at the places that build had them. For display only: no bounds tree, a
+  ray finds nothing, it is hidden for a picture (`hideGizmo`), and nothing is measured, marked or written from it. It stays until
+  put away ("Stop" in the status line, `.status-compare`) and is put away by another object, another layout, a section or an
+  explode (the sheet's button is off while one is on, with the reason in its title). It is not the ghosts of a build that landed
+  (`ghosts.ts`, a moment, edges only). `__tornoTest.earlier()` is for tests.
+
 ## Layers
 
+- `ui/Layers.tsx`: a reference (`Part.role`, a bought part) has the neutral swatch (`colorsOfParts`) and the tag "bought"
+  (`.layer-bought`), and is otherwise a row like any (it can be picked, hidden, made translucent).
 - `ui/Layers.tsx`: the groups of the layout (`groupsIn`) come first, a header each (`li.layer-group`,
   `data-group`): a fold chevron (`aria-expanded`, `Fold flat` / `Unfold flat`), the name and the count in the
   monospace face, "Show only" (on hover, as the opacity slider; `actions.soloLayers`) and an eye whose
@@ -144,6 +205,15 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   Its parts follow, indented, with `data-in-group`; a folded group draws none (`actions.setFolded`, kept in the
   scene file as `folded`, and dropped for a group the model no longer has). The parts in no group come last. A
   model without groups draws the list as it always was (`e2e/groups.spec.ts`).
+- A part's row is also the way to the part (#94, `ui/Layers.tsx`): the pointer or the keys' focus on it is `peek([name])`
+  (no highlight of the agent's, no locked tools; a row that goes while it is lit takes the light away), its name is a
+  button that selects the part as a ref (`setSelection([name])`) and, double clicked, brings it into view
+  (`actions.framePart`, `Viewport.framePart`: where it is drawn, the camera not turned), the target is "Show only"
+  (`soloLayers(layout, [name])`) and the title says `N hidden · Show all` while a part of the layout is off. After the
+  name, a muted count of the open marks on the part in the layout shown (`ui/layerMarks.ts` `marksByPart`; `--fail` when
+  one is a check that fails on the build); a click lists only the marks on that part in the Marks panel
+  (`store.marksOnPart`, the window's alone and dropped with the object; a chip `Only marks on lid` with a cross
+  above the list; `goToRow` clears it). It filters what the list shows and nothing else: the agent is told every mark.
 - A part whose build says its shape is broken (`partDefects` of `shared/sanity.ts`: not valid, inside out, not
   closed, mesh disagrees) has its first defect in a word after its name (`.layer-defect`, `--fail`, `+N` for the
   others) and every one in the row's title; the status line counts the layout's broken parts after its parts
@@ -168,6 +238,36 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   the row's title (type, value whole, comment) and then what a click does. With no session running a row is text, not a
   button, and the description says to start one (`e2e/params.spec.ts`, which writes its own `Params` into its copy of a
   fixture).
+- **Trying a value.** A field the kernel says is `editable` (`Param.editable`: `float`, `int`, `bool`, `choice`)
+  has a control under its name (`ParamControl`): a number field, plus a slider when the model gives `min` and `max`
+  in the field's `metadata`; a checkbox; a select. A number is taken on Enter or when the field is left, a slider when
+  it is let go of (`onPointerUp`, `onKeyUp`): a build runs then, never while it moves. It asks main
+  (`object.setParam`, `object.resetParams`; a refusal is said under the title) and the control starts again from
+  `Param.value`, the value the last build used (keyed by it), so the window holds no override of its own. A row built
+  with a value other than the default (`tried`) says `differs from the file` with a "Reset"; the default stays on
+  the line. `Scene.overrides.dropped` is shown on its row (`param-note`). "Ask the agent to bake it in"
+  (`bakeText`) puts a request in the session's box like a row's click does, never sent; "Reset all" resets every field.
+
+## Checks
+
+- `ui/ChecksPanel.tsx` (its own component, beside the marks, not in them): the checks the model declares in its
+  `checks(p)` as the kernel measured them at the last build (`Scene.checks`, `Scene.checkNotes`), read only, under
+  Parameters, folded at first to a title that says how many fail (`2 · 1 fails`, `checksSaid`). A row
+  (`checkRow` in `ui/checkRows.ts`, pure, words from `shared/modelChecks.ts`) is the model's own name, how it stands
+  in a word (`pass`, `fails`, `not measured`, `not run`: never colour alone), what was measured and what was wanted in
+  the monospace face, and, for a thin wall or an approximate value, that it was found by sampling; its title is the
+  kernel's `how`. A bar in `--agent-mark` marks them as the model's own. They are not marks: no check resolves,
+  replaces or silences a person's dimension. Under the rows, what the agent made easier to pass or removed since it was
+  first declared (`checkNotes`, `since r7`). A model with no checks, or a kernel that does not read them, has no section
+  (`e2e/checks.spec.ts`).
+
+## Print profile
+
+- `ui/PrintProfile.tsx`, under Checks: a section (`print` in `ColumnSection`, folded at first; its title says
+  `Bambu X1C, PETG` or `none`) with two lists, Printer and Material, and "Add a printer…" (name, bed X Y Z, nozzle),
+  through `window.torno.profile` (`profile:*` channels). A choice is copied into the object's `.torno/profile.json` by
+  main; the printers are the person's, in torno's settings. The numbers shown are the person's, set in the monospace
+  face, with the line that they are not measured. Materials of the person's own are added in `profiles.json` (no form).
 
 ## Section
 
@@ -177,7 +277,9 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   open. What lies in the plane is kept (`KEPT_WITHIN_MM`); a part the plane
   only touches or leaves nothing of is not drawn (`keepsNothing`). Marks,
   grid and gizmo are not cut; a mark anchored in the half taken away is drawn
-  dimmed (`MarkLayer.setSection`).
+  dimmed (`MarkLayer.setSection`). The cut face is hatched: a 45 degree line about 6 px apart in the part's edge
+  colour (`hatchCap`, a shader patch of the cap's material, in screen space so it reads at any zoom; the gap is
+  6 px times the pixel ratio on the screen, 6 px in a picture's target). Pictures draw the same scene, so they have it.
 - Picking sees what is drawn (`pickUnder`): on a cut face nothing is hit and
   the pointer says so.
 - Taken in hand with nothing cut (`X`), the Section tool cuts at once: `newCut` (`shared/cut.ts`) puts the
@@ -185,6 +287,9 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   towards the viewer (`towardsViewer`: the half taken away is the one on the camera's side). The bar's X, Y
   and Z and an exported page's cut ask the same rule. What that rounding leaves is no distance: the bar tells a
   plane within 0.005 mm of the middle of the parts as at it, `0` (`sectionOffset`).
+  The bar's number is the plane's place as the agent is told it (`placeOf`, `atPlace`): across an axis its
+  coordinate in the object frame (`y = 20`, the letter in its axis colour), else the offset along the normal from
+  the middle, said so. The slider stays in offsets, with a tick at the middle and a "Middle" button.
 - A number field gives the keys back to the view on Enter and on Escape (`giveKeysBack` in `ui/typing.ts`),
   and keeps what was typed once (`toKeep` in `ui/Field.tsx`).
 - The Section tool (`tools/sectionTool.ts`) moves the plane only by a drag
@@ -334,8 +439,11 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 - With no folder open the window is `ui/Welcome.tsx`. On a first run (no recent folder): a line of what torno is,
   a three-row tree of the folder of objects, an object and its model, "Open folder" with a note that an empty
   folder is fine, and, where torno runs from its repository, a quiet "Open the example". Coming back: the recent
-  folders first, no tree. One footer: torno writes only into `.torno`. Its head is the logo (`ui/Logo.tsx`) over the name: the vise in `--ink`, the part in `--accent`. The
+  folders first, no tree. One footer: torno writes only into `.torno`, and the new folder of a project you make. Its head is the logo (`ui/Logo.tsx`) over the name: the vise in `--ink`, the part in `--accent`. The
   same logo is in `--muted` over an empty view or page, and plain (one colour) where a picture is missing.
+- For as long as the example is the open folder, the note under the folder's name (`EXAMPLE_NOTE`) has a link-button,
+  "Keep this as a folder…" (`KEEP` in `App.tsx`, through `leave`, so that it asks first as opening a folder does):
+  main shows the save dialog and copies (`workspace.keepExample`); the folder it made is opened in place of the copy.
 - With a folder open, the folder button of the left column is a menu
   (`ui/FolderMenu.tsx`): the recent folders, "Open folder…", "Open the
   example". A folder torno is started with (`TORNO_WORKSPACE`) is added to the
@@ -381,7 +489,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `--accent`, `--ok`, `--warn`, `--fail` on `--surface` and `--panel`; the
   accent on its wash; the sixteen terminal colours on the panel, but the dark
   theme's black); what is only drawn is 3:1 (the two mark colours on the
-  surface); a hairline is between 1.15 and 2. A token is changed there first.
+  surface); a hairline is between 1.15 and 2; the edge of an input or a text area is `--field-edge`, 3:1 on both (WCAG 1.4.11). A token is changed there first.
 - A verdict (`--ok`, `--fail`) is no mark's colour to the eye, in both
   themes: 1.5:1 at least from the mark colour of its hue (`--agent-mark`,
   `--user-mark`), darker in light and lighter in dark. A verdict is read, a
@@ -435,8 +543,8 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   its least), at the drag and whenever the column or a section in it is resized, comes or goes (a `ResizeObserver` and
   a `MutationObserver`): `--marks-h` is the height kept cut to that room, so a shorter window or Parameters coming
   above never push Marks under the status line, `aria-valuenow` is that height, and what is kept is not touched. What is
-  folded and the splitter's height are the window's (`store.column`, in `localStorage` under `torno.column`, read
-  and written in try/catch), never the workspace's.
+  folded, the splitter's height and the column's width are the window's (`store.column`, in `localStorage` under `torno.column`, read
+  and written in try/catch), never the workspace's. The column's right edge (`ui/LeftEdge.tsx`, `role="separator"`, `left.resize` Left/Right) makes it wider than its default 248 px (`LEFT_DEFAULT`), up to what leaves the viewport `VIEWPORT_MIN` beside the dock (`clampLeft`); its drag writes `--left-w` on the shell, a double click puts the default back, and the dock's own limit reads the column's width now.
 - **Objects folds to a switcher by default** (`switcherShown`): folded, with an object open or a new one being
   made, in a workspace of more than one object, the list is one row, the open object's name in ink
   (`ObjectSwitcher`; "New project", pressed, on the page of a new object). Its accessible name is the object's
@@ -478,8 +586,10 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 - `ui/onboard/NewObject.tsx` is a page in place of the viewport (`store.page`: `'new'`; the view is `covered` and
   inert under it as under the page of objects, and the layers, parameters, scans and marks are hidden). No row of the list is
   current (the "New project" button is pressed; folded, the switcher reads "New project", pressed), and the status line is "New project" and the build123d version alone:
-  no Rebuild, revision, parts or Export. The session pane shows `ui/onboard/DraftPane.tsx` (from `draftSummary`):
-  what Claude Code will start with, live; unless the open object's session is live, which stays whole (see Agents).
+  no Rebuild, revision, parts or Export. The session pane shows `ui/onboard/DraftPane.tsx` (#84):
+  the first prompt Claude Code will get, read-only, as main writes it (`objects.previewPrompt`, asked again 300 ms after a
+  change; the one `onboardPrompt` that `objects.onboard` sends), the person's own words in ink and torno's in the muted face,
+  and a thumbnail of each photo and doodle with "attached" or "named only"; unless the open object's session is live, which stays whole (see Agents).
   All of it reads `store.page`, and nothing under the page changes, so leaving it brings everything back as it was.
   The page is opened from "New project" at the foot of the list, in the head of the page of objects and in its empty
   state (`openNewObject`). It takes the focus (the name field) when it comes and gives it back to where it was when it goes. Leaving the workspace
@@ -487,7 +597,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 - **The draft** (`state/onboard.ts`) lives in the window, for the workspace it was begun in, until the object is made
   or the person throws it away; nothing of it is on disk, and it is dropped when the workspace root changes. Caps
   are `MOST_REFERENCES` (shared with main), a photo or scan is refused as a duplicate by path and an object by id.
-  A doodle keeps its strokes as vectors as well as its PNG, so that it is opened again to change. `epoch()` goes up
+  A bought part (`steps`: a vendor's STEP file, by path; a dropped `.step`/`.stp`, 50 MB at most) is named in the preview and the prompt by the `reference/` file `stepFiles` gives it (`make.ts` `stepReferences`). A doodle keeps its strokes as vectors as well as its PNG, so that it is opened again to change. `epoch()` goes up
   at each discard: photos being read when the draft was thrown away are not put back. The held first prompt
   (`hold/take/dismiss`) is in the same store.
 - **Keys** are rows of `shared/keys.ts`: `new.back` (Esc) in the scope `newobject`, and the board's `board.undo` (Ctrl+Z) in the scope `sheet`. The
@@ -504,7 +614,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   dialog offered; a dropped file is read by the window (`File.arrayBuffer`, at most 25 MB, checked before it is
   read) and its path comes from `objects.pathOf`. The copy in `reference/` is the original; the scaled picture is
   only the prompt's.
-- **The board** (`Doodle.tsx`, a wrapper over `ui/board/Board.tsx`, which the chat's "Draw on view" uses too) is a sheet over the page: a canvas of 1200 x 800 board pixels, scaled to fit, pointer
+- **The board** (`Doodle.tsx`, a wrapper over `ui/board/Board.tsx`, which the chat's "Draw on view" uses too) is a sheet over the whole window (#101): a canvas of 1200 x 800 board pixels, scaled to fit the room, with a grid (`grid`: a CSS background every 40 board pixels in `--hairline`, a doodle's only; the PNG has it too, at 15 % grey, and the first prompt says 1 square = 40 px) and Shift while drawing for a straight line (`board.straight`, `straighten` in `strokes.ts`: the stroke is its first point and the pointer), pointer
   events and canvas only (no React state per move). A thin and a thick pen and an eraser; Undo takes the last
   stroke, Clear all of them; Done gives back the strokes and the PNG, Cancel and Esc leave, asking "Discard this
   doodle?" when the strokes are other than it was opened with. Its keys (Esc is `sheet.close`, Ctrl+Z `board.undo`)
@@ -566,8 +676,19 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   it never reads as `aligned`. How a scan this window just imported is read, when its unit or up axis was
   assumed, is asked once by `ui/ScanReadSheet.tsx` at the top of the section, shown for `store.scanAsking`
   (set by `importScan`, cleared by Keep, Apply, Later or another object), with the size from `sizeAs`
-  (`shared/scans.ts`).
-- The align bar is `ui/AlignBar.tsx`, its three bodies `ui/align/`
+  (`shared/scans.ts`), the size of the parts of the layout shown (`boxSize`, worded "about"), and, past
+  `UNIT_DOUBT` (100) times either way, a `--warn` line naming the unit `sizeAgainst` finds nearest. While it is up,
+  the scan's detail does not ask the same (no "right? Yes", no "Read as" fields). A scan just imported is framed
+  with the parts once (`importScan`, `actions.frameScan`; the viewport waits for the mesh if it is not drawn yet),
+  and again after Apply; `F` and the named views still frame the parts only. `unaligned` is `--muted` for a scan
+  never aligned in any layout (`data-never`), `--warn` otherwise.
+- The align bar is `ui/AlignBar.tsx`, its three bodies `ui/align/`. Its three ways are numbered steps
+  (`1 Floor · 2 Pairs · 3 Nudge`) with a tick (`--ok`) for each in `stepsDone` of the alignment in the layout shown
+  and one line of what the step is for. `state/align.ts` `firstStep` picks where the tool opens (`beginAlign`, from
+  `alignScan` in `ui/scanDrop.ts`: the Align button, "Next: align S1" on the read sheet, the bar's scan select): Floor for
+  a scan `muchLarger` than the parts (`SURROUNDINGS`, 10 times the diagonal) with nothing done, else Pairs, Nudge once
+  there are pairs; it comes back to what was chosen last for that scan (`chooseAlignMode`); a floor or pairs kept
+  moves it on (`advanceAlign`). A tick is a step, not a state: the row still says `placed` for a floor only.
   (`FloorBody`, `PairsBody`, `NudgeBody`, and `format.ts` for what they
   share); the field one number is typed in is `ui/Field.tsx`, the Region
   bar's too, and what was typed is read by `ui/typed.ts`.
@@ -602,6 +723,16 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   New session or Resume, no view switch, no held prompt, and `DraftPane` in the body; `.session-term` stays laid out.
   A live session (any status but `exited`) of the object that was open stays as it is, with the note
   `.session-aside` above it ("This is the session of …"); an ended one counts as none.
+- **The pane with no session, in the chat view** (`ui/chat/StartChat.tsx`, in `SessionPane` when `choice.view` is `chat`)
+  has the box at its foot (`data-start-composer`, not `data-chat-composer`: that is the live chat's): Enter starts a
+  session and sends the prompt to it (`startWith`, the prompt held in `pending` until the session exists, so that the
+  trust question keeps it; a failed send puts it in the new chat's box, and a terminal view types it at the prompt,
+  `fixRequest`, never sent). With a conversation on file (`resumable`) it shows the end of that conversation read-only
+  under "Last conversation, 2 days ago" (`chat.lastConversation`: main reads `.torno/chat/`, the words and the turns of
+  the last eight items, no tools, writes nothing; `ago.ts`), and "Continue" (resume, the default) / "New conversation"
+  beside "Send". "New session" and "Resume" stay as plain buttons: they start with no prompt, and what was written
+  waits unsent in the new chat's box (`holdDraft`). A terminal view keeps the old empty state. No "Attach view" or
+  "Draw on view" here: a drawing is of a session.
 - The session header names Claude Code, the one agent there is; under it, "Chat · Terminal" chooses the view.
   When `.torno/agent.json` could not be followed (`note` of `session:current`) the pane says why, with "Use
   Claude Code", which writes the file anew and is disabled while a session runs.
@@ -650,6 +781,36 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   is; otherwise, and after that question, `applyView('terminal', true)`, which ends a live session, writes the view and
   starts a terminal session resuming the conversation whether the chat was live or had ended, and also when the
   choice already was the terminal. A note's `action` other than `terminal` is dropped when a log is read (`readLog`).
+- **A build's chip says what it was made from** (#62). A context item carries `identity` (`BuildIdentity`, main's, from `builds.jsonl`'s
+  record of this run); the `r12` chip's title gets `made from sources …, on a1b2c3d with changes` (`RefChip`'s `of`, `identitySaid`),
+  and a build line's "Show text" has it in a line. Under "Earlier in this conversation" (`ChatEarlier`) the title says that a
+  revision counts from 1 in every run and may name another build now. The status line and the card say what has changed since
+  the last commit (`useGit`, `GitText`): read, never written.
+- **The end of a turn** (`ui/chat/TurnEnd.tsx`; the rule is `ui/chat/turnSummary.ts`, pure). Its first quiet line is
+  "Done in 42 s" and then what the turn did, said from the turn's own items and nothing else (`turnSummary` over
+  `itemsOfTurn`, the items after the turn before it): the files the agent's `Edit`, `Write` and `MultiEdit` changed (only
+  those that finished: a denied one is not counted), the builds their edits started (`r1 → r3 ok`, `build failed`,
+  `r3 ok after 1 failed build`: the first revision is the build on show when the prompt was sent), the marks it resolved
+  and added (`resolve_mark`'s `id`; `add_mark`'s from its answer), and the dimensions whose verdict at the end is another
+  than at the start (the first `was` and the last `now` of the digests, `verdictChanges`' own). What it pulled from torno
+  is a line of its own. Under them a row of buttons for the turn (`TurnActions`): "See changes" (only when an edit
+  changed a `.py`), which opens `ChangesSheet` over the transcript as a picture is shown large (a dialog in the host
+  `.chat-scroll`, `chat.close` puts it away, Tab goes round within it, the focus goes back to the button): per file main
+  kept (`chat.changes`, in memory, the last 20 turns; none is "No change ... is kept for this turn"), "Changes" (the
+  file before against after, `Diff` with `ofEdit` false, so without the caption that is true only of an edit's lines)
+  or "Whole file" (read only, the monospace face, no refs searched), and, below, the builds taken together
+  (`netParts`: a part's volume and faces from the first digest's `before` to the last's `after`, `≈` unless exact). "Undo"
+  (`Undo` in `TurnEnd.tsx`, `chat.undo`) is beside it on the last turn only: `ChatPane` gives its id to `UndoableTurn` while
+  the session is live and idle and no prompt of the person's follows that turn. It asks once in the row (a group named "Undo
+  this turn", "Ask to undo" / "Keep it"), main sends the prompt and a note, and a refusal of main is said beside the button.
+  A further action for a turn is one more button in `TurnActions`, given the turn's `item` and `account`.
+- **The agent's question** (`ask`; `state/asks.ts` follows main's list, `ui/QuestionCard.tsx` draws it): a card with
+  the question, a button for each answer (its label, its refs in the monospace face), and "None of these". The pointer
+  or the keys' focus on a button lights its refs by `peek`, as a ref chip does, and only when the layout shown is the
+  question's. With `pick` the card offers "Answer with `lid/F12`" while exactly one face or edge is selected in the
+  view (selecting is the Select tool's, unchanged), else says to select one. It stands above the box of the chat
+  (`where="chat"`) and, where the chat is not in sight (a terminal session, or the dock put away), over the foot of the
+  view (`where="view"`), never both. It answers once (the buttons go off) and goes when main takes the question down.
 - Refs are chips (`RefChip`, `refs.ts` `refInfo`): hover lights the ref through `peek` in `state/agent.ts`, which
   is not an agent highlight (no agent line, no locked tools) and is drawn in the accent on a layer of its own
   (`point` in `viewport/highlight.ts`, `Viewport.setPointed`), never in a mark's colour, whoever made the mark it is
@@ -664,11 +825,23 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   options are set in the monospace face like the rest.
 - Keys of the chat are rows of `shared/keys.ts` in the scopes `composer` and `picture`: `chat.send` Enter,
   `chat.newline` Shift+Enter, `chat.command` Up/Down and `chat.complete` Tab (while `/` commands are offered),
-  `chat.close` Esc (a picture shown large; the focus returns to its thumbnail). Escape in the box gives the keys
+  `chat.close` Esc (a picture shown large; the focus returns to its thumbnail), `chat.stop` Ctrl+C (composer, only while the session
+  works and nothing in the box is selected: with a selection it is a copy) and `chat.allow` Enter (scope `ask`: on the card itself
+  in focus, not its buttons or its field, where Enter refuses; not on a question). While a permission or a plan is open
+  (`openAsk` in `Composer`) the box's placeholder is "Answer the card above, or say what to do instead", its primary button
+  is "Deny and send" (`chat.answer` with `allow: false` and the text as the message; Enter in the box does the same) and "Queue"
+  is the secondary; a question (`AskUserQuestion`) changes nothing in the box. Escape in the box gives the keys
   back, except while the list of `/` commands is open: it closes the list. A card takes focus once per request, and
   only when the composer is empty and not focused. An unsent prompt in a chat that is not over is among what closing
   the window asks about (`closingWhy`'s `unsent`). "Attach view" is sent in order: main waits for the picture
   before taking the next prompt, so one sent meanwhile cannot overtake it.
+- **Suggestions** (`ui/chat/Suggestions.tsx`, the rule pure in `ui/chat/suggest.ts`): while the box is empty and the
+  session live, at most three chips above it (`MOST_SUGGESTIONS`), in this order and each only when it applies: "Fix the
+  build" (`fixPrompt`, the build failed), "Review N marks" (marks not resolved; `/mcp__torno__review `), "Check
+  printability" (the layouts have `print` and the conversation, `earlier` too, holds no `check` of kind thin, overhang,
+  mesh or bed and no `/mcp__torno__printable` prompt), "Explain this model" (no prompt of the person yet). The three
+  commands are not offered when `meta.tornoConnected` is false. A chip fills the box, cursor after, keys the box's, and
+  never sends. The build error sheet's "Ask Claude Code to fix it" already does the same with `fixPrompt`.
 - **The instruction files Claude Code reads** are one quiet line under the view's row in `SessionPane`
   (`.session-reads`, `role="note"`, shown for both views and with no session, not while a new object is being made;
   `session.instructions`, asked again when a session starts): "Claude Code also reads, by default" and, for each file, its name
@@ -688,6 +861,27 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   let go of, when its session is released or dropped), its file name as the thumbnail's title, the frame empty
   while it comes; one main has no plain file for says `reference/doodle-1.png is no longer there`, the path in the
   monospace face. A tool's picture says "Picture of an earlier build, not kept"; any other "Picture not kept".
+- **A tool card goes to what it showed** (`ui/chat/ToolCard.tsx`). The line is a row (`.chat-tool-row`) whose toggle
+  (`.chat-tool-line`, `aria-expanded`) covers it, so that the refs of a torno card's label are live chips (a button inside
+  a button is no HTML) and the action is a button beside the state. A finished `look`, `section` or `show` has "See in
+  view" (`show`: "Show again"): `seeInView` in `state/agent.ts` reads the card's input once more against the window as it is
+  now (`replayOf` in `state/seeAgain.ts`, pure: a saved view it names is that view but for what is given beside it; a cut
+  given leaves the parts together; an explode under a cut, a layout, scan or saved view the build lacks are refused in the
+  tools' words, and a `focus` is not framed again, it being worked out in main) and applies it as the person's own edit
+  (`actions.applyLook`, which `applyView` is the saved-view case of: `shownByAgent` cleared, no `activeView`) and then
+  moves the camera. A finished `highlight` has "Point again" (`pointAgain`) only for a card that was seen as it
+  happened (`noteTool` in the chat's `onItem` keeps the object and build on show then: a ref names whatever that face is
+  in the build it was read from), and only while the window shows that build. A refusal is a line under the card.
+- **A turn's tool lines fold, and the agent's list is kept in sight** (`ui/chat/fold.ts`, `tasks.ts`, `Tasks.tsx`; drawing
+  only: the items, `MAX_ITEMS` and the log are as main made them). `ChatItems` draws `foldRuns` of what it has: a run of
+  `FOLD_AT` (3) tools or more that are the agent's own, `done`, with no picture and nothing under them (no build line), and
+  not a task tool, which lies before the last `turn` item, is one line (`ToolFold`, `foldLabel`: `Read 3 files, Grep ×2,
+  Bash`, opening into the lines); thoughts that are over between its tools are part of it, any other item ends it, and a
+  turn still going on folds nothing. A card's `done` is not written (`data-state` has it); the other states keep their word.
+  The agent's list is read from the cards (`tasksNow`, `listsAt`): `TodoWrite` is the list whole, `TaskCreate` adds one
+  (numbered as its result says, else in order) and `TaskUpdate` changes or removes one; a call that did not end `done` writes
+  nothing. `TasksBar` is above the box while the session works and a task is left; `TasksCard` is the list as it stood at a
+  `TodoWrite`, or under the last of a run of task tools. Which of the two the real CLI uses is for a hand check.
 - **"Draw on view"** (`ui/drawing/`, `state/drawing.ts`). The ground is the agent's own picture of the view
   (`picture({ view: 'current', size: 1280 })`, the code of `look`), opened on `ui/board/Board.tsx` by `ViewBoard`, over
   the whole window as the export sheet is. The ink is `--drawing-ink` over a casing in `--panel` (`InkLook`), read once
@@ -725,3 +919,13 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   tolerance and an angle typed in, and Export is off while either is out of its range. A 3MF has "Open it once
   saved", off by default. The window sends names and numbers and never a path; once saved, the sheet says where,
   of which build, and what the read-back checked (`ExportSaved.checked`), every number in the monospace face.
+- **The sheet is grouped by who will open the file** (`READERS` in `ui/ExportSheet.tsx`, inside the group "Format"): "A page to
+  look at" (HTML page), "The CAD file" (STEP, STL, 3MF), and, only where the sheet is of the open project's view
+  (`ofView`: an object on show, not the page of projects), "A picture" (PNG) and "A drawing of a section" (SVG, PDF).
+  A picture or a drawing is of the open project as it is on screen: the sheet then shows no list of projects, `ViewChoices`
+  in its place (a picture's long edge, `PICTURE_SIZES` 1280 to 4000, "Marks", "Axes and scale bar"; a drawing needs a section on
+  screen and says so, with Export off, when there is none). The window draws the picture itself (`pictureForPerson` in
+  `state/agent.ts`, the code of `look` with `ImageRequest.person`) and hands main its bytes with the object's id
+  (`export.savePicture`); the drawing is made in main (`export.saveSection(id, 'svg' | 'pdf')`, no bytes from the window).
+  Main asks where to save, so the window names no path. `person` is set only there: a request of the agent's, which comes
+  over `view:look`, is held to 2000 px (`connectLook`). Its saved line offers "Show in folder", never "Open in browser".

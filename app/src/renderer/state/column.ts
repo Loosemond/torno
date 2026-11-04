@@ -6,16 +6,30 @@
  */
 
 /** The sections that fold. Marks never does. */
-export type ColumnSection = 'objects' | 'layers' | 'params' | 'scans'
+export type ColumnSection = 'objects' | 'layers' | 'params' | 'checks' | 'print' | 'scans'
 
 export interface ColumnPrefs {
   folded: Record<ColumnSection, boolean>
   /** Pixels: the height the marks were given with the splitter, at least `MARKS_FLOOR`; null for their share. */
   marks: number | null
+  /** Pixels: the width the person gave the column, at least `LEFT_DEFAULT`; null for the default. */
+  width: number | null
 }
 
-/** Objects is a switcher of one row to begin with, and the parameters one row too: the room goes to the marks. */
-export const COLUMN_DEFAULT: ColumnPrefs = { folded: { objects: true, layers: false, params: true, scans: false }, marks: null }
+/** Objects is a switcher of one row to begin with, and the parameters and the model's checks one row too: the room goes to the marks. */
+export const COLUMN_DEFAULT: ColumnPrefs = { folded: { objects: true, layers: false, params: true, checks: true, print: true, scans: false }, marks: null, width: null }
+
+/** The column's width unless the person gave it more. The same as `--left-w` in `styles/tokens.css`. */
+export const LEFT_DEFAULT = 248
+
+/** The free viewport width the column and the dock always leave between them. */
+export const VIEWPORT_MIN = 240
+
+/** The width the column may be given: from the default up to what leaves the viewport its room beside the dock. */
+export function clampLeft(width: number, inner: number, dock: number): number {
+  const max = Math.max(LEFT_DEFAULT, inner - dock - VIEWPORT_MIN)
+  return Math.round(Math.min(Math.max(width, LEFT_DEFAULT), max))
+}
 
 export const COLUMN_KEY = 'torno.column'
 
@@ -25,7 +39,7 @@ export const COLUMN_KEY = 'torno.column'
  */
 export const MARKS_FLOOR = 212
 
-const SECTIONS: readonly ColumnSection[] = ['objects', 'layers', 'params', 'scans']
+const SECTIONS: readonly ColumnSection[] = ['objects', 'layers', 'params', 'checks', 'print', 'scans']
 
 /** The window's storage, or null where there is none to be had. */
 export function windowStorage(): Storage | null {
@@ -44,11 +58,12 @@ export function readColumn(storage: Pick<Storage, 'getItem'> | null): ColumnPref
     return COLUMN_DEFAULT
   }
   if (typeof kept !== 'object' || kept === null || Array.isArray(kept)) return COLUMN_DEFAULT
-  const { folded, marks } = kept as { folded?: unknown; marks?: unknown }
+  const { folded, marks, width } = kept as { folded?: unknown; marks?: unknown; width?: unknown }
   const fold = (typeof folded === 'object' && folded !== null ? folded : {}) as Record<string, unknown>
   return {
     folded: Object.fromEntries(SECTIONS.map((section) => [section, typeof fold[section] === 'boolean' ? fold[section] : COLUMN_DEFAULT.folded[section]])) as ColumnPrefs['folded'],
-    marks: typeof marks === 'number' && Number.isFinite(marks) && marks >= MARKS_FLOOR ? Math.round(marks) : null
+    marks: typeof marks === 'number' && Number.isFinite(marks) && marks >= MARKS_FLOOR ? Math.round(marks) : null,
+    width: typeof width === 'number' && Number.isFinite(width) && width > LEFT_DEFAULT ? Math.round(width) : null
   }
 }
 
