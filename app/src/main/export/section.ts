@@ -1,3 +1,4 @@
+import { type BuildIdentity, identitySaid } from '../../shared/git'
 import type { Sectioned } from '../../shared/geometry'
 import type { Mark } from '../../shared/marks'
 import type { Scene } from '../../shared/scene'
@@ -24,8 +25,8 @@ export interface SectionDeps {
   marks(objectId: string): Promise<Mark[]>
   query<T>(objectId: string, name: string, args: Record<string, unknown>): Promise<T>
   now(): Date
-  /** The hash of the sources the build was made of, when torno knows it. */
-  source?(objectId: string): string | undefined
+  /** What the build of this revision was made from (sources hash, commit, changes), when torno knows it. */
+  identity?(objectId: string, revision: number): BuildIdentity | undefined
 }
 
 export interface SectionFile extends SectionSvg {
@@ -56,6 +57,7 @@ export async function makeSectionDrawing(deps: SectionDeps, objectId: string): P
   if (!cut.bounds) throw new Error(NOTHING_CUT)
   const spread = cut.parts.some((part) => isMoved(inLayout.find((one) => one.name === part.part)))
   const marks = (await deps.marks(objectId)).filter((mark) => mark.kind === 'dimension')
-  const drawn = sectionSvg(cut, { object: obj.name, layout, revision, date: deps.now(), marks, spread, ...(deps.source?.(objectId) ? { source: deps.source(objectId) } : {}) })
+  const identity = deps.identity?.(objectId, revision)
+  const drawn = sectionSvg(cut, { object: obj.name, layout, revision, date: deps.now(), marks, spread, ...(identity ? { source: identitySaid(identity) } : {}) })
   return { ...drawn, objectId, name: obj.name, revision }
 }

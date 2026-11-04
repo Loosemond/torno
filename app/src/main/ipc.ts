@@ -1187,7 +1187,7 @@ export function registerIpc(
       const ws = requireWorkspace()
       const deps = exportDeps()
       const drawing = await makeSectionDrawing(
-        { object: deps.object, last: deps.last, view: latestView, marks: deps.marks, query: <T>(id: string, name: string, args: Record<string, unknown>) => ws.builds.query<T>(id, name, args), now: deps.now },
+        { object: deps.object, last: deps.last, view: latestView, marks: deps.marks, query: <T>(id: string, name: string, args: Record<string, unknown>) => ws.builds.query<T>(id, name, args), now: deps.now, identity: buildIdentity },
         String(objectId)
       )
       const obj = deps.object(drawing.objectId)!

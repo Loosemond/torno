@@ -770,8 +770,8 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   in `mm`, the viewBox in the same numbers, so one unit is one millimetre; no scaling), with a scale bar, a title block
   whose numbers are in full (`full`), and the dimension marks of the layout that are not resolved, are measured on the
   build (`measuredValue`) and have both ends within `IN_PLANE_MM` of the plane, with the value and, when set, `expected
-  ± tolerance`; the others are listed in `left`. The source hash of the build (#62) goes in the title block through
-  `SectionDeps.source`, which nothing passes yet.
+  ± tolerance`; the others are listed in `left`. What the build was made from (#62: `identitySaid` of `buildIdentity`,
+  sources hash, commit and "with changes") goes in the title block as `Source` through `SectionDeps.identity`.
 
 ## Agents
 
