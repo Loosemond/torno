@@ -470,6 +470,15 @@ nothing of Claude Code's settings is read or changed (torno lists the paths and 
 is a new line, and a prompt sent while the agent is at work waits its turn
 ("Queued"; "Stop" interrupts the turn, and what was queued still runs after it; `Ctrl+C` does the same in the box when nothing is selected there).
 
+- **Suggestions.** While the box is empty, up to three quiet chips above it offer
+  the next useful prompt, each only when it applies: "Fix the build" while the
+  build has failed, "Review N marks" while marks are open (`/mcp__torno__review`),
+  "Check printability" for a model with a `print` layout that no turn has checked
+  (`/mcp__torno__printable`, for which you may add your bed after it), and "Explain
+  this model" in a conversation not yet begun (`/mcp__torno__explain`). A chip puts
+  its words in the box and gives it the keys; nothing is sent until you press
+  `Enter`. The prompts of torno are not offered when Claude Code says torno's
+  tools are not connected.
 - **What torno added.** Under each prompt, a "torno added" line shows what went
   with it: the marks sent, as chips in their colours, the build (`r12 ok`, or
   `build after r12 failed`), and the selection; "Show text" opens the exact text the agent was given. Above the

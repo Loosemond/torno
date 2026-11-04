@@ -13,6 +13,8 @@ import { openDrawing } from '../drawing/make'
 import { DrawnOverLine } from './DrawnOver'
 import { commandsFor, rateLine } from './foot'
 import { RefChip } from './RefChip'
+import { type Suggestion, suggest } from './suggest'
+import { Suggestions } from './Suggestions'
 
 /** What an IPC call failed with, without Electron's wrapping. */
 const reason = (e: unknown): string => (e instanceof Error ? e.message : String(e)).replace(/^Error invoking remote method '[^']*': (Error: )?/, '')
@@ -138,6 +140,10 @@ export function Composer({ sessionId, live, working, onSent }: { sessionId: stri
   const offered = shut === text ? [] : commandsFor(text, chat?.commands ?? [])
   const at = Math.min(choice, Math.max(0, offered.length - 1))
   const rate = rateLine(chat?.meta.rate)
+  const objectName = useStore((st) => st.workspace?.objects.find((o) => o.id === st.objectId)?.name ?? st.objectId ?? '')
+  const openMarks = useStore((st) => st.marks.filter((m) => m.status !== 'resolved').length)
+  const layouts = useStore((st) => st.scene?.layouts)
+  const buildFailed = useStore((st) => st.build?.status === 'failed')
   // A permission or a plan waiting for the person: what is written can be the answer to it.
   const waiting = chat?.items.findLast((i) => i.kind === 'ask' && i.state === 'open' && i.toolName !== 'AskUserQuestion')
   const openAsk = waiting?.kind === 'ask' ? waiting : undefined
@@ -295,6 +301,13 @@ export function Composer({ sessionId, live, working, onSent }: { sessionId: stri
     window.torno.chat.interrupt(sessionId).catch((e: unknown) => setProblem(reason(e)))
   }
 
+  /** The words of a chip in the box, the cursor after them, the keys the box's: the person may add to them. Never sent. */
+  function suggested(chip: Suggestion): void {
+    cursor.current = chip.text.length
+    setText(chip.text)
+    field.current?.focus()
+  }
+
   /** The command chosen, written in the box with a space after it, for its argument. */
   function complete(name: string): void {
     const done = `/${name} `
@@ -306,6 +319,19 @@ export function Composer({ sessionId, live, working, onSent }: { sessionId: stri
   return (
     <div className="chat-foot">
       <Next />
+      {live && text === '' && (
+        <Suggestions
+          chips={suggest({
+            buildFailed,
+            objectName,
+            openMarks,
+            layouts: layouts ?? [],
+            items: [...(chat?.earlier ?? []), ...(chat?.items ?? [])],
+            tornoDisconnected: chat?.meta.tornoConnected === false
+          })}
+          onChoose={suggested}
+        />
+      )}
       {offered.length > 0 && <Commands offered={offered} at={at} onChoose={complete} />}
       {(drawn || attach) && (
         <div className="chat-with">

@@ -97,6 +97,19 @@ test('a new session is a chat, with no terminal; a prompt is answered, and what 
   // What goes with the next prompt, as chips of the marks.
   await expect(chat().locator('.chat-next .ref-chip[data-ref="M1"]')).toBeVisible()
 
+  // Chips of the next useful prompts: an open mark, the print layout bracket has, and a conversation not begun. One fills the box and sends nothing;
+  // they go while the box has text and come back when it is empty.
+  const suggestions = chat().getByRole('group', { name: 'Suggestions' })
+  await expect(suggestions.getByRole('button')).toHaveText(['Review 1 mark', 'Check printability', 'Explain this model'])
+  await suggestions.getByRole('button', { name: 'Review 1 mark' }).click()
+  await expect(composer()).toHaveValue('/mcp__torno__review ')
+  await expect(composer()).toBeFocused()
+  await expect(suggestions).toHaveCount(0)
+  await expect(turns()).toHaveCount(0)
+  await composer().fill('')
+  await expect(suggestions.getByRole('button')).toHaveCount(3)
+  await composer().focus()
+
   await say('say hello there')
   const user = chat().locator('.chat-user').first()
   await expect(user).toContainText('say hello there')

@@ -674,6 +674,13 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   only when the composer is empty and not focused. An unsent prompt in a chat that is not over is among what closing
   the window asks about (`closingWhy`'s `unsent`). "Attach view" is sent in order: main waits for the picture
   before taking the next prompt, so one sent meanwhile cannot overtake it.
+- **Suggestions** (`ui/chat/Suggestions.tsx`, the rule pure in `ui/chat/suggest.ts`): while the box is empty and the
+  session live, at most three chips above it (`MOST_SUGGESTIONS`), in this order and each only when it applies: "Fix the
+  build" (`fixPrompt`, the build failed), "Review N marks" (marks not resolved; `/mcp__torno__review `), "Check
+  printability" (the layouts have `print` and the conversation, `earlier` too, holds no `check` of kind thin, overhang,
+  mesh or bed and no `/mcp__torno__printable` prompt), "Explain this model" (no prompt of the person yet). The three
+  commands are not offered when `meta.tornoConnected` is false. A chip fills the box, cursor after, keys the box's, and
+  never sends. The build error sheet's "Ask Claude Code to fix it" already does the same with `fixPrompt`.
 - **The instruction files Claude Code reads** are one quiet line under the view's row in `SessionPane`
   (`.session-reads`, `role="note"`, shown for both views and with no session, not while a new object is being made;
   `session.instructions`, asked again when a session starts): "Claude Code also reads, by default" and, for each file, its name
