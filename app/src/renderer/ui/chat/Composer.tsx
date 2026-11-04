@@ -138,6 +138,9 @@ export function Composer({ sessionId, live, working, onSent }: { sessionId: stri
   const offered = shut === text ? [] : commandsFor(text, chat?.commands ?? [])
   const at = Math.min(choice, Math.max(0, offered.length - 1))
   const rate = rateLine(chat?.meta.rate)
+  // A permission or a plan waiting for the person: what is written can be the answer to it.
+  const waiting = chat?.items.findLast((i) => i.kind === 'ask' && i.state === 'open' && i.toolName !== 'AskUserQuestion')
+  const openAsk = waiting?.kind === 'ask' ? waiting : undefined
   const field = useRef<HTMLTextAreaElement>(null)
   const cursor = useRef<number | null>(null)
   /** Where the cursor goes when the box is next given the keys: after what was inserted while it could not take them. */
@@ -271,6 +274,27 @@ export function Composer({ sessionId, live, working, onSent }: { sessionId: stri
     }
   }
 
+  /** The text as the answer to the card that waits: it refuses with it as the reason, and the agent goes on with it. */
+  function denyAndSend(): void {
+    const message = text.trim()
+    if (message === '' || !live || !openAsk) return
+    setText('')
+    setProblem(null)
+    onSent()
+    try {
+      window.torno.chat.answer(sessionId, openAsk.requestId, { allow: false, message })
+    } catch (e) {
+      setText((now) => (now === '' ? message : now))
+      setProblem(reason(e))
+    }
+  }
+
+  /** The turn stopped, as the button does. */
+  function stop(): void {
+    setProblem(null)
+    window.torno.chat.interrupt(sessionId).catch((e: unknown) => setProblem(reason(e)))
+  }
+
   /** The command chosen, written in the box with a space after it, for its argument. */
   function complete(name: string): void {
     const done = `/${name} `
@@ -334,7 +358,7 @@ export function Composer({ sessionId, live, working, onSent }: { sessionId: stri
           value={text}
           disabled={!live}
           aria-label="Message to Claude Code"
-          placeholder={live ? (working ? 'Claude Code is working: this goes next' : 'Message Claude Code') : 'The session has ended'}
+          placeholder={live ? (openAsk ? 'Answer the card above, or say what to do instead' : working ? 'Claude Code is working: this goes next' : 'Message Claude Code') : 'The session has ended'}
           aria-controls={offered.length > 0 ? 'chat-commands' : undefined}
           aria-activedescendant={offered.length > 0 ? `chat-command-${offered[at].name}` : undefined}
           onFocus={(e) => {
@@ -361,9 +385,14 @@ export function Composer({ sessionId, live, working, onSent }: { sessionId: stri
               complete(offered[at].name)
               return
             }
-            if (pressed(e, 'chat.send')) {
+            if (working && live && pressed(e, 'chat.stop') && e.currentTarget.selectionStart === e.currentTarget.selectionEnd) {
+              // Nothing selected: Ctrl+C is not a copy. With a selection it is, and the turn goes on.
               e.preventDefault()
-              void send()
+              stop()
+            } else if (pressed(e, 'chat.send')) {
+              e.preventDefault()
+              if (openAsk) denyAndSend()
+              else void send()
             } else if (pressed(e, 'field.leave')) {
               e.preventDefault()
               // With the list of commands open, Escape closes it; the keys go back to the view with the next one.
@@ -400,15 +429,30 @@ export function Composer({ sessionId, live, working, onSent }: { sessionId: stri
             <button
               type="button"
               className="button"
-              onClick={() => {
-                setProblem(null)
-                window.torno.chat.interrupt(sessionId).catch((e: unknown) => setProblem(reason(e)))
-              }}
+              title={`Stop the turn (${hint('chat.stop')} with nothing selected)`}
+              onClick={stop}
             >
               Stop
             </button>
           )}
-          <button type="button" className="button button-primary" disabled={!live || text.trim() === ''} title={`Send (${hint('chat.send')})`} onClick={() => void send()}>
+          {openAsk && (
+            <button
+              type="button"
+              className="button button-primary"
+              disabled={!live || text.trim() === ''}
+              title={`Refuse what the card asks, with this as what to do instead (${hint('chat.send')})`}
+              onClick={denyAndSend}
+            >
+              Deny and send
+            </button>
+          )}
+          <button
+            type="button"
+            className={openAsk ? 'button' : 'button button-primary'}
+            disabled={!live || text.trim() === ''}
+            title={openAsk ? 'Leave the card as it is and queue this for after it' : `Send (${hint('chat.send')})`}
+            onClick={() => void send()}
+          >
             {working ? 'Queue' : 'Send'}
           </button>
         </div>

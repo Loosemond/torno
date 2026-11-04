@@ -664,7 +664,12 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   options are set in the monospace face like the rest.
 - Keys of the chat are rows of `shared/keys.ts` in the scopes `composer` and `picture`: `chat.send` Enter,
   `chat.newline` Shift+Enter, `chat.command` Up/Down and `chat.complete` Tab (while `/` commands are offered),
-  `chat.close` Esc (a picture shown large; the focus returns to its thumbnail). Escape in the box gives the keys
+  `chat.close` Esc (a picture shown large; the focus returns to its thumbnail), `chat.stop` Ctrl+C (composer, only while the session
+  works and nothing in the box is selected: with a selection it is a copy) and `chat.allow` Enter (scope `ask`: on the card itself
+  in focus, not its buttons or its field, where Enter refuses; not on a question). While a permission or a plan is open
+  (`openAsk` in `Composer`) the box's placeholder is "Answer the card above, or say what to do instead", its primary button
+  is "Deny and send" (`chat.answer` with `allow: false` and the text as the message; Enter in the box does the same) and "Queue"
+  is the secondary; a question (`AskUserQuestion`) changes nothing in the box. Escape in the box gives the keys
   back, except while the list of `/` commands is open: it closes the list. A card takes focus once per request, and
   only when the composer is empty and not focused. An unsent prompt in a chat that is not over is among what closing
   the window asks about (`closingWhy`'s `unsent`). "Attach view" is sent in order: main waits for the picture
