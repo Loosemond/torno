@@ -49,6 +49,8 @@ const bridge: TornoBridge = {
   object: {
     open: (id) => invoke('object:open', id),
     rebuild: (id) => invoke('object:rebuild', id),
+    setParam: (id, name, value) => invoke('object:setParam', id, name, value),
+    resetParams: (id, name) => invoke('object:resetParams', id, name),
     loadSceneFile: (id) => invoke('object:sceneFile', id),
     saveSceneFile: (id, file) => ipcRenderer.send('object:saveSceneFile', id, file),
     onBuild: (cb) => subscribe('object:build', cb),
@@ -90,6 +92,7 @@ const bridge: TornoBridge = {
   objects: {
     pickPhotos: () => invokePlain('objects:pickPhotos'),
     pickScan: () => invokePlain('scans:pick'),
+    pickStep: () => invokePlain('objects:pickStep'),
     pathOf: (file) => webUtils.getPathForFile(file),
     readPhoto: (path) => invokePlain('objects:readPhoto', path),
     create: (req) => invokePlain('objects:create', req),
@@ -141,6 +144,8 @@ const bridge: TornoBridge = {
   export: {
     plan: (req) => invokePlain('export:plan', req),
     save: (req) => invokePlain('export:save', req),
+    savePicture: (objectId, png) => invokePlain('export:savePicture', objectId, png),
+    saveSection: (objectId, as) => invokePlain('export:saveSection', objectId, as),
     reveal: () => invokePlain('export:reveal'),
     openSaved: () => invokePlain('export:openSaved'),
     done: () => ipcRenderer.send('export:done')
@@ -175,6 +180,13 @@ const bridge: TornoBridge = {
     setMode: (sessionId, mode) => invokePlain('chat:setMode', sessionId, mode),
     setEffort: (sessionId, effort) => invokePlain('chat:setEffort', sessionId, effort),
     models: () => invokePlain('chat:models')
+  },
+  profile: {
+    choices: () => invokePlain('profile:choices'),
+    savePrinter: (printer) => invokePlain('profile:savePrinter', printer),
+    saveMaterial: (material) => invokePlain('profile:saveMaterial', material),
+    get: (objectId) => invokePlain('profile:get', objectId),
+    set: (objectId, profile) => invokePlain('profile:set', objectId, profile)
   }
 }
 

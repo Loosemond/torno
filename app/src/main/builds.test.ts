@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { BuildError, BuildState } from '../shared/build'
 import type { Scene } from '../shared/scene'
 import type { ObjectInfo } from '../shared/workspace'
-import { Builds, NotBuilding, buildTimeout, watchFolder } from './builds'
+import { Builds, NotBuilding, type OverridesPort, buildTimeout, watchFolder } from './builds'
 import { type KernelClient, KernelError, startKernel } from './kernel/client'
 import { probe } from '../test/diagnosisFixtures'
 import type { FilletDiagnosis } from '../shared/diagnosis'
@@ -20,14 +20,14 @@ function sceneOf(model: string, seconds = 0.5, checks?: Scene['checks']): Scene 
 class FakeKernel implements KernelClient {
   onState(): void {}
   ready = Promise.resolve({ versions: {} })
-  calls: Array<{ dir: string; model: string; timeout?: number; settle: (r: BuildResult) => void; settled: boolean }> = []
+  calls: Array<{ dir: string; model: string; timeout?: number; overrides?: Record<string, number | boolean | string>; settle: (r: BuildResult) => void; settled: boolean }> = []
   cancels = 0
   tail = ''
   private exitCbs: Array<(code: number | null) => void> = []
 
   /** The folders whose builds the kernel lets go to make room as the next build starts. */
   retiring: string[] = []
-  build(dir: string, model: string, opts?: { timeout?: number; onStarted?: (started: { retired: string[] }) => void }): Promise<BuildResult> {
+  build(dir: string, model: string, opts?: { timeout?: number; overrides?: Record<string, number | boolean | string>; onStarted?: (started: { retired: string[] }) => void }): Promise<BuildResult> {
     const running = this.calls.at(-1)
     if (running && !running.settled) running.settle({ ok: false, error: { kind: 'cancelled', message: 'replaced' } })
     return new Promise((resolve) => {
@@ -35,6 +35,7 @@ class FakeKernel implements KernelClient {
         dir,
         model,
         timeout: opts?.timeout,
+        overrides: opts?.overrides,
         settled: false,
         settle: (r: BuildResult) => {
           call.settled = true
@@ -68,6 +69,11 @@ class FakeKernel implements KernelClient {
     const answer = this.answers.get(name)
     return this.queryError ? Promise.reject(this.queryError) : Promise.resolve((answer ? answer(args) : { dir, name, args }) as T)
   }
+  trials: Array<{ dir: string; model: string; overrides: object; queries: object[] }> = []
+  async trial(dir: string, model: string, overrides: Record<string, number | boolean | string>, queries: Array<{ name: string; args: object }>) {
+    this.trials.push({ dir, model, overrides, queries })
+    return { ok: true as const, scene: sceneOf(model), answers: [] }
+  }
   cancel(): void {
     this.cancels += 1
     const running = this.calls.at(-1)
@@ -94,7 +100,7 @@ const gear: ObjectInfo = { id: 'gear', name: 'gear', dir: '/ws/gear', model: 'ge
 
 const widget: ObjectInfo = { id: 'widget', name: 'widget', dir: '/ws/widget', model: 'widget.py' }
 
-function setup(over: { timeout?: number; exists?: (path: string) => boolean } = {}) {
+function setup(over: { timeout?: number; exists?: (path: string) => boolean; overrides?: OverridesPort } = {}) {
   const kernel = new FakeKernel()
   const watched = new Map<string, (paths?: string[]) => void>()
   let clock = 1000
@@ -1216,5 +1222,59 @@ describe('Rebuild pressed while a build runs', () => {
     expect(builds.rebuild('bracket')).toBe(true)
     expect(kernel.calls).toHaveLength(2)
     expect(builds.rebuild('nowhere')).toBe(false)
+  })
+})
+
+describe("the person's overrides of Params", () => {
+  it('go with every build of the folder, and with none when there are none', async () => {
+    let held: Record<string, number | boolean | string> = {}
+    const { kernel, builds } = setup({ overrides: { values: () => held, reconcile: async () => ({ stale: false }) } })
+    builds.open(bracket)
+    expect(kernel.calls[0].overrides).toBeUndefined()
+    kernel.succeed(0)
+    await flush()
+    held = { wall: 2.4 }
+    builds.rebuild('bracket')
+    expect(kernel.calls[1].overrides).toEqual({ wall: 2.4 })
+  })
+
+  it('make another build when the good one found one that could not stand, with the scene already told which', async () => {
+    let stale = true
+    const told: Array<Scene['overrides']> = []
+    const { kernel, builds, scenes } = setup({
+      overrides: {
+        values: () => ({ wall: 2.4 }),
+        reconcile: async (_dir, scene) => {
+          scene.overrides = { applied: {}, dropped: [{ name: 'wall', reason: 'the file wins' }] }
+          told.push(scene.overrides)
+          const was = stale
+          stale = false
+          return { stale: was }
+        }
+      }
+    })
+    builds.open(bracket)
+    kernel.succeed(0)
+    await flush()
+    expect(scenes[0].scene.overrides?.dropped).toEqual([{ name: 'wall', reason: 'the file wins' }])
+    expect(kernel.calls).toHaveLength(2)
+    kernel.succeed(1)
+    await flush()
+    expect(kernel.calls).toHaveLength(2)
+    expect(scenes).toHaveLength(2)
+  })
+
+  it('are the ground of a trial, which asks for its own on top and starts and changes no build', async () => {
+    const { kernel, builds } = setup({ overrides: { values: () => ({ wall: 2.4, lid: true }), reconcile: async () => ({ stale: false }) } })
+    builds.open(bracket)
+    kernel.succeed(0)
+    await flush()
+    const scenes = builds.scenes('bracket').length
+    const tried = await builds.trial('bracket', { wall: 3 }, [{ name: 'measure', args: {} }])
+    expect(tried.ok).toBe(true)
+    expect(kernel.trials).toEqual([{ dir: '/ws/bracket', model: 'bracket.py', overrides: { wall: 3, lid: true }, queries: [{ name: 'measure', args: {} }] }])
+    expect(kernel.calls).toHaveLength(1)
+    expect(builds.scenes('bracket')).toHaveLength(scenes)
+    await expect(builds.trial('never-opened', {}, [])).rejects.toMatchObject({ kind: 'no_build' })
   })
 })

@@ -24,6 +24,7 @@ import {
 } from '../../shared/view'
 import type { SavedView } from '../../shared/views'
 import type { HistoryEntry } from '../../shared/history'
+import type { TrialResult } from '../kernel/client'
 import type { ObjectInfo } from '../../shared/workspace'
 import { describeMark, markData, sizes } from '../marks/describe'
 import { number } from '../../shared/format'
@@ -37,10 +38,11 @@ import { askTool } from './askTool'
 import type { AskAnswer, AskEnd, AskRequest } from '../../shared/ask'
 import { addMarkTool, checkRef, highlightTool, resolveMarkTool } from './markTools'
 import { type FeaturesToolArgs, featuresTool } from './featureTools'
-import { type DiffToolArgs, type HistoryToolArgs, type MeasureToolArgs, type SectionToolArgs, type TryFilletToolArgs, checkTool, diffTool, historyTool, measureTool, sectionTool, tryFilletTool } from './readTools'
+import { type DiffToolArgs, type HistoryToolArgs, type MeasureToolArgs, type SectionToolArgs, type TryFilletToolArgs, type TryParamsToolArgs, checkTool, diffTool, historyTool, measureTool, sectionTool, tryFilletTool, tryParamsTool } from './readTools'
 import { type ScanClashArgs, type ScanDeviationArgs, type ScansArgs, scanClashTool, scanDeviationTool, scansTool } from './scanTools'
 import { type AddMarkArgs, type AskArgs, type DescribeArgs, type HighlightArgs, type LookArgs, type MarksArgs, type ResolveMarkArgs, type SaveViewArgs, type ShowArgs, DEFAULT_SIZE, MAX_SIZE, MIN_SIZE, NO_PLANE, TOOLS, refusedKeys } from './schemas'
 import { type SceneArgs, lookTool, saveViewTool, sceneTool, showTool } from './viewTools'
+import type { Profile } from '../../shared/profile'
 
 /** What the tools need of torno. All of it is about objects of the open workspace, by id. */
 export interface ToolDeps {
@@ -51,6 +53,8 @@ export interface ToolDeps {
   /** Takes out of what the model printed what must not be told (the tokens of the sessions). */
   redact?(text: string): string
   object(objectId: string): ObjectInfo | undefined
+  /** The printer and material the project is made for (`.torno/profile.json`): the person's numbers, which `check` and `measure` take as defaults. None when it has none. */
+  profile?(objectId: string): Profile | undefined
   build(objectId: string): BuildState | undefined
   /** The last successful build. */
   scene(objectId: string): { revision: number; scene: Scene } | undefined
@@ -110,6 +114,12 @@ export interface ToolDeps {
    * of two parts or of a mesh. Refs go with the layout in front. Rejects with a `KernelError`, whose kind says why.
    */
   query<T = unknown>(objectId: string, name: 'measure' | 'section' | 'check' | 'scan_clash' | 'scan_deviation' | 'scan_section' | 'try_fillet' | 'features', args: object): Promise<T>
+  /**
+   * Builds the model of an object with other values of its `Params` (over the person's own) in a worker the kernel
+   * throws away, and answers `queries` there (`name` and `args` as `query` takes them). Nothing is kept or changed.
+   * Absent where the kernel cannot (a fake); the tool then says so. Rejects with a `KernelError`.
+   */
+  trial?(objectId: string, set: Record<string, number | boolean | string>, queries: Array<{ name: string; args: object }>): Promise<TrialResult>
   /** The scans of an object, as main keeps them. Rejects with a text. */
   scans(objectId: string): Promise<ScanInfo[]>
   /** Where a scan's mesh and a region's mask are on the disk, for the kernel: of the scans as `scans` last read them, so it is asked at once after. */
@@ -143,6 +153,10 @@ export const TRACEBACK_LINES = 30
 
 export const SPREAD_NOTE =
   'The parts of the print layout overlapped as the model placed them, so they were spread along X for display; arranged is how far each was moved.'
+
+/** Said by `scene` of a build that has references: what they are for, and what they are left out of. */
+export const REFERENCE_NOTE =
+  'Parts with role reference are bought parts (a bearing, a screw, a vendor STEP): drawn and measured, and a clearance, overlap or interference check may name them, but they are not printed, not counted by bed, have no mass and are not in a mesh export.'
 
 const PLANE_KEYS = ['axis', 'at', 'origin', 'normal']
 
@@ -199,6 +213,7 @@ export function registerTools(server: McpServer, deps: ToolDeps, objectId: strin
   tool<ExpectArgs>('expect', (args) => expectTool(deps, objectId, args))
   tool<TryFilletToolArgs>('try_fillet', (args) => tryFilletTool(deps, objectId, args))
   tool<FeaturesToolArgs>('features', (args) => featuresTool(deps, objectId, args))
+  tool<TryParamsToolArgs>('try_params', (args) => tryParamsTool(deps, objectId, args))
   tool<ScansArgs>('scans', (args) => scansTool(deps, objectId, args))
   tool<ScanClashArgs>('scan_clash', (args) => scanClashTool(deps, objectId, args))
   tool<ScanDeviationArgs>('scan_deviation', (args) => scanDeviationTool(deps, objectId, args))

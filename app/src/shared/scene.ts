@@ -46,6 +46,12 @@ export interface Part {
   arranged?: [number, number, number]
   /** The group of parts the model puts it in (`Scene.groups`), named by the worker; absent for a part in none. An explode moves a group as one body. */
   group?: string
+  /**
+   * `reference` for a bought part the model puts in the assembly beside what it makes (`references(p)`, or a vendor STEP it
+   * reads): drawn in a neutral tone, picked, measured, and an obstacle for `clearance`, `overlap` and `interference`, but
+   * never printed, counted by `bed`, weighed, or put in a mesh export. Absent of a part to make.
+   */
+  role?: 'reference'
 }
 /**
  * A field of the model's `Params` dataclass, as the worker that loaded the model read it (`loader.read_params`).
@@ -53,7 +59,33 @@ export interface Part {
  * `literal` whether the default in the source is a literal (not an expression, not a `default_factory`); `doc` the
  * field's comment or string, else null.
  */
-export interface Param { name: string; type: string; default: unknown; literal: boolean; doc: string | null }
+export interface Param {
+  name: string
+  type: string
+  default: unknown
+  literal: boolean
+  doc: string | null
+  /** What this build used: `default` unless an override of the person's was applied. Absent from a kernel that does not say. */
+  value?: unknown
+  /** What an override of it may be: only a field whose default is a literal number or bool, or a `Literal` of literals. */
+  editable?: ParamKind | null
+  /** The values of a `Literal` field. */
+  choices?: Array<string | number> | null
+  /** The plain numbers `min`, `max` and `step` the field's own `metadata` gives. */
+  metadata?: { min?: number; max?: number; step?: number }
+}
+export type ParamKind = 'float' | 'int' | 'bool' | 'choice'
+/** A value an override may hold. */
+export type ParamValue = number | boolean | string
+/**
+ * The overrides of the person's `Params` a build was asked for (`.torno/params.json`): `applied` is what the
+ * kernel took; `dropped` what it or main let go of, each with the reason, which the window shows on the row and
+ * the agent is told.
+ */
+export interface ParamOverrides {
+  applied: Record<string, ParamValue>
+  dropped: Array<{ name: string; reason: string }>
+}
 export interface Scene {
   model: string
   layouts: string[]
@@ -62,6 +94,8 @@ export interface Scene {
   output: string
   /** The model's `Params`, in their order; absent from a kernel that does not read them. */
   params?: Param[]
+  /** The person's overrides of those `Params` this build was made with, and those dropped; absent from a kernel that does not say. */
+  overrides?: ParamOverrides
   /** The model's groups of parts (`groups(p)`), in its order; absent from a kernel that does not read them. */
   groups?: PartGroup[]
   /** The checks the model declares (`checks(p)`), as the worker that built it measured them; absent from a kernel that does not read them, empty without any. */

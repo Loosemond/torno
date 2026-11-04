@@ -36,6 +36,8 @@ export interface ImageRequest {
   viewName?: string
   /** A place to frame the picture on: the camera looks the way `view` does and stands where it takes in the box and its margin. The parts are drawn together unless the picture says how far apart: the box is where they are built. */
   focus?: FocusBox
+  /** The picture is for the person to keep, not for the agent: it may be as large as `MAX_PERSON_IMAGE`, and `cues` false leaves out the axis triad and the scale bar. Never set from a request of the agent's. */
+  person?: { cues: boolean }
 }
 
 /** The view as a caption names it: a saved view by its name in quotes, a standard view by its own, `current` for the camera on screen, `custom` for a camera given. */
@@ -60,6 +62,8 @@ export interface Picture {
 
 /** Long edge of a picture for the agent, in pixels. */
 const MAX_IMAGE = 2000
+/** Long edge of a picture the person saves for themselves, in pixels: it is not for the agent, so the agent's cap does not hold. */
+export const MAX_PERSON_IMAGE = 4000
 const DEFAULT_IMAGE = 1280
 const MIN_IMAGE = 64
 /** Width to height of a picture of a named view, and of the viewport until its canvas has a size. */
@@ -160,10 +164,10 @@ export function explodedNote(explode: ExplodeState | null, scans: boolean, split
   return ` · ${explodeText(explode)} (${EXPLODED_NOTE})${scans ? ` · ${SCANS_STAY}` : ''}${spans}`
 }
 
-/** The pixels of a picture whose long edge was asked to be `size`: within 64 and 2000, 1280 when not said. */
-export function pictureSize(size: number | undefined, aspect: number): { width: number; height: number } {
+/** The pixels of a picture whose long edge was asked to be `size`: within 64 and 2000, 1280 when not said; for the person to keep (`forPerson`), up to 4000. */
+export function pictureSize(size: number | undefined, aspect: number, forPerson = false): { width: number; height: number } {
   const asked = typeof size === 'number' && Number.isFinite(size) ? size : DEFAULT_IMAGE
-  const long = Math.round(Math.min(Math.max(asked, MIN_IMAGE), MAX_IMAGE))
+  const long = Math.round(Math.min(Math.max(asked, MIN_IMAGE), forPerson ? MAX_PERSON_IMAGE : MAX_IMAGE))
   const width = aspect >= 1 ? long : Math.max(1, Math.round(long * aspect))
   const height = aspect >= 1 ? Math.max(1, Math.round(long / aspect)) : long
   return { width, height }
@@ -348,7 +352,7 @@ export class PictureMaker {
       throw new Error(`No layout "${req.layout}": ${known}`)
     }
     const aspect = req.view === 'current' ? host.aspect() : NAMED_ASPECT
-    const { width, height } = pictureSize(req.size, aspect)
+    const { width, height } = pictureSize(req.size, aspect, req.person !== undefined)
 
     const wanted = new Set(req.visibleKeys)
     const shown = [...host.parts()].filter((p) => p.part.layout === req.layout && wanted.has(p.part.key))
@@ -438,7 +442,7 @@ export class PictureMaker {
     camera.updateMatrixWorld()
     const m = camera.matrixWorld.elements
     const colours = host.colours()
-    drawOverlay(ctx, {
+    if (req.person?.cues !== false) drawOverlay(ctx, {
       width,
       height,
       right: [m[0], m[1], m[2]],

@@ -67,7 +67,7 @@ test('Claude Code is the agent: the header names it, offers no list of agents, a
   await open('plain')
   await expect(dock().getByRole('heading', { name: 'Claude Code' })).toBeVisible()
   await expect(dock().getByRole('combobox')).toHaveCount(0)
-  await expect(dock()).toContainText('Claude Code runs here, in the folder of plain, and works on it with you, in a chat.')
+  await expect(dock()).toContainText('Claude Code runs here, in the folder of plain, and works on it with you. Write below and it starts with your prompt.')
   await expect(note()).toHaveCount(0)
   // In its terminal, as the person can choose: its hooks, its status.
   await dock().getByRole('group', { name: 'View' }).getByRole('button', { name: 'Terminal' }).click()
@@ -87,7 +87,7 @@ test('a file that names Copilot CLI is said, is the person\'s until they choose,
   await expect(note().locator('p')).toHaveText('agent.json names Copilot CLI, which torno no longer supports: Claude Code is used.')
   // Claude Code in its chat: the view in the file was that agent's.
   await expect(dock().getByRole('group', { name: 'View' }).getByRole('button', { name: 'Chat' })).toHaveAttribute('aria-pressed', 'true')
-  await page.locator('.session-actions .button-primary').click()
+  await dock().getByRole('button', { name: 'New session' }).click()
   await expect(status()).not.toHaveText('Starting')
   expect((await state()).sessions.hollow.view).toBe('chat')
   // While it runs the file is not written: the button waits, and says why.
@@ -129,7 +129,7 @@ test('a session at work or waiting for the answer shows on the switcher, on its 
   mkdirSync(join(root, 'measures', '.torno'), { recursive: true })
   writeFileSync(join(root, 'measures', '.torno', 'agent.json'), '{"agent":"claude","view":"terminal"}')
   await open('measures')
-  await page.locator('.session-actions .button-primary').click()
+  await dock().getByRole('button', { name: 'New session' }).click()
   await expect(status()).toHaveText('Idle')
   const typeLine = async (line: string): Promise<void> => {
     await page.locator('.session-term textarea').focus()

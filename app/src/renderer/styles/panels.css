@@ -64,6 +64,14 @@
   padding: var(--space-1) 0 var(--space-2);
 }
 
+.print {
+  flex: 0 1 auto;
+  max-height: 40%;
+  min-height: var(--section-least);
+  border-top: var(--divider);
+  padding: var(--space-1) 0 var(--space-2);
+}
+
 .scans {
   flex: 0 1 auto;
   max-height: 32%;
@@ -76,6 +84,7 @@
 .layers[data-folded],
 .params[data-folded],
 .checks[data-folded],
+.print[data-folded],
 .scans[data-folded] {
   flex: none;
   max-height: none;
@@ -489,6 +498,12 @@ button.param-button:focus-visible {
   color: var(--fail);
 }
 
+.layer-bought {
+  flex: none;
+  font-size: var(--text-small);
+  color: var(--muted);
+}
+
 .layer-row[data-hidden] .row-name {
   color: var(--muted);
 }
@@ -540,6 +555,7 @@ button.param-button:focus-visible {
   background: transparent;
   color: inherit;
   font: inherit;
+  font-family: var(--font-mono); /* a part's name is a ref: the .num face, which "font: inherit" would take back */
   font-size: var(--text-small);
   text-align: left;
 }
@@ -645,4 +661,130 @@ button.param-button:focus-visible {
   margin: 0 0 var(--space-2);
   color: var(--muted);
   font-size: var(--text-small);
+}
+
+/* The print profile: two choosers, what they say, and a small form to add a printer. */
+.print-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: 0 var(--space-4);
+  overflow-y: auto;
+  font-size: var(--text-small);
+}
+
+.print-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--muted);
+}
+
+.print-row select,
+.print-row input {
+  min-width: 0;
+  max-width: 60%;
+  padding: 2px var(--space-1);
+  border: 1px solid var(--field-edge);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+
+.print-bed {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.print-bed input {
+  width: 3.5em;
+  max-width: none;
+}
+
+.print-said,
+.print-problem {
+  margin: 0;
+  color: var(--muted);
+}
+
+.print-problem {
+  color: var(--fail);
+}
+
+.print-add,
+.print-buttons {
+  align-self: flex-start;
+}
+
+.print-buttons {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.print-add-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* A field the person may try another value for: the control under its name, and, where the build is made with a value other than the file's, that and a Reset. */
+.param-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 var(--space-2) 3px var(--space-4);
+}
+
+.param-number {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.param-input {
+  min-width: 0;
+  width: 6.5em;
+  height: 24px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--field-edge);
+  border-radius: var(--radius-control);
+  background: var(--panel);
+  color: inherit;
+  font: inherit;
+  font-size: var(--text-small);
+}
+
+.param-slider {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.param-differs {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.param-row[data-tried] .param-name {
+  color: var(--accent);
+}
+
+.param-note,
+.params-problem {
+  margin: 0;
+  padding: 0 var(--space-2) 3px var(--space-4);
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.params-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
 }

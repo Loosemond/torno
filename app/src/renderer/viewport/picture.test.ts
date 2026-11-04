@@ -17,6 +17,12 @@ describe('the size of a picture', () => {
     expect(pictureSize(800.4, 2)).toEqual({ width: 800, height: 400 })
   })
 
+  it("may be 4000 on its long edge for a picture the person keeps, which the agent's is not", () => {
+    expect(pictureSize(5000, 4 / 3, true)).toEqual({ width: 4000, height: 3000 })
+    expect(pictureSize(3000, 4 / 3, true)).toEqual({ width: 3000, height: 2250 })
+    expect(pictureSize(5000, 4 / 3)).toEqual({ width: 2000, height: 1500 })
+  })
+
   it('has its long edge upright for a canvas taller than wide, and no edge under a pixel', () => {
     expect(pictureSize(1000, 0.5)).toEqual({ width: 500, height: 1000 })
     expect(pictureSize(64, 1000)).toEqual({ width: 64, height: 1 })

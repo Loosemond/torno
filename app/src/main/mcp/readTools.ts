@@ -1,8 +1,9 @@
 import { valueText } from '../../shared/dimension'
 import type { CheckedBed, CheckedClearance, CheckedMesh, CheckedOverhang, CheckedOverlap, CheckedThin, Measured, MeasuredValue, ScanSectioned, SectionLoop, Sectioned } from '../../shared/geometry'
-import type { Part, Scene } from '../../shared/scene'
+import type { Param, Part, Scene } from '../../shared/scene'
 import { type SectionDrawingResult, type SectionPlane, axisForm, cutText, planeText } from '../../shared/view'
 import type { ObjectInfo } from '../../shared/workspace'
+import { type Fit, FITS, type Profile, fitVerdict, leastWall, profileName } from '../../shared/profile'
 import { KernelError, isBusy } from '../kernel/client'
 import { scanNumber } from '../../shared/format'
 import { type FilletDiagnosis, WHY, diagnosisText, sizeText } from '../../shared/diagnosis'
@@ -31,6 +32,9 @@ export interface MeasureToolArgs {
   density?: number
   layout?: string
 }
+
+/** Said at the end of a reading whose numbers came from the person's profile and not from the call. */
+const byProfile = (profile: Profile, what: string): string => `${what} by your profile (${profileName(profile)}): the person's numbers, not measured`
 export interface SectionToolArgs {
   plane: 'current' | PlaneArg
   parts?: string[]
@@ -48,6 +52,13 @@ export interface TryFilletToolArgs {
   layout?: string
 }
 
+export interface TryParamsToolArgs {
+  set?: unknown
+  measure?: unknown
+  check?: unknown
+  layout?: string
+}
+
 export interface CheckToolArgs {
   kind: 'overlap' | 'clearance' | 'interference' | 'mesh' | 'overhang' | 'thin' | 'bed'
   a?: string
@@ -59,6 +70,8 @@ export interface CheckToolArgs {
   min?: number
   /** bed: the bed, [x, y, z] mm. */
   size?: number[]
+  /** clearance: the fit the gap is judged against, by the profile's material. */
+  fit?: string
 }
 
 /** The checks of whether it prints: asked of the print layout unless another is named. */
@@ -131,6 +144,10 @@ export async function measureTool(deps: ToolDeps, objectId: string, args: Measur
   if (!between && args.b !== undefined) return failure(`${args.kind} is of a alone: leave b out`)
   if (args.kind !== 'distance' && (isScanEnd(args.a) || isScanEnd(args.b))) return failure(SCAN_END_DISTANCE)
 
+  // Mass by the density of the profile's material, when the call gives none.
+  const profile = deps.profile?.(objectId)
+  const density = args.density ?? (args.kind === 'mass' ? profile?.material?.density : undefined)
+  const fromProfile = args.kind === 'mass' && args.density === undefined && profile?.material !== undefined
   const asked = await ofOneBuild(deps, objectId, async (found) => {
     const layout = layoutFor(deps, objectId, found.scene, args.layout)
     if (typeof layout !== 'string') return layout
@@ -156,7 +173,7 @@ export async function measureTool(deps: ToolDeps, objectId: string, args: Measur
         if (described.kind === 'face') a.point = described.center
       }
       const end = ({ ref, point }: End): { ref?: string; point?: Vec3 } => ({ ...(ref === undefined ? {} : { ref }), ...(point ? { point } : {}) })
-      const request = wire({ kind: args.kind, layout, a: end(a), ...(b ? { b: end(b) } : {}), ...(args.density === undefined ? {} : { density: args.density }) })
+      const request = wire({ kind: args.kind, layout, a: end(a), ...(b ? { b: end(b) } : {}), ...(density === undefined ? {} : { density }) })
       const measured = await deps.query<Measured>(objectId, 'measure', request)
       // What is said of a scan's alignment is read once the kernel has answered: a check of this build has been by then.
       for (const one of ends) if (one.scan) one.scan.aligned = await saidNow(deps, objectId, layout, found.revision, one.scan.id, one.scan.aligned)
@@ -174,7 +191,8 @@ export async function measureTool(deps: ToolDeps, objectId: string, args: Measur
   const because = scan ? (other ? `${scan.id} and ${other.id} are scans` : `${scan.id} is a scan`) : undefined
   const taken = scan ? measureReading({ ...measured, exact: false }, a, b, because) : measureReading(measured, a, b)
   if (taken === null) return failure('the kernel did not answer with a measurement')
-  const reading = scan ? `${scan.aligned.first}${other?.aligned.first ?? ''}${taken}. ${scan.aligned.last()}${other ? ` ${other.aligned.last()}` : ''}` : taken
+  const said = scan ? `${scan.aligned.first}${other?.aligned.first ?? ''}${taken}. ${scan.aligned.last()}${other ? ` ${other.aligned.last()}` : ''}` : taken
+  const reading = fromProfile && profile ? `${said}; ${byProfile(profile, `density ${number(density!)} g/cm³`)}` : said
   // Of one part (an end that is a bare point is of none): its points are where the part is shown, and that is said.
   // Of two, the points of an angle are apart as torno put the parts, and are left out where it moved one.
   const parts = [...new Map([a, ...(b ? [b] : [])].flatMap((end) => (end.part ? [[end.part.name, end.part] as const] : []))).values()]
@@ -182,7 +200,7 @@ export async function measureTool(deps: ToolDeps, objectId: string, args: Measur
   const told = parts.length === 2 && parts.some(isMoved) ? angleOnly : measured
   const ofOther = other ? { other: { scan: other.id, alignment: other.aligned.data, ...noteOf(other.aligned, '') } } : {}
   const ofScan = scan ? { exact: false, scan: scan.id, alignment: scan.aligned.data, ...ofOther, ...noteOf(scan.aligned, layout), approximate: SCAN_APPROXIMATE } : {}
-  return reply({ layout, ...ofBuild(deps, objectId), ...clean(told), ...(parts.length === 1 && !scan ? movedForDisplay(parts[0], layout, told) : {}), ...ofScan, reading })
+  return reply({ layout, ...ofBuild(deps, objectId), ...clean(told), ...(parts.length === 1 && !scan ? movedForDisplay(parts[0], layout, told) : {}), ...ofScan, ...(fromProfile && profile ? { profile: profileName(profile), density } : {}), reading })
 }
 
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
@@ -249,9 +267,22 @@ export async function checkTool(deps: ToolDeps, objectId: string, args: CheckToo
   if (!two && args.b !== undefined) return failure(`${args.kind} is of ${whole ? 'the whole layout' : 'the part a alone'}: leave b out`)
   if (whole && args.a !== undefined) return failure(`${args.kind} is of the whole layout: leave a out`)
   if (!whole && args.a === undefined) return failure(`${args.kind} is of the part a: give a`)
-  if (args.kind === 'thin' && args.min === undefined) return failure(`thin needs min, the least wall in mm: {"kind": "thin", "a": "${args.a}", "min": 0.8}`)
-  if (args.kind === 'bed' && args.size === undefined) return failure('bed needs size, the bed in mm: {"kind": "bed", "size": [256, 256, 256]}')
-  const extra = args.kind === 'overhang' ? { angle: args.angle ?? OVERHANG_ANGLE } : args.kind === 'thin' ? { min: args.min } : args.kind === 'bed' ? { size: args.size } : {}
+  // What the call leaves out is taken from the project's profile, when it has one, and the reading says so.
+  const profile = deps.profile?.(objectId)
+  const wall = leastWall(profile)
+  const taken: string[] = []
+  let min = args.min
+  let size = args.size
+  let angle = args.angle
+  if (args.kind === 'thin' && min === undefined && wall !== undefined) (min = wall), taken.push(`least wall ${number(wall)} mm`)
+  if (args.kind === 'bed' && size === undefined && profile?.printer) (size = profile.printer.bed), taken.push(`bed ${size.map(number).join(' × ')} mm`)
+  if (args.kind === 'overhang' && angle === undefined && profile?.material?.overhang !== undefined) (angle = profile.material.overhang), taken.push(`angle ${number(angle)}°`)
+  if (args.kind === 'thin' && min === undefined) return failure(`thin needs min, the least wall in mm: {"kind": "thin", "a": "${args.a}", "min": 0.8}; the project has no print profile to take it from`)
+  if (args.kind === 'bed' && size === undefined) return failure('bed needs size, the bed in mm: {"kind": "bed", "size": [256, 256, 256]}; the project has no printer in its profile to take it from')
+  if (args.fit !== undefined && args.kind !== 'clearance') return failure('fit is for clearance: the gap between a and b judged against the profile\'s band')
+  if (args.fit !== undefined && !(FITS as readonly string[]).includes(args.fit)) return failure(`fit is one of ${FITS.join(', ')}`)
+  if (args.fit !== undefined && !profile?.material) return failure('fit needs a material in the project\'s print profile, and it has none: ask the person to choose one (Print profile in the project menu), or leave fit out')
+  const extra = args.kind === 'overhang' ? { angle: angle ?? OVERHANG_ANGLE } : args.kind === 'thin' ? { min } : args.kind === 'bed' ? { size } : {}
 
   const asked = await ofOneBuild(deps, objectId, async (found) => {
     // Whether it prints is of the print layout, where the model has one and no other is asked for.
@@ -286,10 +317,26 @@ export async function checkTool(deps: ToolDeps, objectId: string, args: CheckToo
   })
   if ('content' in asked) return asked
   const { layout, part, checked } = asked.got
-  const reading = checkReading(args, checked)
-  if (reading === null) return failure('the kernel did not answer with a check')
+  const said = checkReading(args, checked)
+  if (said === null) return failure('the kernel did not answer with a check')
+  // A clearance judged against the band of a fit: the person's numbers, never a claim that it prints.
+  const judged = args.fit !== undefined && profile?.material ? fitJudged(args.fit as Fit, profile, checked) : null
+  const used = profile && taken.length > 0 ? `; ${byProfile(profile, taken.join(', '))}` : ''
+  const reading = `${said}${judged ? `; ${judged.text}` : ''}${used}`
   // Where the open edges of a mesh are is where its part is shown.
-  return reply({ layout, ...ofBuild(deps, objectId), kind: args.kind, ...clean(checked), ...(two || part === null ? {} : movedForDisplay(part, layout, checked)), reading })
+  return reply({ layout, ...ofBuild(deps, objectId), kind: args.kind, ...clean(checked), ...(two || part === null ? {} : movedForDisplay(part, layout, checked)), ...(judged ? { fit: judged.data } : {}), ...(profile && (taken.length > 0 || judged) ? { profile: profileName(profile) } : {}), reading })
+}
+
+/** A clearance against the band of a fit of the profile's material; null when the kernel gave no distance. */
+function fitJudged(fit: Fit, profile: Profile, checked: object): { text: string; data: object } | null {
+  const { distance, overlapping } = checked as Partial<CheckedClearance>
+  const band = profile.material!.fits[fit]
+  if (!finite(distance)) return null
+  const where = `the ${fit} fit of ${profileName(profile)} is ${number(band[0])} to ${number(band[1])} mm per side`
+  if (overlapping === true) return { text: `FAILS the ${fit} fit: the parts overlap (${where}), judged by the person's numbers, not a claim that it prints`, data: { name: fit, band, verdict: 'overlap' } }
+  const v = fitVerdict(distance, band)
+  const what = v.verdict === 'within' ? `within the ${fit} fit (${where})` : `${number(v.by)} mm ${v.verdict === 'tighter' ? 'under' : 'over'} the ${fit} fit (${where}): ${v.verdict === 'tighter' ? 'tighter than the band' : 'looser than the band'}`
+  return { text: `${v.verdict === 'within' ? 'passes' : 'FAILS'} ${what}; judged by the person's numbers, not a claim that it prints`, data: { name: fit, band, verdict: v.verdict, by: v.by } }
 }
 
 /** The most edges one trial takes: the kernel's `MOST_TRIAL_EDGES`. */
@@ -338,6 +385,147 @@ export async function tryFilletTool(deps: ToolDeps, objectId: string, args: TryF
     ? `${head}${tried.operation} ${sizeText(tried.operation, tried.size)} of ${tried.edgeCount} edge${tried.edgeCount === 1 ? '' : 's'} works.`
     : `${head}${diagnosisText(tried).slice(WHY.length)}`
   return reply({ layout, ...ofBuild(deps, objectId), part: part.name, ...clean(tried), ...movedForDisplay(part, layout, { points: tried.edges ?? [] }), reading })
+}
+
+/** The most measurements, and as many checks, one trial carries: the kernel's `MOST_TRIAL_QUERIES` is for both together. */
+const MOST_TRIAL_EACH = 10
+const TRY_MEASURES = ['bbox', 'volume', 'area', 'mass', 'distance']
+const TRY_CHECKS = ['overlap', 'clearance', 'interference', 'mesh', 'overhang', 'thin', 'bed']
+const TRY_SET = 'try_params needs set, an object of the fields to change: {"set": {"wall": 2.4}, "measure": [{"kind": "bbox", "a": "lid"}]}'
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
+
+/** A name of a whole part: a trial has no face, edge or mark of any build to give. */
+function partName(v: unknown): string | null {
+  return typeof v === 'string' && v !== '' && !v.includes('/') && !/^M\d+$/.test(v) ? v : null
+}
+
+/** What `value` must be for the field, or null when it is: the sentence for the agent. */
+function paramFault(field: Param, value: unknown): string | null {
+  const name = field.name
+  switch (field.editable) {
+    case 'float':
+      return typeof value === 'number' && Number.isFinite(value) ? null : `${name} is a float: give a number, not ${JSON.stringify(value)}`
+    case 'int':
+      return typeof value === 'number' && Number.isInteger(value) ? null : `${name} is an int: give a whole number, not ${JSON.stringify(value)}`
+    case 'bool':
+      return typeof value === 'boolean' ? null : `${name} is a bool: give true or false, not ${JSON.stringify(value)}`
+    case 'choice':
+      return (field.choices ?? []).some((c) => c === value) ? null : `${name} is one of ${JSON.stringify(field.choices)}, not ${JSON.stringify(value)}`
+    default:
+      return `${name} cannot be tried: only a field whose default is a literal number or bool, or a Literal, can`
+  }
+}
+
+/**
+ * What the model gives with other values of its `Params` (`try_params`): built by the kernel in a worker of its own
+ * and thrown away, with the measurements and checks asked for answered there. Of whole parts by name only: a ref of
+ * a face or an edge is of a build, and a trial is of none. It changes nothing (not the model, not the person's
+ * values, not the build on screen), keeps nothing and is said, everywhere, to be of the trial.
+ */
+export async function tryParamsTool(deps: ToolDeps, objectId: string, args: TryParamsToolArgs): Promise<ToolResult> {
+  if (!deps.trial) return failure('this session cannot try other Params')
+  const found = built(deps, objectId)
+  if ('content' in found) return found
+  if (!isRecord(args.set) || Object.keys(args.set).length === 0) return failure(TRY_SET)
+  const fields = found.scene.params ?? []
+  const offered = fields.filter((p) => p.editable).map((p) => p.name)
+  const set: Record<string, number | boolean | string> = {}
+  for (const [name, value] of Object.entries(args.set)) {
+    const field = fields.find((p) => p.name === name)
+    if (!field) return failure(`${name} is not a field of the model's Params; those that can be tried: ${offered.join(', ') || 'none'}`)
+    const fault = paramFault(field, value)
+    if (fault !== null) return failure(`${fault}; those that can be tried: ${offered.join(', ')}`)
+    set[name] = value as number | boolean | string
+  }
+
+  const measures = args.measure === undefined ? [] : args.measure
+  const checks = args.check === undefined ? [] : args.check
+  if (!Array.isArray(measures) || !measures.every(isRecord) || measures.length > MOST_TRIAL_EACH) return failure(`measure is a list of at most ${MOST_TRIAL_EACH} measurements: [{"kind": "bbox", "a": "lid"}]`)
+  if (!Array.isArray(checks) || !checks.every(isRecord) || checks.length > MOST_TRIAL_EACH) return failure(`check is a list of at most ${MOST_TRIAL_EACH} checks: [{"kind": "clearance", "a": "lid", "b": "base"}]`)
+
+  const queries: Array<{ name: string; args: object }> = []
+  const asked: Array<{ what: 'measure' | 'check'; given: Record<string, unknown>; layout: string }> = []
+  for (const given of measures as Record<string, unknown>[]) {
+    const kind = given.kind
+    if (typeof kind !== 'string' || !TRY_MEASURES.includes(kind)) return failure(`a trial measures a whole part: kind is ${TRY_MEASURES.join(', ')}`)
+    const a = partName(given.a)
+    const b = given.b === undefined ? undefined : partName(given.b)
+    if (a === null || b === null) return failure(`a trial measures whole parts by name (a face, an edge or a mark is of a build, not of a trial): {"kind": "${kind}", "a": "lid"}`)
+    if ((kind === 'distance') !== (b !== undefined)) return failure(kind === 'distance' ? 'distance is between two parts: give b' : `${kind} is of a alone: leave b out`)
+    const layout = layoutFor(deps, objectId, found.scene, typeof given.layout === 'string' ? given.layout : args.layout)
+    if (typeof layout !== 'string') return layout
+    queries.push({ name: 'measure', args: { kind, layout, a: { ref: `${layout}:${a}` }, ...(b === undefined ? {} : { b: { ref: `${layout}:${b}` } }), ...(typeof given.density === 'number' ? { density: given.density } : {}) } })
+    asked.push({ what: 'measure', given: { ...given, a, ...(b === undefined ? {} : { b }) }, layout })
+  }
+  for (const given of checks as Record<string, unknown>[]) {
+    const kind = given.kind
+    if (typeof kind !== 'string' || !TRY_CHECKS.includes(kind)) return failure(`check kind is ${TRY_CHECKS.join(', ')}`)
+    const two = kind === 'overlap' || kind === 'clearance'
+    const whole = kind === 'bed' || kind === 'interference'
+    const a = given.a === undefined ? undefined : partName(given.a)
+    const b = given.b === undefined ? undefined : partName(given.b)
+    if (a === null || b === null) return failure('a trial checks whole parts by name (a face or an edge is of a build, not of a trial)')
+    if (two && b === undefined) return failure(`${kind} is of two parts: give b`)
+    if (!two && b !== undefined) return failure(`${kind} is of ${whole ? 'the whole layout' : 'the part a alone'}: leave b out`)
+    if (whole ? a !== undefined : a === undefined) return failure(whole ? `${kind} is of the whole layout: leave a out` : `${kind} is of the part a: give a`)
+    if (kind === 'thin' && typeof given.min !== 'number') return failure('thin needs min, the least wall in mm')
+    if (kind === 'bed' && !Array.isArray(given.size)) return failure('bed needs size, the bed in mm: [256, 256, 256]')
+    const printing = ['overhang', 'thin', 'bed'].includes(kind)
+    const wanted = typeof given.layout === 'string' ? given.layout : args.layout ?? (printing && found.scene.layouts.includes('print') ? 'print' : undefined)
+    const layout = layoutFor(deps, objectId, found.scene, wanted)
+    if (typeof layout !== 'string') return layout
+    const extra = kind === 'overhang' ? { angle: typeof given.angle === 'number' ? given.angle : OVERHANG_ANGLE } : kind === 'thin' ? { min: given.min } : kind === 'bed' ? { size: given.size } : {}
+    queries.push({ name: 'check', args: { kind, layout, ...(a === undefined ? {} : { a }), ...(b === undefined ? {} : { b }), ...extra } })
+    asked.push({ what: 'check', given: { ...given, ...(a === undefined ? {} : { a }), ...(b === undefined ? {} : { b }) }, layout })
+  }
+
+  let trial
+  try {
+    trial = await deps.trial(objectId, set, queries)
+  } catch (e) {
+    return failure(messageOf(e))
+  }
+  const tried = Object.entries(set).map(([name, value]) => `${name} ${JSON.stringify(value)} (file ${JSON.stringify(fields.find((p) => p.name === name)?.default)})`).join(', ')
+  if (!trial.ok) {
+    const { kind, message, traceback } = trial.error
+    const last = (traceback ?? '').split('\n').filter((line) => line.trim() !== '').slice(-3).join('\n')
+    return failure(`Tried ${tried} on the model of r${found.revision} and thrown away, nothing changed: it ${kind === 'busy' || kind === 'no_room' || kind === 'timeout' || kind === 'crash' ? `could not be tried (${kind}): ` : 'did not build: '}${message}${last ? `\n${last}` : ''}`)
+  }
+
+  const { layouts, notes } = sceneDiff(found.scene, trial.scene)
+  const applied = trial.scene.overrides?.applied ?? {}
+  const dropped = trial.scene.overrides?.dropped ?? []
+  const answers: Array<Record<string, unknown>> = []
+  const lines: string[] = []
+  trial.answers.forEach((answer, i) => {
+    const one = asked[i]
+    if (!one) return
+    const label = one.what === 'measure' ? `${one.given.kind} ${one.given.a}${one.given.b ? ` to ${one.given.b}` : ''}` : `${one.given.kind}${one.given.a ? ` ${one.given.a}` : ''}${one.given.b ? ` and ${one.given.b}` : ''}`
+    if (!answer.ok) {
+      answers.push({ [one.what]: one.given, layout: one.layout, error: answer.error.message })
+      lines.push(`${label}: not answered: ${answer.error.message}`)
+      return
+    }
+    const reading =
+      one.what === 'measure'
+        ? measureReading(answer.result as Measured, { text: String(one.given.a) }, one.given.b === undefined ? undefined : { text: String(one.given.b) })
+        : checkReading(one.given as unknown as Pick<CheckToolArgs, 'kind' | 'a' | 'b'>, answer.result as object)
+    answers.push({ [one.what]: one.given, layout: one.layout, ...clean(answer.result as object), reading: reading ?? 'the kernel did not answer with that' })
+    lines.push(reading ?? `${label}: the kernel did not answer with that`)
+  })
+  const head = `Tried ${tried} on the model of r${found.revision} and thrown away, nothing changed (these are of the trial, not of any build)`
+  return reply({
+    trial: true,
+    of: found.revision,
+    set,
+    applied,
+    ...(dropped.length > 0 ? { dropped } : {}),
+    built: true,
+    seconds: trial.scene.seconds,
+    diff: { layouts, ...(notes.length > 0 ? { notes } : {}) },
+    answers,
+    reading: `${head}: ${lines.length > 0 ? lines.join('; ') : 'built; see diff for what changed'}.`
+  })
 }
 
 /** A check in a line. Null for a reply that is none. */

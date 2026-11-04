@@ -259,6 +259,19 @@ def need_solid(shape: Any, name: str) -> None:
         raise QueryError("bad_request", f"{name} is not a solid: it is {topo.what(shape)}")
 
 
+def is_reference(kept: dict[Any, Any] | None, key: str) -> bool:
+    """Whether the part ``layout:name`` is a reference (``loader.Layouts``): bought, not made. Noted by ``tess.build_scene``."""
+    return bool(kept) and kept.get(("reference", key)) is True
+
+
+def need_made(kept: dict[Any, Any] | None, key: str, name: str, what: str) -> None:
+    """Refuse a reference where the answer is of something to make: ``what`` says what that is asked of it."""
+    if is_reference(kept, key):
+        raise QueryError(
+            "bad_request", f"{name} is a reference (a bought part): {what} is of the parts to make, and it is not one"
+        )
+
+
 def need_part(shapes: dict[str, Any], layout: str, part: str) -> Any:
     """The shape of ``part`` in ``layout``, or a ``bad_ref`` naming the layout's parts."""
     need_layout(shapes, layout)
@@ -656,6 +669,8 @@ def _describe_part(key: str, shape: Any, kept: dict[Any, Any] | None) -> dict[st
         "valid": valid_of(shape, key, kept),
         # Which solids are inside out: absent of a sound part.
         **({"reversed": list(volume.reversed)} if volume.reversed else {}),
+        # Bought, not made: present only of a reference.
+        **({"role": "reference"} if is_reference(kept, key) else {}),
     }
     return {**facts, "descriptor": descriptor("part", facts)}
 

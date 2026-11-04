@@ -186,7 +186,7 @@ const textOf = (result: { content: Array<{ type: string; text?: string }> }): st
 
 describe('the tool descriptions', () => {
   it('say in two or three sentences each what the tool returns and when to use it', () => {
-    expect(Object.keys(TOOLS)).toEqual(['scene', 'look', 'marks', 'describe', 'highlight', 'ask', 'show', 'save_view', 'add_mark', 'resolve_mark', 'measure', 'section', 'check', 'diff', 'history', 'expect', 'try_fillet', 'features', 'scans', 'scan_clash', 'scan_deviation'])
+    expect(Object.keys(TOOLS)).toEqual(['scene', 'look', 'marks', 'describe', 'highlight', 'ask', 'show', 'save_view', 'add_mark', 'resolve_mark', 'measure', 'section', 'check', 'diff', 'history', 'expect', 'try_fillet', 'try_params', 'features', 'scans', 'scan_clash', 'scan_deviation'])
     for (const tool of Object.values(TOOLS)) {
       expect(tool.description).toMatch(/^Returns /)
       const sentences = tool.description.match(/[.?!]"?(\s|$)/g)!.length
@@ -326,6 +326,14 @@ describe('scene', () => {
     expect(print.parts[0]).toHaveProperty('volume')
     expect(print).not.toHaveProperty('partsTruncated')
     expect(textOf(sceneTool(deps, 'bracket', undefined, undefined, undefined, { layout: 'nope' }))).toBe("no layout 'nope'; layouts: assembly, print")
+  })
+
+  it('says which parts are references (bought), in the list and in a note', () => {
+    const scene: Scene = { ...SCENE, parts: [part('assembly', 'base', [0, 0, 0], [1, 1, 1]), { ...part('assembly', '608', [0, 0, 0], [22, 22, 7]), role: 'reference' as const }] }
+    const told = JSON.parse(textOf(sceneTool(fake({ scene: () => ({ revision: 3, scene }) }), 'bracket')))
+    expect(told.parts.find((p: { name: string }) => p.name === '608')).toMatchObject({ role: 'reference' })
+    expect(told.parts.find((p: { name: string }) => p.name === 'base')).not.toHaveProperty('role')
+    expect(told.note).toContain('role reference')
   })
 
   it('counts the unresolved dimensions that pass, fail and have no value of the build, when it is given the marks', () => {

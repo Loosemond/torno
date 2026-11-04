@@ -17,7 +17,7 @@ import { unknownKeys } from './keys'
 import { NO_LOOK_SCANS, NO_SCAN_OPACITY, NO_SHOW_SCANS, isScanOpacity, scanColourFor, scanIds } from './scanTools'
 import { type CameraArg, type LookArgs, type SaveViewArgs, type ShowArgs, CAMERA_KEYS, FOV, VIEW_NAMES, explodeHelp } from './schemas'
 import { modelOutput } from '../context'
-import { type ToolDeps, type ToolResult, SPREAD_NOTE, TRACEBACK_LINES, built, clampSize, failure, lastLines, layoutFor, messageOf, notOpen, onScreen, planeArg, tidy } from './tools'
+import { type ToolDeps, type ToolResult, REFERENCE_NOTE, SPREAD_NOTE, TRACEBACK_LINES, built, clampSize, failure, lastLines, layoutFor, messageOf, notOpen, onScreen, planeArg, tidy } from './tools'
 
 // The tools of the view: `scene`, which says what the object is and what the user sees of it, `look`, a picture
 // from the window, `show`, which changes what the window shows for now, and `save_view`, which leaves the user a
@@ -99,6 +99,7 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
   const letGo = letGoText(build)
   if (letGo) notes.push(letGo)
   if (scene.parts.some((p) => p.arranged)) notes.push(SPREAD_NOTE)
+  if (scene.parts.some((p) => p.role === 'reference')) notes.push(REFERENCE_NOTE)
   const scanLayout = view && scene.layouts.includes(view.layout) ? view.layout : scene.layouts[0]
   if (scans && scans.length > 0) notes.push(`How each scan is aligned is said for layout ${scanLayout}, in a word (aligned, rough, in doubt, not checked, not aligned): call scans for the whole of it.`)
   // The parts are drawn apart on their screen: said, so that nothing told here is taken for where they are drawn.
@@ -125,6 +126,7 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
     name: p.name,
     layout: p.layout,
     ...(groupOf(scene, p.name) ? { group: groupOf(scene, p.name)!.name } : {}),
+    ...(p.role === 'reference' ? { role: 'reference' } : {}),
     // A part with no namesake in the layout shown has not been seen to be switched off.
     ...(shown && hideable ? { visible: shown.has(p.name) || !hideable.has(p.name) } : {}),
     size: p.bbox.max.map((max, i) => round(max - p.bbox.min[i])),
@@ -148,6 +150,7 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
     name: p.name,
     layout: p.layout,
     ...(groupOf(scene, p.name) ? { group: groupOf(scene, p.name)!.name } : {}),
+    ...(p.role === 'reference' ? { role: 'reference' } : {}),
     size: p.bbox.max.map((max, i) => round(max - p.bbox.min[i])),
     sizeExact: p.bboxExact === true,
     ...(p.reversed && p.reversed.length > 0 ? { reversed: p.reversed } : {}),
@@ -179,6 +182,8 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
     ...(scene.uses && scene.uses.length > 0 ? { uses: scene.uses } : {}),
     // The model's Params as the kernel read them from the source: read only, the model file is the user's.
     params: scene.params ?? [],
+    // The person's overrides of those Params this build was made with (value differs from default), and those let go of.
+    ...(scene.overrides && (Object.keys(scene.overrides.applied).length > 0 || scene.overrides.dropped.length > 0) ? { paramsTried: scene.overrides } : {}),
     ...(groups.length > 0 ? { groups } : {}),
     parts: listing.parts,
     ...(listing.extra),
@@ -195,6 +200,8 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
     ...(checks.length > 0 ? { dimensions: { pass: count('pass'), fail: count('fail'), notMeasured: count('unmeasured', 'unmeasurable') } } : {}),
     // The checks the model declares in checks(p), as the kernel measured them on this build: a pass is what was measured, never "verified".
     ...(scene.checks && scene.checks.length > 0 ? { checks: scene.checks.map(({ declared: _declared, ...c }) => c) } : {}),
+    // The printer and material the person chose for the project: their numbers, which check and measure default to.
+    ...(deps.profile?.(objectId) ? { printProfile: deps.profile(objectId) } : {}),
     ...(scene.checkNotes && scene.checkNotes.length > 0 ? { checksEasier: scene.checkNotes.map(noteText) } : {}),
     // How each alignment stands, not a bare yes: one that is rough, in doubt or was never checked against this build is not "aligned: true".
     ...(scans && scans.length > 0 ? { scans: scans.map((scan) => scanStanding(scan, scanLayout, revision)) } : {}),

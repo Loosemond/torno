@@ -95,6 +95,37 @@ def groups(p: Params):
 - Name the parts with the group as a prefix (`flat-centre`), so that a reader of the file sees it too.
 - Asked to group parts, edit `groups(p)` in the model: torno keeps no groups of its own.
 
+## References: bought parts
+
+A printed part is usually made around something bought: a screw, a bearing, a board, a motor. Put it in the model with an
+optional `references(p)`, beside `assembly` and `groups`. It is called with the same `Params()` and returns a `dict`
+of name to shape, in the frame of the assembly:
+
+```
+from bd_warehouse.bearing import SingleRowDeepGrooveBallBearing
+
+def references(p: Params):
+    return {"608": Pos(0, 0, 4) * SingleRowDeepGrooveBallBearing(size="M8-22-7", bearing_type="SKT")}
+```
+
+- A reference is **not a part**. It is drawn in a neutral grey (with the tag "bought" in the layers list), picked and
+  measured like a part, and `mcp__torno__check` takes it as the obstacle it is: `clearance` and `overlap` between a
+  part and a reference, and `interference` of the layout (a reference is never judged against another reference). It is
+  not in the `print` layout, not counted by `bed`, has no mass, takes no `thin`, `overhang` or `mesh` check, and is in no
+  STL or 3MF; a STEP holds it only when the person ticks it. `mcp__torno__scene` and `describe` say `role: reference`.
+- It is in every layout but `print`, so it needs an `assembly(p)` (or `make_<part>(p)` functions). Its name is its own:
+  not a part's, no `/`, not of the form `M<n>`. `checks(p)` and `groups(p)` may name it
+  (`{"name": "bearing seat", "kind": "clearance", "a": "housing", "b": "608", "min": 0.05, "max": 0.3}`).
+- A standard part: use `bd_warehouse` (in torno's kernel, see the `build123d` skill), with `simple=True` for a screw.
+  A vendor's part: read its STEP in the model, `import_step(Path(__file__).parent / "reference" / "608zz.step")`
+  (`from pathlib import Path`; the folder `reference/` of the project is where the person puts such a file), and return it among the
+  references. torno reads no file itself. A STEP can be big and is read at every build: say so if a build is slow.
+  A part of many solids or an assembly is taken as the solids it holds, in one shape; its labels are lost.
+- Parts bought for several projects go in `common/` (a save there builds every project that imports from it), as
+  `common/parts.py` with a maker for each, rather than a copy in each model.
+- Give each a place that is true: a reference at the wrong place makes a `clearance` that passes for the wrong reason.
+  Say where it is from (a datasheet, a measurement) in a comment of `Params`.
+
 ## Checks
 
 What must stay true when a size changes can be declared in the model, with an optional `checks(p)` beside `groups`.
@@ -158,6 +189,13 @@ wall: float = 2.0       # assumed: 5 perimeters at 0.4 mm
 board_w: float = 55.2   # datasheet: ESP32-S3 DevKitC-1 v1.1
 clearance: float = 0.2  # person: "0.2 per side"
 ```
+
+**Trying other values.** The person may try another value for a field in torno's window (a literal number or bool, or a
+`Literal`); torno then builds with it, and tells you under `params` (`value` against `default`) and in the first lines of
+each prompt. The file always wins: such a value is dropped when you change that default, so to keep one, edit the default.
+To learn what a different value gives without editing, call `try_params` (it builds a copy and throws it away). Both reach
+the model only through `p`: pass `p` on to helpers, and never make `Params()` inside a function. A range for a slider is the
+field's own `metadata`: `wall: float = field(default=2.0, metadata={"min": 1, "max": 5, "step": 0.2})`.
 
 ## Template
 

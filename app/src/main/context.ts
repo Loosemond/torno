@@ -10,8 +10,9 @@ import type { BuildDigest } from '../shared/sanity'
 import type { Scene } from '../shared/scene'
 import { type ViewState, MAX_SELECTION_REPORTED, planeText } from '../shared/view'
 import type { ObjectInfo } from '../shared/workspace'
+import { type Profile, profileLine } from '../shared/profile'
 import { describeMark } from './marks/describe'
-import { assumedKey, assumedLine } from '../shared/params'
+import { assumedKey, assumedLine, triedLine } from '../shared/params'
 import { digestText, sanity } from './sanity'
 import { alignmentSaid, shownText } from './scans/said'
 import { type BuildVerdicts, verdictChanges } from './verdicts'
@@ -43,6 +44,8 @@ const SELECTION_LIMIT = 1000
 const SELECTED_DESCRIPTOR_LIMIT = 100
 /** The most of it that says what scans the object has, in one line. */
 export const SCANS_LIMIT = 600
+/** The most the line of the person's `Params` overrides takes of the context. */
+export const TRIED_LIMIT = 500
 const MARKS_HEAD = 'Marks from the user (drawn in look pictures with these numbers):'
 const STILL_OPEN_HEAD = 'Marks still open (this conversation has not seen them):'
 /** A tool of torno's as Claude Code names it to its model: what is said when nothing says how another client does. */
@@ -96,6 +99,8 @@ export interface ContextDeps {
   openObjectId(): string | null
   /** The files of the object's `reference/` (`photo-1.jpg`), photos then doodles: told to a new conversation. None when it has none or cannot be read. */
   references?(objectId: string): string[]
+  /** The printer and material the project is made for: told to a new conversation (`profileLine`). None when it has none. */
+  profile?(objectId: string): Profile | undefined
   now?(): number
   /** Takes out of text that is not torno's own what must not be told or logged (the tokens of the sessions): applied to what the model printed. */
   redact?(text: string): string
@@ -239,11 +244,15 @@ function contextText(deps: ContextDeps, objectId: string, marks: readonly Mark[]
   // With no marks the status has what the selection, the scans and the files' line leave; with marks STATUS_LIMIT,
   // which with the three at their limits is still within CONTEXT_LIMIT. The files' line is never what the cut below takes.
   const room = (line: string): number => (line ? line.length + 1 : 0)
-  const limit = told ? STATUS_LIMIT : CONTEXT_LIMIT - room(instructed) - room(selected) - room(scanned)
+  // The person's tries of the model's Params: what the build is made with is not what the file says, so it is said every time.
+  const shownScene = deps.scene(objectId)?.scene
+  const tried = cutEnd(triedLine(shownScene?.params, shownScene?.overrides?.dropped), TRIED_LIMIT)
+  const limit = told ? STATUS_LIMIT : CONTEXT_LIMIT - room(instructed) - room(selected) - room(scanned) - room(tried)
   // Every part of it is fitted to the limit by what it can spare; the cut holds for what none of them
   // foresaw, such as a very long name.
   const lines = [cutEnd(status(deps, objectId, limit), limit)]
   if (lines[0] === '') return { text: '', sentMarkIds: [] }
+  if (tried) lines.push(tried)
   if (selected) lines.push(selected)
   if (scanned) lines.push(scanned)
   const openLine = open.length > 0 && !opts.buildOnly ? `Open marks: ${openMarks(open, revision, toolName)}` : ''
@@ -312,6 +321,9 @@ function contextText(deps: ContextDeps, objectId: string, marks: readonly Mark[]
   if (rest.length > 0 && !opts.buildOnly) lines.push(`Open marks: ${openMarks(rest, revision, toolName, openLine.length - 'Open marks: '.length)}`)
   // A new conversation is told which references there are, last, and only when the line fits: it is no mark.
   const referred = (opts.fresh || opts.newConversation) && !opts.buildOnly ? referencesLine(deps.references?.(objectId) ?? []) : ''
+  // And the print profile, the person's numbers the check and measure tools default to: told the same way, in one line.
+  const profiled = (opts.fresh || opts.newConversation) && !opts.buildOnly ? profileLine(deps.profile?.(objectId)) : ''
+  if (profiled && lines.join('\n').length + 1 + profiled.length + (referred ? 1 + referred.length : 0) + (instructed ? 1 + instructed.length : 0) <= CONTEXT_LIMIT) lines.push(profiled)
   const joined = lines.join('\n')
   // Last, so that nothing above it is given up for it: it takes the room that is left.
   const printed = opts.buildOnly ? printedBlock(deps, objectId, toolName, CONTEXT_LIMIT - joined.length - 1) : ''

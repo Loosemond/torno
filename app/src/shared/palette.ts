@@ -30,6 +30,23 @@ export function colorsByName(names: Iterable<string>): Map<string, string> {
   return new Map(sorted.map((name, index) => [name, colorFor(name, index)]))
 }
 
+/**
+ * The colour of a reference (a bought part, `Part.role`): a neutral grey, the same in both themes, which no part of the
+ * palette is. Equal to --part-reference in styles/tokens.css.
+ */
+export const REFERENCE_COLOR = '#9AA1A8'
+
+/**
+ * One colour per part name as `colorsByName` has it, but for the references, which are all `REFERENCE_COLOR` and do not
+ * take a place in the palette (so adding a bearing to a model does not change the colour of any part).
+ */
+export function colorsOfParts(parts: Iterable<{ name: string; role?: string }>): Map<string, string> {
+  const all = [...parts]
+  const colors = colorsByName(all.filter((part) => part.role !== 'reference').map((part) => part.name))
+  for (const part of all) if (part.role === 'reference') colors.set(part.name, REFERENCE_COLOR)
+  return colors
+}
+
 /** The darker tint of a part colour that its edges are drawn in. */
 export function edgeTint(hex: string): string {
   return mix(hex, '#000000', 0.5)

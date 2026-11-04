@@ -10,7 +10,7 @@ import time
 from typing import Any
 
 from . import extent, topo
-from .queries import QueryError, box_of, boxed_exactly_of, need_layout, need_solid
+from .queries import QueryError, box_of, boxed_exactly_of, is_reference, need_layout, need_made, need_solid
 
 # Faces whose highest point is within this of the lowest of the part, mm, rest on the bed.
 ON_BED = 0.01
@@ -43,6 +43,7 @@ def overhang(shape: Any, part: str, key: str, angle: Any, kept: dict[Any, Any]) 
     if isinstance(angle, bool) or not isinstance(angle, (int, float)) or not 0 < angle < 90:
         raise QueryError("bad_request", "check overhang takes angle, degrees from vertical, above 0 and below 90")
     need_solid(shape, part)
+    need_made(kept, key, part, "an overhang")
     limit = math.sin(math.radians(angle))
     low = box_of(shape, key, kept)[0][2]
     found = []
@@ -97,6 +98,7 @@ def thin(shape: Any, part: str, key: str, least: Any, kept: dict[Any, Any]) -> d
     if isinstance(least, bool) or not isinstance(least, (int, float)) or not 0 < least < 1e6:
         raise QueryError("bad_request", "check thin needs min, the least wall in mm, a number above 0")
     need_solid(shape, part)
+    need_made(kept, key, part, "a wall too thin to print")
     from OCP.gp import gp_Dir, gp_Lin, gp_Pnt
 
     rays = _rays(shape, key, kept)
@@ -166,7 +168,11 @@ def bed(shapes: dict[str, Any], layout: str, size: Any, kept: dict[Any, Any]) ->
     ):
         raise QueryError("bad_request", "check bed needs size, the bed's [x, y, z] in mm, three numbers above 0")
     need_layout(shapes, layout)
-    keys = [k for k in shapes if k.startswith(f"{layout}:")]
+    # A reference is bought, not printed: it takes no room on the bed.
+    keys = [k for k in shapes if k.startswith(f"{layout}:") and not is_reference(kept, k)]
+    left_out = [k.split(":", 1)[1] for k in shapes if k.startswith(f"{layout}:") and is_reference(kept, k)]
+    if not keys:
+        raise QueryError("bad_request", f"{layout} has no part to make: its parts are references (bought)")
     lows, highs, exact = [], [], True
     for k in keys:
         low, high = box_of(shapes[k], k, kept)
@@ -188,6 +194,7 @@ def bed(shapes: dict[str, Any], layout: str, size: Any, kept: dict[Any, Any]) ->
         "exact": exact,
         "how": "the box of the layout's parts as placed, against the bed"
         + ("" if exact else "; approximate: a part's box is exact only of planes and cylinders"),
+        **({"references": left_out} if left_out else {}),
     }
 
 

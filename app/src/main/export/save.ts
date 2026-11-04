@@ -1,7 +1,7 @@
 import { mkdir, open, rename, rm } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import { randomBytes } from 'node:crypto'
-import { type ExportFormat, EXTENSIONS } from '../../shared/exportdata'
+import { type FileFormat, EXTENSIONS } from '../../shared/exportdata'
 import { ensureIgnored } from '../ignored'
 import { FOLDER, ownTorno } from '../own'
 
@@ -13,8 +13,8 @@ import { FOLDER, ownTorno } from '../own'
 
 export const EXPORTS = 'exports'
 
-/** `<dir>/.torno/exports/<name>-r<revision>.html` (or `.step`, `.stl`, `.3mf`); `<name>.html` for a file of several objects, which is of no one build. */
-export function defaultExportPath(dir: string, name: string, revision?: number, format: ExportFormat = 'html'): string {
+/** `<dir>/.torno/exports/<name>-r<revision>.html` (or `.step`, `.stl`, `.3mf`; `.png` and `.svg` of what the person shares of the view); `<name>.html` for a file of several objects, which is of no one build. */
+export function defaultExportPath(dir: string, name: string, revision?: number, format: FileFormat = 'html'): string {
   return join(dir, FOLDER, EXPORTS, `${name}${revision === undefined ? '' : `-r${revision}`}.${EXTENSIONS[format][0]}`)
 }
 
@@ -27,7 +27,7 @@ export async function prepareExports(dir: string): Promise<string> {
 }
 
 /** The path a dialog answered with, as the file is written: ending in the format's extension (`.html` or `.htm`, `.step` or `.stp`, `.stl`, `.3mf`), which is added when it does not. */
-export function exportPath(path: string, format: ExportFormat): string {
+export function exportPath(path: string, format: FileFormat): string {
   const ext = EXTENSIONS[format]
   return ext.some((one) => path.toLowerCase().endsWith(`.${one}`)) ? path : `${path}.${ext[0]}`
 }

@@ -124,7 +124,7 @@ let whole: string
 test('before an object has been built, scene and look say there is no build', async () => {
   await page.emulateMedia({ colorScheme: 'light' })
   bracket = await connect('bracket')
-  expect((await bracket.listTools()).tools.map((t) => t.name).sort()).toEqual(['add_mark', 'ask', 'check', 'describe', 'diff', 'expect', 'features', 'highlight', 'history', 'look', 'marks', 'measure', 'resolve_mark', 'save_view', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show', 'try_fillet'])
+  expect((await bracket.listTools()).tools.map((t) => t.name).sort()).toEqual(['add_mark', 'ask', 'check', 'describe', 'diff', 'expect', 'features', 'highlight', 'history', 'look', 'marks', 'measure', 'resolve_mark', 'save_view', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show', 'try_fillet', 'try_params'])
   const asked: Array<[string, Record<string, unknown>]> = [
     ['scene', {}],
     ['look', {}],
@@ -197,6 +197,20 @@ test('history lists the build kept of the project, with copies of its sources, a
   const same = JSON.parse((await call(bracket, 'diff', { from: first.id, to: 1 })).text)
   expect(same).toMatchObject({ from: first.id, to: 1 })
   expect(same.layouts[0].parts.every((p: { changed: boolean }) => !p.changed)).toBe(true)
+})
+
+test('try_params builds the model with another value of a field, in a worker thrown away, and changes nothing', async () => {
+  const tried = await call(bracket, 'try_params', { set: { width: 55 }, measure: [{ kind: 'bbox', a: 'base' }] })
+  expect(tried.isError).toBe(false)
+  const said = JSON.parse(tried.text)
+  expect(said).toMatchObject({ trial: true, of: 1, set: { width: 55 }, applied: { width: 55 }, built: true })
+  expect(said.reading).toContain('Tried width 55 (file 40) on the model of r1 and thrown away, nothing changed (these are of the trial, not of any build)')
+  // What is not a field, a type or a whole part is refused, saying what it takes.
+  expect((await call(bracket, 'try_params', { set: { nope: 1 } })).text).toContain("nope is not a field of the model's Params; those that can be tried: width")
+  expect((await call(bracket, 'try_params', { set: { width: 55 }, measure: [{ kind: 'bbox', a: 'base/F1' }] })).text).toContain('a trial measures whole parts by name')
+  // The build on screen is as it was.
+  expect((await call(bracket, 'scene')).text).toContain('"revision":1')
+  expect(readFileSync(join(root, 'bracket', 'bracket.py'), 'utf8')).toContain('width: float = 40')
 })
 
 test('look returns the picture the window draws, and keeps a copy under .torno/views', async () => {
@@ -832,7 +846,7 @@ let plateFaces: Array<{ ref: string; descriptor: string }>
 test('measure answers with the exact value, how it was taken and a reading, through refs, points and marks', async () => {
   await openObject('measures')
   measures = await connect('measures')
-  expect((await measures.listTools()).tools.map((t) => t.name).sort()).toEqual(['add_mark', 'ask', 'check', 'describe', 'diff', 'expect', 'features', 'highlight', 'history', 'look', 'marks', 'measure', 'resolve_mark', 'save_view', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show', 'try_fillet'])
+  expect((await measures.listTools()).tools.map((t) => t.name).sort()).toEqual(['add_mark', 'ask', 'check', 'describe', 'diff', 'expect', 'features', 'highlight', 'history', 'look', 'marks', 'measure', 'resolve_mark', 'save_view', 'scan_clash', 'scan_deviation', 'scans', 'scene', 'section', 'show', 'try_fillet', 'try_params'])
   const whole = JSON.parse((await call(measures, 'describe', { ref: 'plate' })).text) as { faceCount: number }
   plateFaces = []
   for (let i = 0; i < whole.faceCount; i += 1) plateFaces.push({ ref: `plate/F${i}`, descriptor: JSON.parse((await call(measures, 'describe', { ref: `plate/F${i}` })).text).descriptor })

@@ -66,6 +66,15 @@ exported page carries no groups yet, so it draws apart part by part.
 - Which groups are folded in the layers list is view state: `folded` (group names) in `scene.json`, read by
   `main/scenefile.ts` as one-line names, each once. A saved view keeps part names, never a group's.
 
+## References
+
+- `Part.role` is `'reference'` for a bought part the model puts among its `references(p)`; absent of a part to make. Whoever
+  lists, exports or counts parts for making leaves such a part out (`main/export/model.ts`, the export sheet's
+  `reference` on `layoutParts`). Its colour is `REFERENCE_COLOR` of `shared/palette.ts`, a neutral grey, and
+  `colorsOfParts` gives every part its colour with the references outside the palette's order (so adding one changes no
+  part's colour): the viewport, the layers list, thumbnails and the exported page all use it, never `colorsByName` of all
+  the names.
+
 ## Views
 
 A saved view is how an object was looked at, kept under a name (`SavedView` in

@@ -184,6 +184,15 @@ is the detail of this folder, under the headings it has there.
   busy with those. The busy answer names the time the query it was given up on had (`_Worker.stuck`): 30 s, or
   120 s behind an export.
   A worker leaves through `os._exit`.
+- **A trial is a worker that answers once and leaves** (`trial` request: `dir`, `model`, `overrides`, `queries`,
+  `timeout`; `Supervisor._trial_request`, `worker._answers`). The supervisor forks it as it forks a build, with
+  the overrides, but it never becomes live, holds no build, and a live worker is never retired for it:
+  `_has_room` asks the same memory as `_make_room` (`ROOM_LEAST` and `ROOM_SPARE` more than the folder's live
+  worker holds) and the trial is refused `no_room` when it is not there, `busy` while a build or another trial
+  runs; a build that starts cancels a trial. The worker loads the model, builds the scene, answers each of at most
+  `MOST_TRIAL_QUERIES` queries in its own process (`queries.run` over its shapes: a query that fails fails alone)
+  and writes one frame with the scene (no mesh) and `answers`, then exits. Its refs are of no build and main gives
+  none. It has the build's timeout and its output is captured the same way.
 - **Files of a build are made by its worker and never written by the kernel** (`export.py`). `export` (`format`
   `step`, `stl` or `3mf`, `layout`, `parts`, `tolerance` mm and `angle` degrees for a mesh, `colors`, `name`)
   answers with the file's bytes as the reply's blob (`queries.WithBlob`, sent by `worker._serve`; every other
@@ -295,6 +304,16 @@ is the detail of this folder, under the headings it has there.
   (`loader.read_params`: name, type as written, default, whether that default is a literal in the source, the
   field's comment) and the build's scene carries it as `params`; `scene` lists it. Nothing in torno writes the
   model file: it is the person's, outside `.torno/`. A `Params` that cannot be read is no failure: `[]`.
+  Each field also says `value` (what this build used), `editable` (`float`, `int`, `bool` or `choice`: only a field
+  whose default is a literal number or bool, or a `Literal` of literals, with a default among them), `choices` and
+  `metadata` (the plain numbers `min`, `max`, `step` of the field's own `metadata`).
+- **A build may carry overrides of `Params`** (`overrides`, field name to a bool, number or string; anything
+  else is a `bad_request`). The loader makes every `Params()` it calls (`assembly`, `printables`, `make_<part>`,
+  `groups`, `checks`) as `dataclasses.replace(Params(), **applied)` (`loader._params`); `apply_overrides` takes only
+  an `editable` field's value of its type (a whole number for a float is made a float, a bool is no number), and
+  drops the rest. The scene's `overrides` says `applied` and `dropped` (`name`, `reason` naming the type wanted),
+  so none is lost silently. A range in a field's metadata is for the window to keep, not enforced here. A model
+  that makes `Params()` itself, not taking `p`, does not see an override.
 - **Groups are read by the worker too.** Under the `Params` convention, an optional `groups(p)` (group name to
   part names) is called with `Params()` by `loader._groups`, inside the load's `try`, and checked against the
   part names of every layout: a dict of str to a list of str, no empty group or name, no `/`, not `M<n>`, not a
@@ -314,6 +333,21 @@ is the detail of this folder, under the headings it has there.
   results as `checks`: `status` (`pass`, `fail`, `error` for one that could not be measured, `not run`), `value`,
   `unit`, `min`, `max`, `exact` and `how` of the kernel, and the `declared` dict. A check that does not pass never
   fails the build; a `thin` that finds none says so by sampling, never as a proof.
+
+- **References are bought parts, read by the worker** (`loader._references`). Under the `Params` convention an optional
+  `references(p)` (name to shape, in the assembly's frame) is called with `Params()` after the layouts are collected and
+  before `groups(p)` and `checks(p)`, which may name them. They are added to every layout but `print` (a model with
+  only a print layout fails the build, saying it needs an assembly), as `loader.Layouts`, a dict that also holds which
+  names are references (`Layouts.references`), so the signature of `load_model` is as it was. A shape with children (a
+  bearing of bd_warehouse, a STEP with an assembly in it) is taken as the compound of its solids, where they are. A
+  name is refused when it is a part's, has a `/`, has the form `M<n>`, or the value has no solid. A vendor STEP is
+  read by the model itself (`import_step`); the kernel reads no file. `tess.build_scene` tells such a part `role:
+  "reference"` and notes it in `kept[("reference", key)]` (`queries.is_reference`), which is all the queries know.
+  A reference is an obstacle: `clearance`, `overlap` and `interference` take it against the parts (`interference`
+  never against another reference, and names them in `references`). It is not made: `bed` leaves it out (and says
+  so), `mass`, `mesh`, `overhang`, `thin` and a STL or 3MF refuse it (`queries.need_made`; a group in a model's
+  `thin`, `overhang` or `mesh` check skips them, and naming one is refused when the model loads), while a STEP may
+  hold it when asked. `describe` says `role: "reference"`.
 
 - **The scene says what the model imported (`uses`).** After the load, the worker (`loader.used_files`, from
   `sys.modules`, never from a declaration) lists the Python files under the workspace (the folder above the

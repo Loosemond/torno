@@ -67,7 +67,7 @@ the Python file, and torno shows it.
   deviation against it. torno always marks scan numbers as approximate.
 - **Start from what you have.** A new project can start from a description, photos, doodles, scans and other
   projects in the workspace. Claude gets all of it with its first prompt.
-- **Export.** A single HTML file anyone can open in a browser without installing anything, or STEP, STL and 3MF. [See one](https://luisg0nc.github.io/torno/): a bracket with two marks, in your browser.
+- **Export.** A single HTML file anyone can open in a browser without installing anything, or STEP, STL and 3MF, a PNG of the view, and an SVG or PDF drawing of a section at true scale. [See one](https://luisg0nc.github.io/torno/): a bracket with two marks, in your browser.
 - **Local.** torno itself uploads nothing. The agent is your own `claude`, under your own login, and torno
   leaves its settings alone. In your folders, torno writes only under `<project>/.torno/`.
 
@@ -147,7 +147,7 @@ server on `127.0.0.1`. See [Projects and builds](docs/manual.md#projects-and-bui
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`) on your `PATH`, logged in
 
 torno checks all of this on its first screen, under "Ready to work", and says what's missing. The first build
-sets up torno's own Python environment with build123d (about 900 MB, once). If your workspace has its own
+sets up torno's own Python environment with build123d and bd_warehouse (about 900 MB, once). If your workspace has its own
 `pyproject.toml`, torno uses that environment instead and never changes it. Run `uv sync` there once yourself.
 More in [Requirements](docs/manual.md#requirements).
 

@@ -196,6 +196,8 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 
 ## Layers
 
+- `ui/Layers.tsx`: a reference (`Part.role`, a bought part) has the neutral swatch (`colorsOfParts`) and the tag "bought"
+  (`.layer-bought`), and is otherwise a row like any (it can be picked, hidden, made translucent).
 - `ui/Layers.tsx`: the groups of the layout (`groupsIn`) come first, a header each (`li.layer-group`,
   `data-group`): a fold chevron (`aria-expanded`, `Fold flat` / `Unfold flat`), the name and the count in the
   monospace face, "Show only" (on hover, as the opacity slider; `actions.soloLayers`) and an eye whose
@@ -236,6 +238,15 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   the row's title (type, value whole, comment) and then what a click does. With no session running a row is text, not a
   button, and the description says to start one (`e2e/params.spec.ts`, which writes its own `Params` into its copy of a
   fixture).
+- **Trying a value.** A field the kernel says is `editable` (`Param.editable`: `float`, `int`, `bool`, `choice`)
+  has a control under its name (`ParamControl`): a number field, plus a slider when the model gives `min` and `max`
+  in the field's `metadata`; a checkbox; a select. A number is taken on Enter or when the field is left, a slider when
+  it is let go of (`onPointerUp`, `onKeyUp`): a build runs then, never while it moves. It asks main
+  (`object.setParam`, `object.resetParams`; a refusal is said under the title) and the control starts again from
+  `Param.value`, the value the last build used (keyed by it), so the window holds no override of its own. A row built
+  with a value other than the default (`tried`) says `differs from the file` with a "Reset"; the default stays on
+  the line. `Scene.overrides.dropped` is shown on its row (`param-note`). "Ask the agent to bake it in"
+  (`bakeText`) puts a request in the session's box like a row's click does, never sent; "Reset all" resets every field.
 
 ## Checks
 
@@ -249,6 +260,14 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   replaces or silences a person's dimension. Under the rows, what the agent made easier to pass or removed since it was
   first declared (`checkNotes`, `since r7`). A model with no checks, or a kernel that does not read them, has no section
   (`e2e/checks.spec.ts`).
+
+## Print profile
+
+- `ui/PrintProfile.tsx`, under Checks: a section (`print` in `ColumnSection`, folded at first; its title says
+  `Bambu X1C, PETG` or `none`) with two lists, Printer and Material, and "Add a printer…" (name, bed X Y Z, nozzle),
+  through `window.torno.profile` (`profile:*` channels). A choice is copied into the object's `.torno/profile.json` by
+  main; the printers are the person's, in torno's settings. The numbers shown are the person's, set in the monospace
+  face, with the line that they are not measured. Materials of the person's own are added in `profiles.json` (no form).
 
 ## Section
 
@@ -578,7 +597,7 @@ is the detail of this folder, under the headings it has there. Paths are from `a
 - **The draft** (`state/onboard.ts`) lives in the window, for the workspace it was begun in, until the object is made
   or the person throws it away; nothing of it is on disk, and it is dropped when the workspace root changes. Caps
   are `MOST_REFERENCES` (shared with main), a photo or scan is refused as a duplicate by path and an object by id.
-  A doodle keeps its strokes as vectors as well as its PNG, so that it is opened again to change. `epoch()` goes up
+  A bought part (`steps`: a vendor's STEP file, by path; a dropped `.step`/`.stp`, 50 MB at most) is named in the preview and the prompt by the `reference/` file `stepFiles` gives it (`make.ts` `stepReferences`). A doodle keeps its strokes as vectors as well as its PNG, so that it is opened again to change. `epoch()` goes up
   at each discard: photos being read when the draft was thrown away are not put back. The held first prompt
   (`hold/take/dismiss`) is in the same store.
 - **Keys** are rows of `shared/keys.ts`: `new.back` (Esc) in the scope `newobject`, and the board's `board.undo` (Ctrl+Z) in the scope `sheet`. The
@@ -900,3 +919,13 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   tolerance and an angle typed in, and Export is off while either is out of its range. A 3MF has "Open it once
   saved", off by default. The window sends names and numbers and never a path; once saved, the sheet says where,
   of which build, and what the read-back checked (`ExportSaved.checked`), every number in the monospace face.
+- **The sheet is grouped by who will open the file** (`READERS` in `ui/ExportSheet.tsx`, inside the group "Format"): "A page to
+  look at" (HTML page), "The CAD file" (STEP, STL, 3MF), and, only where the sheet is of the open project's view
+  (`ofView`: an object on show, not the page of projects), "A picture" (PNG) and "A drawing of a section" (SVG, PDF).
+  A picture or a drawing is of the open project as it is on screen: the sheet then shows no list of projects, `ViewChoices`
+  in its place (a picture's long edge, `PICTURE_SIZES` 1280 to 4000, "Marks", "Axes and scale bar"; a drawing needs a section on
+  screen and says so, with Export off, when there is none). The window draws the picture itself (`pictureForPerson` in
+  `state/agent.ts`, the code of `look` with `ImageRequest.person`) and hands main its bytes with the object's id
+  (`export.savePicture`); the drawing is made in main (`export.saveSection(id, 'svg' | 'pdf')`, no bytes from the window).
+  Main asks where to save, so the window names no path. `person` is set only there: a request of the agent's, which comes
+  over `view:look`, is held to 2000 px (`connectLook`). Its saved line offers "Show in folder", never "Open in browser".

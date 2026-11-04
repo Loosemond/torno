@@ -70,7 +70,7 @@ export function DraftPane({ preview, words, thumbs }: { preview: PromptPreview |
 }
 
 /** The person's own words in a draft, which the prompt carries as they were written. */
-export const wordsOf = (d: Draft): string[] => [d.description, ...d.photos.map((p) => p.note), ...d.doodles.map((x) => x.note), ...d.scans.map((s) => s.note), ...d.objects.map((o) => o.note)]
+export const wordsOf = (d: Draft): string[] => [d.description, ...d.photos.map((p) => p.note), ...d.doodles.map((x) => x.note), ...d.steps.map((s) => s.note), ...d.scans.map((s) => s.note), ...d.objects.map((o) => o.note)]
 
 /** The same, of the draft being made: asked of main again 300 ms after each change. */
 export function DraftPaneLive() {

@@ -34,6 +34,8 @@ _KINDS: dict[str, tuple[tuple[str, ...], tuple[str, ...], str]] = {
     "bed": (("size",), (), "mm"),
     "interference": ((), (), "pairs"),
 }
+# The kinds that are of a part to make: a reference (bought) has no print to judge.
+_FOR_MAKING = ("thin", "overhang", "mesh")
 # The kinds that must say what they want: the others want none (nothing shared, nothing open, nothing over).
 _WANT_BOUNDS = ("clearance", "solids", "volume")
 
@@ -59,6 +61,7 @@ def validate(
         raise Malformed(f"checks() returned {len(made)} declarations; at most {MOST_CHECKS}")
     parts = list(dict.fromkeys(name for layout in layouts.values() for name in layout))
     names = {g["name"] for g in groups}
+    bought = getattr(layouts, "references", frozenset())
     known = ", ".join([*parts, *sorted(names)])
     allowed = kinds()
     told, seen = [], set()
@@ -89,6 +92,8 @@ def validate(
                 raise Malformed(f"{where}: {kind} needs {key}, the name of a part or a group")
             if ref not in parts and ref not in names:
                 raise Malformed(f"{where}: {key} names {ref!r}, which is no part or group; they are {known}")
+            if kind in _FOR_MAKING and ref in bought:
+                raise Malformed(f"{where}: {kind} is of a part to make and {ref!r} is a reference (bought)")
         if "equals" in takes:
             _bounds(declaration, where, required=kind in _WANT_BOUNDS)
         if kind == "thin":
@@ -250,7 +255,7 @@ def _measure(
     held: dict[Any, Any],
 ) -> dict[str, Any]:
     from . import checks, measure, topo
-    from .queries import QueryError
+    from .queries import QueryError, is_reference
 
     kind = declaration["kind"]
     layout = _layout(declaration, layouts, members)
@@ -260,6 +265,11 @@ def _measure(
         return checks.check(shapes, {"layout": layout, **args}, held)
 
     ones = _expand(declaration["a"], layout, layouts, members) if "a" in declaration else []
+    if kind in _FOR_MAKING:
+        # A group may hold bought parts beside the printed ones; there is nothing of them to judge.
+        ones = [a for a in ones if not is_reference(held, f"{layout}:{a}")]
+        if not ones:
+            raise _Cannot(f"{declaration['a']} is bought (references), and {kind} is of the parts to make")
     others = _expand(declaration["b"], layout, layouts, members) if "b" in declaration else []
     exact, how, ok = True, "", None
     value: float | None
