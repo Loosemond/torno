@@ -1,0 +1,35 @@
+name: Pages
+
+# GitHub Pages: the exported bracket at / (site/index.html, made by app/e2e/site.spec.ts and checked in) and the
+# manual at /manual/ (from the next commit). Pages must be set to deploy from
+# GitHub Actions (Settings, Pages, Source).
+
+on:
+  push:
+    branches: [main]
+    paths: [site/**, docs/**, app/scripts/build-manual.mjs, app/scripts/manual-page.mjs, .github/workflows/pages.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4
