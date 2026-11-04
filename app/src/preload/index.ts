@@ -147,6 +147,7 @@ const bridge: TornoBridge = {
     lastConversation: (objectId) => invokePlain('chat:lastConversation', objectId),
     reference: (sessionId, file) => invokePlain('chat:reference', sessionId, file),
     changes: (sessionId, turnId) => invokePlain('chat:changes', sessionId, turnId),
+    undo: (sessionId, turnId) => invokePlain('chat:undo', sessionId, turnId),
     onItem: (cb) => subscribe('chat:item', cb),
     onMeta: (cb) => subscribe('chat:meta', cb),
     onCapabilities: (cb) => subscribe('chat:capabilities', cb),

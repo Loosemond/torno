@@ -1412,6 +1412,32 @@ describe('the transcript of a chat session', () => {
     expect(await tSessions.changesOf(c.id, 'no-such-turn')).toBeUndefined()
   })
 
+  it('asks the agent to undo the last turn with a prompt of torno\'s own, after a note, and writes nothing itself', async () => {
+    const c = await start()
+    writeFileSync(join(c.obj.dir, 'part.py'), 'W = 1\nH = 5\n')
+    await c.send('edit part.py "W = 1" "W = 2"\nsay done')
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(1)
+    const turn = c.items().find((i) => i.kind === 'turn')!
+    // Only the last turn, and one main holds the changes of.
+    await expect(tSessions.undoTurn(c.id, 'no-such-turn')).rejects.toThrow('Only the last turn can be undone')
+    await tSessions.undoTurn(c.id, turn.id)
+    // The stand-in only plays the words it knows: the file is as the turn left it, because torno wrote nothing.
+    expect(readFileSync(join(c.obj.dir, 'part.py'), 'utf8')).toBe('W = 2\nH = 5\n')
+    await expect.poll(() => c.turns(), { timeout: 5000 }).toBe(2)
+    const items = c.items()
+    const note = items.find((i) => i.kind === 'note' && i.text.startsWith('Undo:'))
+    expect(note).toMatchObject({ tone: 'quiet' })
+    expect((note as { text: string }).text).toContain('part.py')
+    const asked = items.filter((i) => i.kind === 'user')[1] as { text: string }
+    expect(asked.text).toContain('Undo your last turn')
+    expect(asked.text).toContain('part.py, from line 1:\n- W = 2\n+ W = 1\n  H = 5')
+    expect(items.indexOf(note!)).toBeLessThan(items.indexOf(asked as ChatItem))
+    // The first turn is no longer the last, and a turn that changed nothing has nothing to undo.
+    await expect(tSessions.undoTurn(c.id, turn.id)).rejects.toThrow('Only the last turn can be undone')
+    const last = c.items().filter((i) => i.kind === 'turn')[1]
+    await expect(tSessions.undoTurn(c.id, last.id)).rejects.toThrow('Nothing is kept of what that turn changed')
+  })
+
   it('does not leave a queued command that is no turn queued, and puts a prompt that begins after the one at work', async () => {
     const c = await start()
     await c.send('slow 0.5')

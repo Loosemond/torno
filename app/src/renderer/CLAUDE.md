@@ -707,8 +707,11 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   kept (`chat.changes`, in memory, the last 20 turns; none is "No change ... is kept for this turn"), "Changes" (the
   file before against after, `Diff` with `ofEdit` false, so without the caption that is true only of an edit's lines)
   or "Whole file" (read only, the monospace face, no refs searched), and, below, the builds taken together
-  (`netParts`: a part's volume and faces from the first digest's `before` to the last's `after`, `≈` unless exact). A
-  further action for a turn (to undo it) is one more button in `TurnActions`, given the turn's `item` and `account`.
+  (`netParts`: a part's volume and faces from the first digest's `before` to the last's `after`, `≈` unless exact). "Undo"
+  (`Undo` in `TurnEnd.tsx`, `chat.undo`) is beside it on the last turn only: `ChatPane` gives its id to `UndoableTurn` while
+  the session is live and idle and no prompt of the person's follows that turn. It asks once in the row (a group named "Undo
+  this turn", "Ask to undo" / "Keep it"), main sends the prompt and a note, and a refusal of main is said beside the button.
+  A further action for a turn is one more button in `TurnActions`, given the turn's `item` and `account`.
 - Refs are chips (`RefChip`, `refs.ts` `refInfo`): hover lights the ref through `peek` in `state/agent.ts`, which
   is not an agent highlight (no agent line, no locked tools) and is drawn in the accent on a layer of its own
   (`point` in `viewport/highlight.ts`, `Viewport.setPointed`), never in a mark's colour, whoever made the mark it is

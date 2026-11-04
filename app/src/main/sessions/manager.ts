@@ -32,6 +32,8 @@ import type { AgentAsk, AgentMessage, AgentTransport, AskAnswer, PromptBlock } f
 import { Transcript } from './transcript'
 import { changesBetween, KeptChanges, type Snapshot, snapshotSources } from './snapshots'
 import type { TurnChanges } from '../../shared/changes'
+import { Refusal } from '../refusal'
+import { undoFiles, undoPrompt } from './undo'
 
 const HOOK_BODY_LIMIT = 1024 * 1024
 const KILL_AFTER_MS = 2000
@@ -864,6 +866,37 @@ export class Sessions {
     const chat = this.records.get(sessionId)
     await chat?.settling
     return chat?.changes.get(turnId)
+  }
+
+  /**
+   * "Undo" on the last turn: a prompt of torno's own words asks the agent to put the model files back as they were
+   * before that turn, with the lines to reverse (from the kept `changes`), after a note that says what was asked. Torno
+   * writes nothing of the model: the agent edits, through the permission card of each edit. Refused (a `Refusal`,
+   * nothing sent) unless the session is idle, the turn is the last of its transcript and main holds what it changed.
+   */
+  async undoTurn(sessionId: string, turnId: string): Promise<void> {
+    const s = this.chat(sessionId, 'undo')
+    if (!s?.agent || !s.chat) throw new Refusal('This session has ended')
+    const busy = (): boolean => s.status === 'working' || s.status === 'needs_input' || (s.chat?.transcript.untakenCount() ?? 0) > 0
+    if (busy()) throw new Refusal('Wait for the turn to end')
+    const items = s.chat.transcript.items()
+    if (items.findLast((item) => item.kind === 'turn')?.id !== turnId || items[items.length - 1]?.kind === 'user') throw new Refusal('Only the last turn can be undone')
+    const changes = await this.changesOf(sessionId, turnId)
+    if (!changes || changes.files.length === 0) throw new Refusal('Nothing is kept of what that turn changed in the model, so it cannot be undone from here')
+    // What the files hold now: one the person saved since is told to the agent, which reads it before it reverses a line.
+    const read = await snapshotSources(s.chat.dir)
+    const now = new Map<string, string | null>()
+    for (const { file } of changes.files) {
+      const held = read.get(file)
+      now.set(file, held && 'text' in held ? held.text : null)
+    }
+    // A moment passed while the files were read.
+    if (!this.chat(sessionId, 'undo')) throw new Refusal('This session has ended')
+    if (busy()) throw new Refusal('Wait for the turn to end')
+    const names = undoFiles(changes)
+    const shown = names.length > 3 ? `${names.slice(0, 3).join(', ')} and ${names.length - 3} more` : names.join(', ')
+    s.chat.transcript.note(`Undo: Claude Code is asked to put ${shown} back as it was before that turn, with the lines to reverse, which torno read before and after it. It edits through its usual permission card; torno writes nothing.`, 'quiet')
+    this.prompt(sessionId, [{ type: 'text', text: undoPrompt(changes, now) }])
   }
 
   /** A turn has ended: the sources now, against the sources when its prompt was sent; kept only when they differ. Never written. */

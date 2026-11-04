@@ -573,6 +573,19 @@ button.ref-chip {
   margin-top: var(--space-1);
 }
 
+/* The question "Undo" asks once, and the reason when main refuses: in the row, in the muted face. */
+.chat-turn-undo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--muted);
+}
+
+.chat-turn-problem {
+  color: var(--muted);
+}
+
 /* The sheet of what a turn changed in the model's file, over the transcript as a picture shown large is. */
 .changes-sheet {
   position: absolute;

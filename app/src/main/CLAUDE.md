@@ -1024,6 +1024,15 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   the tools); a file outside the folder is not. `chat:changes(sessionId, turnId)` answers null for a session that is not
   of the open workspace and for a turn it holds nothing of (also one that changed no file there); it waits for the
   turn's snapshot to be read. The window draws the diff (`ChangesSheet`); torno never writes the model.
+  **Undo** (`Sessions.undoTurn`, `chat:undo`, `sessions/undo.ts`) is a request, not a restore: for the last turn of an
+  idle chat (refused with a `Refusal` otherwise: working or asking, a prompt untaken, not the last turn, nothing kept of it)
+  main puts a quiet note in the transcript and sends one prompt of its own words (`undoPrompt`), as the person's, that asks
+  the agent to put the files back, with the lines to reverse (`reverseBlock`: what the file has now between what the two
+  texts share at their ends as `-`, what it had as `+`, a line of context each side; at most `MAX_REVERSE_CHARS`, 12,000, for
+  all files, a file beyond it or too large to have been kept being named without lines; a file the person saved since,
+  read again now, is said to have changed). The agent edits, through its own tools and permission cards: torno writes nothing
+  of the model, and this rule is unchanged. Claude Code's checkpoints (`--rewind-files`) are not used: they await the spike
+  in the manual's "Not yet verified" (`Part of #131`).
 - The first prompt of a new conversation (`newConversation`: a session not resumed, its first `UserPromptSubmit`;
   or `fresh`, after /clear or after a compaction: the `PostCompact` hook, which moves no status, or the stream's
   `compact_boundary`, either sets `Session.compacted`, which the next prompt takes once as `fresh`) is told in a last line the files of `reference/` (`referencesLine` in `context.ts`,

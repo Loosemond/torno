@@ -64,7 +64,7 @@ function handle(channel: string, fn: (event: Electron.IpcMainInvokeEvent, ...arg
 //           workspace:recent, workspace:forget, workspace:hasExample, workspace:openExample,
 //           object:open, object:rebuild, object:sceneFile,
 //           session:current, session:start, session:trust, session:instructions, session:revealInstruction, session:stop, session:chooseView,
-//           chat:history, chat:lastConversation, chat:reference, chat:changes, chat:send, chat:interrupt, chat:setModel, chat:setEffort, chat:models,
+//           chat:history, chat:lastConversation, chat:reference, chat:changes, chat:undo, chat:send, chat:interrupt, chat:setModel, chat:setEffort, chat:models,
 //           marks:list, marks:add, marks:update, marks:acknowledge, marks:remove, marks:restore, marks:replace, marks:problem (also sent to the renderer),
 //           marks:dismissProblem, geometry:describe, geometry:measure,
 //           scans:list, scans:pick, scans:import, scans:convert, scans:rename, scans:remove, scans:align, scans:mesh,
@@ -690,6 +690,12 @@ export function registerIpc(
     const chat = sessions?.chatOf(String(sessionId))
     if (!chat || !sessionOfWorkspace(chat, current?.info.root) || typeof turnId !== 'string') return null
     return (await sessions?.changesOf(String(sessionId), turnId)) ?? null
+  })
+
+  handle('chat:undo', async (_event, sessionId: string, turnId: string) => {
+    if (!ofThisWorkspace(String(sessionId))) throw new Refusal('This session has ended')
+    if (typeof turnId !== 'string') throw new Refusal('Nothing to undo')
+    await requireSessions().undoTurn(String(sessionId), turnId)
   })
 
   handle('chat:send', async (_event, sessionId: string, prompt: { text?: unknown; attachView?: unknown; attachedView?: unknown; drawing?: unknown }) => {
