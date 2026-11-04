@@ -83,6 +83,12 @@ export const NOT_HELD = 'the kernel no longer holds this build'
  */
 export class NotBuilding extends KernelError {}
 
+/** The person's overrides of `Params`, as `paramsfile.ts` keeps them. */
+export interface OverridesPort {
+  values: (dir: string) => Record<string, number | boolean | string>
+  reconcile: (dir: string, scene: Scene) => Promise<{ stale: boolean }>
+}
+
 type SceneMessage = { objectId: string; revision: number; scene: Scene; blob: Buffer }
 type LastGood = { revision: number; scene: Scene; blob: Buffer }
 
@@ -134,6 +140,7 @@ export class Builds {
   private readonly now: () => number
   private readonly exists: (path: string) => boolean
   private readonly timeout: number | undefined
+  private readonly overrides: OverridesPort | undefined
   private readonly entries = new Map<string, Entry>()
   private readonly buildListeners: Array<(s: BuildState) => void> = []
   private readonly sceneListeners: Array<(m: SceneMessage) => void> = []
@@ -148,12 +155,19 @@ export class Builds {
     exists?: (path: string) => boolean
     /** Seconds a build may take; the kernel's default when left out. */
     timeout?: number
+    /**
+     * The person's overrides of `Params` (see `paramsfile.ts`): `values` are what the next build of the folder
+     * carries; `reconcile` holds a good build's scene against them, lets go of those that cannot stand, and says
+     * whether the build is of one that was (so that another follows).
+     */
+    overrides?: OverridesPort
   }) {
     this.kernel = deps.kernel
     this.watch = deps.watch
     this.now = deps.now ?? Date.now
     this.exists = deps.exists ?? existsSync
     this.timeout = deps.timeout
+    this.overrides = deps.overrides
     this.kernel.onExit(() => this.kernelStopped())
   }
 
@@ -417,8 +431,21 @@ export class Builds {
         this.set(other, { ...other.state })
       }
     }
-    const opts = { ...(this.timeout === undefined ? {} : { timeout: this.timeout }), onStarted }
-    void this.kernel.build(obj.dir, obj.model, opts).then((result) => this.withRefs(entry, result)).then((result) => {
+    const overrides = this.overrides?.values(obj.dir) ?? {}
+    const opts = { ...(this.timeout === undefined ? {} : { timeout: this.timeout }), ...(Object.keys(overrides).length > 0 ? { overrides } : {}), onStarted }
+    void this.kernel
+      .build(obj.dir, obj.model, opts)
+      .then((result) => this.withRefs(entry, result))
+      // The person's overrides against what the build found: those that cannot stand are let go of, and the build is then made again.
+      .then((result) =>
+        this.overrides && result.ok
+          ? this.overrides.reconcile(obj.dir, result.scene).then(
+              (held) => ({ result, stale: held.stale }),
+              () => ({ result, stale: false })
+            )
+          : { result, stale: false }
+      )
+      .then(({ result, stale: overridden }) => {
       const current = this.entries.get(id) === entry && entry.attempt === attempt
       if (current && this.running === id) this.running = null
       if (current) {
@@ -437,7 +464,7 @@ export class Builds {
         else if (displaced) this.displaced.add(id)
         else this.failed(entry, result.error)
         // A listener may have closed the object, or started it again, by now.
-        if (again && !displaced && this.entries.get(id) === entry && entry.attempt === attempt) this.start(entry, true)
+        if ((again || overridden) && !displaced && this.entries.get(id) === entry && entry.attempt === attempt) this.start(entry, true)
       }
       // Otherwise a newer build of this object replaced this one, or the object
       // was closed: whatever the result says, it is not shown.

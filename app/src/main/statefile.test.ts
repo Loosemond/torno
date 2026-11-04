@@ -65,6 +65,13 @@ describe('stateText', () => {
     expect(stateText(obj, OK, { revision: 3, scene: SCENE }, [])).not.toContain('## Params')
   })
 
+  it('says which Params the person tried, in a section of its own', () => {
+    const param = (name: string, def: number, value: number) => ({ name, type: 'float', default: def, value, literal: true, doc: null })
+    const text = stateText(obj, OK, { revision: 3, scene: { ...SCENE, params: [param('wall', 2, 2.4), param('lip', 3, 3)] } }, [])
+    expect(text).toContain('## Params tried\n\nParams tried by the person (this build is made with them; the model file says otherwise): wall 2.4 (file 2).')
+    expect(stateText(obj, OK, { revision: 3, scene: { ...SCENE, params: [param('wall', 2, 2)] } }, [])).not.toContain('Params tried')
+  })
+
   it('writes the digest of a build that worked under it, naming the tools as tools', () => {
     const sound = (name: string, more: Partial<Part> = {}): Part => ({ ...part('assembly', name, [0, 0, 0], [10, 10, 10]), volume: 1000, faceCount: 6, edgeCount: 12, valid: true, solids: 1, openShells: 0, ...more }) as Part
     const before = { revision: 2, scene: { ...SCENE, layouts: ['assembly'], parts: [sound('base'), sound('post')] } }

@@ -111,6 +111,13 @@ export interface TornoBridge {
   object: {
     open(id: string): Promise<BuildState>            // starts watching and building
     rebuild(id: string): Promise<void>
+    /**
+     * Try `value` for a field of the model's `Params` in place of the file's default (kept in `.torno/params.json`;
+     * the model is never written) and build again. Rejects, saying why, for a field the model does not offer.
+     */
+    setParam(id: string, name: string, value: number | boolean | string): Promise<void>
+    /** Back to the file's values: one field's override, or all of them; builds again. */
+    resetParams(id: string, name?: string): Promise<void>
     loadSceneFile(id: string): Promise<SceneFile>    // <object>/.torno/scene.json, defaults when there is none
     saveSceneFile(id: string, file: SceneFile): void
     onBuild(cb: (s: BuildState) => void): () => void

@@ -179,6 +179,8 @@ export function sceneTool(deps: ToolDeps, objectId: string, marks?: readonly Mar
     ...(scene.uses && scene.uses.length > 0 ? { uses: scene.uses } : {}),
     // The model's Params as the kernel read them from the source: read only, the model file is the user's.
     params: scene.params ?? [],
+    // The person's overrides of those Params this build was made with (value differs from default), and those let go of.
+    ...(scene.overrides && (Object.keys(scene.overrides.applied).length > 0 || scene.overrides.dropped.length > 0) ? { paramsTried: scene.overrides } : {}),
     ...(groups.length > 0 ? { groups } : {}),
     parts: listing.parts,
     ...(listing.extra),

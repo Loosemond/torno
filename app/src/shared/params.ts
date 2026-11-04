@@ -56,3 +56,36 @@ export const assumedKey = (params: readonly Param[] | undefined): string => {
   const { assumed, unsaid } = sourceCount(params)
   return `${assumed.map((p) => `${p.name}=${value(p)}`).join(',')}|${unsaid.map((p) => p.name).join(',')}`
 }
+
+/** A field built with a value other than the file's default: the person's override, or a trial's. */
+export interface Tried {
+  name: string
+  value: unknown
+  default: unknown
+}
+
+/** What a value of a field is said as: a number to three decimals, anything else as it is. */
+export const said = (v: unknown): string => String(typeof v === 'number' ? Math.round(v * 1000) / 1000 : v)
+
+/** The fields whose value in this build is other than the default the file gives, in the model's order. */
+export function triedParams(params: readonly Param[] | undefined): Tried[] {
+  const tried: Tried[] = []
+  for (const p of params ?? []) if (p.value !== undefined && p.value !== p.default) tried.push({ name: p.name, value: p.value, default: p.default })
+  return tried
+}
+
+/**
+ * `Params tried by the person (…): wall 2.4 (file 2), lid false (file true).`; '' when the build used the file's
+ * values. `dropped` are overrides let go of, each with its reason.
+ */
+export function triedLine(params: readonly Param[] | undefined, dropped: ReadonlyArray<{ name: string; reason: string }> = []): string {
+  const tried = triedParams(params)
+  const parts: string[] = []
+  if (tried.length > 0) {
+    parts.push(
+      `Params tried by the person (this build is made with them; the model file says otherwise): ${tried.map((t) => `${t.name} ${said(t.value)} (file ${said(t.default)})`).join(', ')}. To make one the default, edit it in the model.`
+    )
+  }
+  if (dropped.length > 0) parts.push(`Params overrides let go of: ${dropped.map((d) => `${d.name} (${d.reason})`).join('; ')}.`)
+  return parts.join(' ')
+}

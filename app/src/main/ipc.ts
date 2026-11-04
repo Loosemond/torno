@@ -32,6 +32,7 @@ import { Refusal, refusable } from './refusal'
 import { type AlignCheckDeps, checkingAlignments, heldNow, keepChecking, tiedToMoved, uncheckedOn } from './scans/alignCheck'
 import { frameOf } from './scans/alignments'
 import type { ScanStore } from './scans/store'
+import { forgetParamFiles, overrideValues, reconcile, resetOverrides, setOverride } from './paramsfile'
 import { forgetSceneFiles, loadSceneFile, saveSceneFile, sceneFileNow } from './scenefile'
 import { EFFORTS, isEffort, isMode, MODES, MODEL_ALIASES, MODEL_NAME, type ChatAnswer } from '../shared/chat'
 import type { AgentView, CreateRequest, OnboardDraft, PromptPreviewDraft } from '../shared/bridge'
@@ -223,6 +224,7 @@ export async function openWorkspace(root: string, opts: { example?: boolean } = 
   const builds: Builds = new Builds({
     kernel,
     timeout: buildTimeout(process.env),
+    overrides: { values: overrideValues, reconcile },
     // Which file is an object's model can change with its folder's contents (a
     // first candidate added, the model renamed), so a change there is a reason
     // to choose again before building. The choice is `builds.choice`: an open
@@ -345,6 +347,7 @@ export async function closeWorkspace(): Promise<void> {
   offered.clear()
   forgetViews()
   forgetSceneFiles()
+  forgetParamFiles()
   forgetExportScans()
   // A check of its marks that failed is not tried again: its timers would outlive it.
   ws.reanchor?.cancel()
@@ -604,6 +607,25 @@ export function registerIpc(
 
   handle('object:rebuild', (_event, id: string) => {
     requireWorkspace().builds.rebuild(id)
+  })
+
+  handle('object:setParam', async (_event, id: string, name: string, value: unknown) => {
+    const ws = requireWorkspace()
+    const obj = ws.info.objects.find((o) => o.id === id)
+    if (!obj) throw new Refusal(`no project named ${id}`)
+    const field = ws.builds.scene(id)?.scene.params?.find((p) => p.name === name)
+    if (!field) throw new Refusal(`${name} is not a field of the model's Params in the last build`)
+    if (!field.editable) throw new Refusal(`${name} cannot be tried here: only a number, a flag or a choice with a literal default can`)
+    await setOverride(obj.dir, name, value, field.default)
+    ws.builds.changed(id)
+  })
+
+  handle('object:resetParams', async (_event, id: string, name?: string) => {
+    const ws = requireWorkspace()
+    const obj = ws.info.objects.find((o) => o.id === id)
+    if (!obj) throw new Refusal(`no project named ${id}`)
+    await resetOverrides(obj.dir, name)
+    ws.builds.changed(id)
   })
 
   handle('object:sceneFile', (_event, id: string): Promise<SceneFile> => {

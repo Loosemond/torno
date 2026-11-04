@@ -160,7 +160,7 @@ class Kernel implements KernelClient {
     this.spawn()
   }
 
-  build(dir: string, model: string, opts?: { timeout?: number; onStarted?: (started: { retired: string[] }) => void }): Promise<BuildResult> {
+  build(dir: string, model: string, opts?: { timeout?: number; overrides?: Record<string, number | boolean | string>; onStarted?: (started: { retired: string[] }) => void }): Promise<BuildResult> {
     if (this.disposed) return Promise.resolve(failure('cancelled', 'the kernel was shut down'))
     if (this.stopped) {
       this.stopped = false
@@ -170,7 +170,7 @@ class Kernel implements KernelClient {
     return new Promise((resolve) => {
       const id = this.nextId++
       this.pending.set(id, { type: 'build', resolve, onStarted: opts?.onStarted })
-      this.send({ id, op: 'build', dir, model, ...(opts?.timeout === undefined ? {} : { timeout: opts.timeout }) })
+      this.send({ id, op: 'build', dir, model, ...(opts?.timeout === undefined ? {} : { timeout: opts.timeout }), ...(opts?.overrides && Object.keys(opts.overrides).length > 0 ? { overrides: opts.overrides } : {}) })
     })
   }
 

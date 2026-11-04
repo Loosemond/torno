@@ -273,6 +273,27 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   `assumed`). The answer to an edit adds `Assumed: …; no source: n` (`paramsLine` in `context.ts`) only when the set
   differs from the build before's, compared from the two kept scenes, so no state is tracked.
 
+## Params the person tries
+
+- `<object>/.torno/params.json` (`{ "overrides": { "wall": { "value": 2.4, "default": 2 } } }`, `src/main/paramsfile.ts`)
+  holds the values the person tries in place of the model's defaults, with the default the file had when each was
+  made. Main is the only writer: one change at a time per folder, atomically (`writeOwn`), git-ignored
+  (`ensureIgnored`), the memory put back when a write fails. The model file is never written: that is the rule that
+  keeps torno from being a modeller, and the one thing that bakes a value in is the agent editing the model.
+  `Builds` gives every build of the folder `overrideValues(dir)` (`overrides` of the kernel's build request, which
+  applies only what an `editable` field of its type can take and says what it dropped).
+- **The file always wins.** After each good build `reconcile` (called from `Builds`, `OverridesPort`) holds the
+  overrides against the scene: one whose field the model no longer offers, that the kernel refused, or whose recorded
+  default is not the file's default now is dropped and noted (`Scene.overrides.dropped`, with the reason, until the
+  person says anything of that field), and that build, made with a value that was let go of, is made again. One equal
+  to the default is dropped with no word and no build. `scene.overrides` and each `Param.value` are how the window
+  and the agent learn what a build was made with.
+- The agent is told every time (`triedLine` of `shared/params.ts`; the second line of `contextFor` and
+  `buildContextFor`, at most `TRIED_LIMIT` characters, its room kept before the status is fitted), in `state.md`
+  (`## Params tried`) and by `scene` (`params[].value`, `paramsTried`), that the build is not the file's values. The
+  channels `object:setParam` and `object:resetParams` are the window's; the agent has no tool that writes an override
+  (`try_params` asks a trial and keeps nothing).
+
 ## Explode
 
 - **The agent.** `look` takes `explode` (a number, or `{amount, axis,
@@ -440,7 +461,8 @@ is the detail of this folder, under the headings it has there. Paths are from `a
   lines that are missing at the end, makes the file when there is none, never removes or rewrites what is
   there, and adds nothing against a line the person negated (`!thumb.png`). The thumbnails ask it for
   `thumb.png` and `thumb.json`, the state file for `state.md`, a conversation put on file for `session.json`,
-  a chat's log for `chat/`, an export for `exports/`, a picture for `views/`. What is the
+  a chat's log for `chat/`, an export for `exports/`, a picture for `views/`, the overrides of `Params` for
+  `params.json`. What is the
   object's travels: `scene.json`, `marks.json`, `scans.json`, `agent.json`.
 - **`.torno` is named in one module, `src/main/own.ts`** (`FOLDER`), and every write under it goes through
   `ownTorno(dir)` first (`writeOwn` for a file written whole): a link or a file in its place is refused with a
