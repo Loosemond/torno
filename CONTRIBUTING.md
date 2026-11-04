@@ -5,18 +5,25 @@ is as useful as a pull request.
 
 ## Before you start
 
-- **Bugs.** [Open an issue](https://github.com/luisg0nc/torno/issues) and include:
-  - your OS, and on Linux your desktop and whether it runs on Wayland or X11
-  - the torno commit (`git rev-parse --short HEAD`)
-  - the Claude Code and build123d versions (the "Ready to work" block on the first screen shows both)
-  - what you did, what you expected and what happened instead
-  - the model, if you can share it. A small one that shows the problem is best.
+- **Bugs.** [Open an issue](https://github.com/luisg0nc/torno/issues/new/choose) with the bug form. It asks for
+  what a report needs: your platform, the torno commit, the versions the "Ready to work" block shows, what you did
+  and what happened, and a small model that shows the problem if you can share one.
 - **Ideas and bigger changes.** Open an issue first, so we can agree on the shape of it before you spend time on
   code. torno is deliberately not a modeller (no sketcher, no feature tree, no editing solids by hand). The model is
   the Python file, and changes that keep it that way fit best.
-- **Security.** Please don't open a public issue. Use [private vulnerability
-  reporting](https://github.com/luisg0nc/torno/security/advisories/new) instead. torno runs a local HTTP server
-  for the agent's tools, guarded by a token for each session, so anything that gets around that matters.
+- **Security.** Please don't open a public issue. [SECURITY.md](SECURITY.md) says how to report it privately and
+  what torno's security model is. torno runs a local HTTP server for the agent's tools, guarded by a token for
+  each session, so anything that gets around that matters.
+
+## Behaving
+
+Be kind and assume good faith. Criticise the code and the idea, never the person. That one line is torno's code of
+conduct; it is a small project, and a long document would not add to it.
+
+## Questions
+
+For a question, or to show a part you made with torno, use
+[Discussions](https://github.com/luisg0nc/torno/discussions). Issues are for bugs and work.
 
 ## Setting up
 
@@ -114,8 +121,8 @@ Two things tests must never do:
 - One change per commit. The message is a sentence that says what changed, from the person's side when it's a
   behaviour: "Keep Marks within the column when the room shrinks", not "fix layout bug".
 - A commit made with an AI agent ends with its `Co-Authored-By:` line.
-- In the pull request, say what it changes and why, which tests you ran, and what you checked by hand. For a
-  change to the window, add a screenshot or a short recording. Tests can't take them, so take them yourself.
+- The pull request template asks what it changes and why, which tests you ran, what you checked by hand and, for a
+  change to the window, a screenshot or a short recording. Tests can't take them, so take them yourself.
 
 ## Working with an AI agent
 
