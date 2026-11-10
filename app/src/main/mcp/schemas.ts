@@ -285,6 +285,10 @@ const historyInput = {
   id: z.string().optional().describe('A kept build by its id ("h41"): the answer is that build alone, with where its copies of the sources are. Default: the list.'),
   limit: z.number().int().optional().describe('How many builds the list gives, the newest first, 1 to 100. Default 20.')
 }
+const waitBuildInput = {
+  after: z.number().int().optional().describe('A revision, as scene and the build status give it (41): wait for the first build after it, and answer at once when one has already ended. Default: the build running now, or one that begins within 3 s.'),
+  timeout: z.number().optional().describe('The most seconds to wait, 1 to 600. Default 300. The answer comes as soon as the build ends.')
+}
 const expectInput = {
   checks: z.array(z.unknown()).describe('What the next edit should change, 1 to 20 checks, each one of: {"part": "plate", "volume": {"change": -1200, "tolerance": 50}} (a part\'s volume, faces, edges or size, as a value or a change from now; size is [x, y, z]); {"measure": {"kind": "diameter", "a": "plate/F9"}, "expected": 6.4, "tolerance": 0.05} (a measurement as measure takes it); {"unchanged": ["lid", "hinge"]} (those parts keep their volume, box and counts).'),
   note: z.string().optional().describe('A few words on what the edit is for; told back with the verdict.')
@@ -345,6 +349,12 @@ export interface HighlightArgs {
   note?: string
   layout?: string
 }
+/** What `wait_build` takes (`waitBuildInput`). */
+export interface WaitBuildArgs {
+  after?: number
+  timeout?: number
+}
+
 export interface AskArgs {
   question: string
   options: Array<{ label: string; refs?: string[] }>
@@ -515,6 +525,13 @@ export const TOOLS = {
       "Returns JSON of the builds torno kept of this project under .torno/history/, newest first: for each its id (h41, which counts on across runs of torno), when it was made, its revision if it was made in this run, what changed from the build kept before it in a line, the checks of the model that failed and the parts with a defect in it (a build that fails them is kept all the same), how the person's dimensions stood when it was checked (as of then, never how they stand now), what sources it was made from, and whether the person starred it. With id, that build alone, with the paths of the copies of its Python files: read them to go back to that build, then edit the project's own files to match, since torno never restores a file and a copy is not to be edited. Use it to find the build to compare with diff, or to go back to.",
     inputSchema: historyInput
   },
+  wait_build: {
+    title: 'Wait for the build',
+    annotations: READ_ONLY,
+    description:
+      "Returns what an edit is told of its build, once the build of this project ends: whether it worked and its revision, the error of one that failed, what changed, the checks and the dimensions; it waits for the build running now, with after for the first build after that revision (answered at once when one has already ended), else for one that begins within 3 s, up to timeout seconds (300 by default, at most 600), and says when the build is still running then, for how long, and how long the last builds took. Call it whenever you would wait for a build, after an edit or a shell command that changed the model, and again with after to keep waiting: never sleep or poll .torno/state.md.",
+    inputSchema: waitBuildInput
+  },
   expect: {
     title: 'Say what an edit should change',
     annotations: CHANGES_VIEW_OR_MARKS,
@@ -584,6 +601,7 @@ export const SERVER_INSTRUCTIONS = `torno's server reads and measures the CAD pa
 - check: overlap and clearance between parts, interference of a whole layout, a closed mesh, and for printing overhangs, thin walls and the fit on a bed.
 - diff: what changed between two successful builds (the last two, or any kept ones): parts added or removed, volume, size and face counts.
 - history: the builds kept of this project, by id (h41), with what changed in each; diff compares any two.
+- wait_build: wait for the build running, or the next one, and get its result as after an edit: never sleep or poll for a build.
 - expect: say before an edit what it should change (volume, faces, size, a measurement, parts unchanged); the build after it is checked against that.
 - try_fillet: try a fillet or chamfer of some edges on the last build and throw it away: whether it works, the largest radius that does, which edges or pairs fail.
 - try_params: build the model with other values of its Params in a throwaway worker and measure or check there, to search a value without editing the model.

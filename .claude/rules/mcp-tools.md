@@ -3,6 +3,7 @@ paths:
   - "app/src/preload/index.ts"
   - "app/src/shared/bridge.ts"
   - "app/src/main/mcp/**"
+  - "app/src/main/buildWaits.ts"
   - "app/src/main/refusal.ts"
   - "app/src/main/refusal.test.ts"
   - "app/src/shared/refusal.ts"
@@ -24,7 +25,14 @@ Moved as written from the folder `CLAUDE.md` files; each heading names the folde
   `mcp/markTools.ts`; those that read the part in `mcp/readTools.ts`; those
   that ask about scans in `mcp/scanTools.ts`): `scene`, `look`, `marks`,
   `describe`, `highlight`, `ask`, `show`, `save_view`, `add_mark`, `resolve_mark`,
-  `measure`, `section`, `check`, `diff`, `history`, `expect`, `try_fillet`, `try_params`, `features`, `scans`, `scan_clash`, `scan_deviation`.
+  `measure`, `section`, `check`, `diff`, `history`, `wait_build`, `expect`, `try_fillet`, `try_params`, `features`, `scans`, `scan_clash`, `scan_deviation`.
+  `wait_build` (`mcp/waitTool.ts`) waits for the build of the object (the one running, the first after `after`, or one
+  that begins within 3 s), as `ask` waits for the person: a progress notification every `ASK_PROGRESS_MS`, `timeout`
+  seconds at most (300, 600 at most), and an end when the client gives the call up. It is fed by `BuildWaits`
+  (`main/buildWaits.ts`, told every `BuildState` by `onBuild` in `index.ts`: when each build began and ended, the times
+  of the last three that worked; a state told again ends no build), and answers with `buildAnswer`, the words of the
+  answer to an edit (`buildContextFor` with what `expect` held, once the dimensions are measured), or that the build
+  is still running, for how long, and how long the last builds took.
   `expect` (`mcp/expectTools.ts`, `Expectations`, wired in `index.ts`) is the agent's note on one edit: checks on a
   part's volume, faces, edges or size, a `measure` with `expected`, or `unchanged` parts, taken against the last
   build and held in memory for the next successful build only (never a file, never a mark, never a Stop reason). It is
@@ -50,7 +58,7 @@ Moved as written from the folder `CLAUDE.md` files; each heading names the folde
   - What a client reads of a tool before it calls one is beside its description in `TOOLS`: a `title` (sentence
     case), `annotations` and, for the tools loaded upfront, `meta`. Every tool has `openWorldHint: false`; the
     ones that only read have `readOnlyHint: true` (`scene`, `look`, `marks`, `describe`, `measure`, `section`,
-    `check`, `diff`, `history`, `try_fillet`, `try_params`, `features`, `scans`, `scan_clash`, `scan_deviation`: Claude Code runs the calls of those side by side;
+    `check`, `diff`, `history`, `wait_build`, `try_fillet`, `try_params`, `features`, `scans`, `scan_clash`, `scan_deviation`: Claude Code runs the calls of those side by side;
     `look` reads, the picture it writes under `.torno/views/` being torno's own), the rest `readOnlyHint: false,
     destructiveHint: false`. `scene`, `look`, `marks`, `describe` and `measure` have
     `_meta["anthropic/alwaysLoad"]` (Claude Code's tool search defers every other MCP tool until it is searched for,

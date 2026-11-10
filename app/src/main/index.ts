@@ -45,6 +45,7 @@ import { Sessions } from './sessions/manager'
 import { Attention } from './attention'
 import { StateFiles } from './statefile'
 import { newestPython, sourceFolders } from './show/cards'
+import { BuildWaits } from './buildWaits'
 import { Verdicts } from './verdicts'
 import { valueAgainstExpected } from '../shared/dimension'
 import { HOOK_DEADLINE_MS, InstructionList } from './instructions'
@@ -344,6 +345,8 @@ let redactAddresses = (text: string): string => text
 
 /** What the MCP tools are made from: the open workspace and the window. */
 const expectations = new Expectations()
+// The builds as they begin and end, for `wait_build`: fed with every build state, as the sessions are.
+const buildWaits = new BuildWaits()
 // What an eval run takes away (`app/evals`): nothing unless TORNO_TEST=1 and TORNO_EVAL=1.
 const off = ablations()
 const tuning = evalTuning()
@@ -392,6 +395,13 @@ const toolDeps: ToolDeps = {
     return theWindow().then((win) => requestShow(win, req))
   },
   ask: (objectId, req, signal) => asks.ask(objectId, req, signal),
+  buildWaits,
+  // What an edit is told of its build, once its dimensions are measured: `wait_build` answers with it.
+  buildAnswer: async (id, until) => {
+    const ended = buildState(id)
+    if (ended?.status === 'ok') await verdicts.settled(id, ended.revision, until)
+    return withExpectation(expectations, toolDeps, id, buildContextFor(editDeps, id, await marks.list(id).catch(() => [])))
+  },
   asking: (objectId) => asks.has(objectId),
   highlight(objectId, layout, refs, note) {
     return theWindow().then((win) => requestHighlight(win, { objectId, layout, refs, ...(note ? { note } : {}) }))
@@ -580,6 +590,7 @@ void app.whenReady().then(async () => {
     marks,
     onBuild: (state) => {
       stateFiles.changed(state.objectId)
+      buildWaits.changed(state)
       sessions?.built(state)
     },
     // The verdicts of the build the marks were checked against, as the check left them.

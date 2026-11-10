@@ -35,12 +35,15 @@ import type { AskedAnchor, NearestAnchor } from '../marks/reanchor'
 import { type ExpectArgs, type Expectations, expectTool } from './expectTools'
 import { onlyKeysWrong, unknownKeys } from './keys'
 import { askTool } from './askTool'
+import { waitBuildTool } from './waitTool'
+import type { BuildWaits } from '../buildWaits'
+import type { PromptContext } from '../context'
 import type { AskAnswer, AskEnd, AskRequest } from '../../shared/ask'
 import { addMarkTool, checkRef, highlightTool, resolveMarkTool } from './markTools'
 import { type FeaturesToolArgs, featuresTool } from './featureTools'
 import { type DiffToolArgs, type HistoryToolArgs, type MeasureToolArgs, type SectionToolArgs, type TryFilletToolArgs, type TryParamsToolArgs, checkTool, diffTool, historyTool, measureTool, sectionTool, tryFilletTool, tryParamsTool } from './readTools'
 import { type ScanClashArgs, type ScanDeviationArgs, type ScansArgs, scanClashTool, scanDeviationTool, scansTool } from './scanTools'
-import { type AddMarkArgs, type AskArgs, type DescribeArgs, type HighlightArgs, type LookArgs, type MarksArgs, type ResolveMarkArgs, type SaveViewArgs, type ShowArgs, DEFAULT_SIZE, MAX_SIZE, MIN_SIZE, NO_PLANE, TOOLS, refusedKeys } from './schemas'
+import { type AddMarkArgs, type AskArgs, type DescribeArgs, type HighlightArgs, type LookArgs, type MarksArgs, type ResolveMarkArgs, type SaveViewArgs, type ShowArgs, type WaitBuildArgs, DEFAULT_SIZE, MAX_SIZE, MIN_SIZE, NO_PLANE, TOOLS, refusedKeys } from './schemas'
 import { type SceneArgs, lookTool, saveViewTool, sceneTool, showTool } from './viewTools'
 import type { Profile } from '../../shared/profile'
 
@@ -134,6 +137,15 @@ export interface ToolDeps {
   saveView(objectId: string, req: SaveViewRequest): Promise<SaveViewResult>
   /** What the agent expects of its next edit (`expect`), held in memory. Without it the tool says it is not available. */
   expectations?: Expectations
+  /** The builds as they begin and end (`BuildWaits`), for `wait_build`. Without it, or `buildAnswer`, the tool says it is not available. */
+  buildWaits?: Pick<BuildWaits, 'beganAt' | 'endedAt' | 'lastTimes' | 'next'>
+  /**
+   * What the agent is told of the build that ended last, in the words of the answer to an edit (`buildContextFor` of
+   * `context.ts`, with what `expect` held), once its dimensions are measured on it or at `until` (ms epoch).
+   */
+  buildAnswer?(objectId: string, until: number): Promise<PromptContext>
+  /** Tests only: how often `wait_build` tells its client it is alive, and how long it waits for a build to begin. */
+  waitTiming?: { progressMs: number; graceMs: number }
 }
 
 type Block = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }
@@ -210,6 +222,7 @@ export function registerTools(server: McpServer, deps: ToolDeps, objectId: strin
   tool<Parameters<typeof checkTool>[2]>('check', (args) => checkTool(deps, objectId, args))
   tool<DiffToolArgs>('diff', (args) => diffTool(deps, objectId, args))
   tool<HistoryToolArgs>('history', (args) => historyTool(deps, objectId, args))
+  tool<WaitBuildArgs>('wait_build', (args, extra) => waitBuildTool(deps, objectId, args, extra))
   tool<ExpectArgs>('expect', (args) => expectTool(deps, objectId, args))
   tool<TryFilletToolArgs>('try_fillet', (args) => tryFilletTool(deps, objectId, args))
   tool<FeaturesToolArgs>('features', (args) => featuresTool(deps, objectId, args))
