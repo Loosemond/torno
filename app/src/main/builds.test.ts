@@ -1,11 +1,11 @@
-import { mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { BuildError, BuildState } from '../shared/build'
 import type { Scene } from '../shared/scene'
 import type { ObjectInfo } from '../shared/workspace'
-import { Builds, NotBuilding, type OverridesPort, buildTimeout, watchFolder } from './builds'
+import { Builds, NotBuilding, type OverridesPort, buildTimeout, newestPythonUnder, watchFolder } from './builds'
 import { type KernelClient, KernelError, startKernel } from './kernel/client'
 import { probe } from '../test/diagnosisFixtures'
 import type { FilletDiagnosis } from '../shared/diagnosis'
@@ -1282,5 +1282,31 @@ describe("the person's overrides of Params", () => {
     expect(kernel.calls).toHaveLength(1)
     expect(builds.scenes('bracket')).toHaveLength(scenes)
     await expect(builds.trial('never-opened', {}, [])).rejects.toMatchObject({ kind: 'no_build' })
+  })
+})
+
+describe('newestPythonUnder', () => {
+  it('finds the newest .py at any depth the watcher watches, and skips what it ignores', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'torno-newest-'))
+    try {
+      const at = (path: string, seconds: number): void => {
+        mkdirSync(join(dir, path, '..'), { recursive: true })
+        writeFileSync(join(dir, path), '')
+        utimesSync(join(dir, path), seconds, seconds)
+      }
+      expect(await newestPythonUnder(dir)).toBeNull()
+      at('lib.py', 1000)
+      at('ej205/block.py', 2000)
+      at('ej205/deep/er/head.py', 3000)
+      // Newer, but where the watcher never looks, or not Python.
+      at('.venv/lib/site.py', 9000)
+      at('ej205/__pycache__/block.py', 9000)
+      at('cache/made.py', 9000)
+      at('ej205/notes.md', 9000)
+      expect(await newestPythonUnder(dir)).toBe(3_000_000)
+      expect(await newestPythonUnder(join(dir, 'missing'))).toBeNull()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

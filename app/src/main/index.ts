@@ -44,8 +44,9 @@ import { claudeAdapter } from './sessions/claude'
 import { Sessions } from './sessions/manager'
 import { Attention } from './attention'
 import { StateFiles } from './statefile'
-import { newestPython, sourceFolders } from './show/cards'
+import { newestUsed, sourceFolders } from './show/cards'
 import { BuildWaits } from './buildWaits'
+import { newestPythonUnder } from './builds'
 import { Verdicts } from './verdicts'
 import { valueAgainstExpected } from '../shared/dimension'
 import { HOOK_DEADLINE_MS, InstructionList } from './instructions'
@@ -537,10 +538,10 @@ void app.whenReady().then(async () => {
     settled: (id, revision, until) => verdicts.settled(id, revision, until),
     // A Bash is a change of the model when the newest source is newer after it: only a build that follows a change is the turn's.
     identity: buildIdentity,
-    sourcesSaved: async (dir) => {
+    sourcesSaved: async (dir, uses) => {
       const [own, common] = sourceFolders(dir)
-      const [a, b] = await Promise.all([newestPython(own), newestPython(common)])
-      return a === null ? b : Math.max(a, b ?? -Infinity)
+      const found = (await Promise.all([newestPythonUnder(own), newestPythonUnder(common), uses.length > 0 ? newestUsed(dirname(dir), [...uses]) : null])).filter((at): at is number => at !== null)
+      return found.length > 0 ? Math.max(...found) : null
     },
     // A dimension that passed when the turn began and fails now holds a Stop back, once, with what it measures against what was expected.
     verdicts: (id, revision) => verdicts.of(id, revision),

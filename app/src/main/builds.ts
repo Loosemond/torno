@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs'
+import { readdir, stat } from 'node:fs/promises'
 import { dirname, join, relative, sep } from 'node:path'
 import { watch as chokidarWatch } from 'chokidar'
 import { type BuildError, type BuildState, REBUILD_KEY } from '../shared/build'
@@ -16,6 +17,37 @@ const MATCH_MS = 2000
 // torno's own folder, and where models and tools keep what they make: exports,
 // caches, environments. A model may write there while it builds.
 const IGNORED_FOLDERS = new Set(['out', FOLDER, '__pycache__', 'cache', 'build', 'dist', 'node_modules', '.venv', '.git'])
+
+/** Whether the watcher ignores a file or folder of this name, wherever it is: a dotfile, or one of `IGNORED_FOLDERS`. */
+export const isIgnoredName = (part: string): boolean => IGNORED_FOLDERS.has(part) || (part.startsWith('.') && part !== '..')
+
+/** The most folder entries `newestPythonUnder` reads: a folder that big is not one of sources, and is not walked further. */
+const MAX_SCANNED = 5000
+
+/**
+ * When the newest `.py` file in a folder, or in any folder under it that `watchFolder` watches, was last saved, in ms;
+ * null when there is none. What the watcher ignores is skipped, and the walk stops after `MAX_SCANNED` entries.
+ */
+export async function newestPythonUnder(dir: string): Promise<number | null> {
+  let newest: number | null = null
+  let scanned = 0
+  const pending = [dir]
+  while (pending.length > 0 && scanned < MAX_SCANNED) {
+    const folder = pending.pop() as string
+    const entries = await readdir(folder, { withFileTypes: true }).catch(() => [])
+    scanned += entries.length
+    const files: string[] = []
+    for (const entry of entries) {
+      if (isIgnoredName(entry.name)) continue
+      if (entry.isDirectory()) pending.push(join(folder, entry.name))
+      else if (entry.isFile() && entry.name.endsWith('.py')) files.push(join(folder, entry.name))
+    }
+    for (const at of await Promise.all(files.map((file) => stat(file).then((s) => s.mtimeMs, () => null)))) {
+      if (at !== null && (newest === null || at > newest)) newest = at
+    }
+  }
+  return newest
+}
 
 /** Told the files that changed in a burst, as absolute paths. */
 export type OnChange = (paths: string[]) => void
@@ -36,7 +68,7 @@ export function watchFolder(dir: string, onChange: OnChange, debounceMs: number 
   const isIgnored = (path: string): boolean => {
     let from = relative(dir, path)
     if (from.startsWith('..')) from = relative(realDir, path)
-    return from.split(sep).some((part) => IGNORED_FOLDERS.has(part) || (part.startsWith('.') && part !== '..'))
+    return from.split(sep).some(isIgnoredName)
   }
   const watcher = chokidarWatch(dir, {
     ignoreInitial: true,

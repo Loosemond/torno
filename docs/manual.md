@@ -1017,8 +1017,15 @@ Open marks: M2 (moved), M6 (unchecked)
   torno's tools. It is under "Show text" in "torno added". Nothing is said when
   there are none.
 
-When Claude Code has edited the model, the answer to that edit says how the
-build ended, the same first lines and the dimensions. Between them, of a build
+When Claude Code has changed the model, the answer to that change says how the
+build ended, the same first lines and the dimensions. A change is a `.py` file
+whose save builds the project again: one in the project's folder, one under
+`common/` at any depth torno watches, or one the last build imported from beside
+the project (`Uses` in `state.md`). It counts when the agent saves it with its
+editor, and when a Bash command leaves one newer than before; the answer comes
+after that tool. It waits up to 55 s for the build; a build still running then is
+said to be (`A build is running (r9); call mcp__torno__wait_build for its result`),
+and `wait_build` waits on for it as long as the agent asks, up to ten minutes. Between them, of a build
 that worked, torno says what the build did to the parts and what is wrong with
 them, which it checks at every build from the numbers the kernel worked out of
 the shape:
@@ -1060,15 +1067,15 @@ M4 thickness 2 mm wall, along the normal, tub/F2 at (30, 0, -10) (expected 3 ± 
 When Claude Code would stop, torno holds it back for what the turn itself did:
 once for each reason, and twice in a turn at most. Every reason is for a build
 the turn caused: one that began after the turn first
-changed a source, by an edit of a `.py` of the project or a Bash command after
+changed a source, by an edit of such a `.py` (above) or a Bash command after
 which one is newer. The first build of a project you have just opened, a save of
 yours in your own editor before the agent's first edit, and any build in a turn
 that changed no source are told to the agent as ever but never hold it back. It
 first waits, up to twenty seconds, for such a build that is still running and
 for the dimensions to be measured. Then, by the first that applies:
 
-1. The build is still running. It is asked to read the result with `scene` and
-   to look.
+1. The build is still running. It is asked to wait for the result with
+   `wait_build` and to look.
 2. The build after the one on show failed (`The build after r7 failed: ...`), and
    it is asked to fix it or say it is still broken.
 3. A part has a defect the build the turn began with had not (above).

@@ -16,7 +16,9 @@ Moved as written from the folder `CLAUDE.md` files; each heading names the folde
 
 - **The build after an edit, and the Stop of a turn** (`Sessions.toolHook`, `afterEdit`, `stopAnswer`). Tool hooks
   are read (up to 8 MB; longer, or no JSON, is answered `{}`) only for the tool's name and `file_path`. The
-  `PostToolUse` of `Edit`, `Write` or `MultiEdit` of a `.py` inside the object's folder waits for a build begun at
+  `PostToolUse` of `Edit`, `Write` or `MultiEdit` of a `.py` whose save builds the object again (`ofObject`: inside
+  the object's folder, inside the `common/` beside it where the watcher watches (`isIgnoredName` of `builds.ts`), or one
+  of the last build's `Scene.uses`) waits for a build begun at
   or after that tool's `PreToolUse` (`Sessions.built`, fed every `BuildState` from `index.ts`), then, of a build
   that worked, for its marks to be checked against it and its dimensions measured (`Verdicts.settled`, 10 s at
   most, `EDIT_SETTLE_MS`), and is answered with `buildContextFor` of `context.ts` (the first lines and the
@@ -25,13 +27,16 @@ Moved as written from the folder `CLAUDE.md` files; each heading names the folde
   (`digest` of the `context` item), how long a build that worked took (`seconds`) and the last line of what one that
   failed said (`error`, `errorLine` of `shared/build.ts`: the traceback's last line), which the window draws the
   build line from. No build begun within 3 s: `{}`. Still running at 55 s: `A build is running
-  (rN); call scene …` (`claude.ts` gives `PostToolUse` a 60 s timeout).
+  (rN); call wait_build …` (`claude.ts` gives `PostToolUse` a 60 s timeout; `wait_build`, `mcp/waitTool.ts`, waits on
+  for as long as the agent asks). The `PostToolUse` of a `Bash` that changed a source (below) is answered the same
+  way, with a build begun at or after its `PreToolUse`.
   A `Stop` (`stopAnswer`, `claude.ts` gives it a 25 s timeout) is judged from what the turn did (`TurnState`, made at
   its `UserPromptSubmit` by `beginTurn`: the count of builds ended, the last successful build and what the dimensions
   said of it, the last `look`, the reasons already held, when the turn first changed a source). A build is the turn's
   (`caused` in `stopAnswer`) only if it began at or after `TurnState.changedAt`: the `PreToolUse` of an `Edit`, `Write`
-  or `MultiEdit` of a `.py` inside the object, or the start of a `Bash` after which the newest `.py` directly in the object's
-  folder or in `common/` is newer than before (`aroundBash`, `Sessions` dep `sourcesSaved`; the command's text is never read, and
+  or `MultiEdit` of such a `.py`, or the start of a `Bash` after which the newest source is newer than before: a `.py` at any
+  depth the watcher watches of the object's folder or of `common/` (`newestPythonUnder` of `builds.ts`, 5,000 entries at most),
+  or a file of `Scene.uses` (`aroundBash`, `Sessions` dep `sourcesSaved`; the command's text is never read, and
   a Bash that rewrites nothing is no change). The first build of an object just opened, a save of the person's before
   the turn's first edit, and every build of a turn with no edit are told as ever (digest, context) and never hold a
   Stop back, nor is waited for: every one of the five reasons looks only at a build the turn caused, and the hard-defect

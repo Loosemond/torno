@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { AgentView, SessionStatus } from '../../shared/bridge'
 import type { ObjectInfo } from '../../shared/workspace'
@@ -2206,7 +2206,7 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
       settled?: (id: string, revision: number, until: number) => Promise<void>
       detail?: (id: string, markId: string, revision: number) => Promise<string | undefined>
       /** When the object's newest source was saved (`sourcesSaved`). */
-      saved?: (dir: string) => Promise<number | null>
+      saved?: (dir: string, uses: readonly string[]) => Promise<number | null>
     } = {}
   ) {
     states = new Map()
@@ -2310,7 +2310,36 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
     const { obj, edit } = await begun({ wait: 400 })
     const answer = edit()
     setTimeout(() => land(building(obj.id, 3)), 50)
-    expect(await answer).toEqual(context('A build is running (r4); call mcp__torno__scene for its result.'))
+    expect(await answer).toEqual(context('A build is running (r4); call mcp__torno__wait_build for its result.'))
+  })
+
+  it('answers an edit of a .py under common/ at any depth, and of a file the last build imported, as one of the object', async () => {
+    const { obj, edit } = await begun({ grace: 200, scene: () => ({ revision: 2, scene: { ...sceneOf(), uses: ['other/shared.py'] } as Scene }) })
+    const common = join(dirname(obj.dir), 'common')
+    for (const file of [join(common, 'ej205', 'block.py'), join(common, 'ej205', 'deep', 'head.py'), join(dirname(obj.dir), 'other', 'shared.py')]) {
+      const answer = edit(file)
+      setTimeout(() => land(building(obj.id, 2)), 50)
+      setTimeout(() => land(ok(obj.id, 3)), 150)
+      expect(await answer, file).toEqual(context('r3 ok'))
+    }
+    // Where the watcher never looks, and a file of another project the build did not import: not a change of the model.
+    expect(await edit(join(common, '.venv', 'lib', 'site.py'))).toEqual({})
+    expect(await edit(join(common, 'ej205', '__pycache__', 'block.py'))).toEqual({})
+    expect(await edit(join(dirname(obj.dir), 'other', 'unused.py'))).toEqual({})
+  })
+
+  it('answers a Bash that rewrote a source with the build it started, as an edit, and one that did not with {}', async () => {
+    let saved: number | null = 1000
+    const { obj, post } = await begun({ grace: 200, saved: async () => saved })
+    const bash = (id: string) => post('PostToolUse', { tool_name: 'Bash', tool_use_id: id, tool_input: { command: 'sed -i s/2/3/ ../common/ej205/block.py' } })
+    await post('PreToolUse', { tool_name: 'Bash', tool_use_id: 'toolu_1', tool_input: { command: 'ls' } })
+    expect(await bash('toolu_1')).toEqual({})
+    await post('PreToolUse', { tool_name: 'Bash', tool_use_id: 'toolu_2', tool_input: { command: 'sed' } })
+    saved = 2000
+    const answer = bash('toolu_2')
+    setTimeout(() => land(building(obj.id, 2)), 50)
+    setTimeout(() => land(failed(obj.id, 2)), 150)
+    expect(await answer).toEqual(context('BUILD FAILED\nNameError: x'))
   })
 
   it('holds a Stop back once after a build of the turn failed, and lets it go with stop_hook_active', async () => {
@@ -2666,7 +2695,7 @@ describe('the build, told by the hooks of a turn (Claude Code)', () => {
     land(building(obj.id, 7))
     expect(await post('Stop', {})).toEqual({
       decision: 'block',
-      reason: 'A build begun in this turn is still running (r8). Call mcp__torno__scene for its result, then mcp__torno__look, before finishing.'
+      reason: 'A build begun in this turn is still running (r8). Call mcp__torno__wait_build for its result, then mcp__torno__look, before finishing.'
     })
     // Told once: the next does not wait the wait again.
     const again = Date.now()

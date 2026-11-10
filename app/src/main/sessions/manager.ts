@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { join } from 'node:path'
-import { isInsideFolder } from './inside'
+import { dirname, join, relative, resolve, sep } from 'node:path'
+import { isInsideFolder, realPathOrNearest } from './inside'
 import * as pty from 'node-pty'
 import type { AgentView, SessionStatus } from '../../shared/bridge'
 import { type AgentChoice, agentChoiceOf, type ChatAnswer, type ChatCommand, type ChatHistory, type ChatItem, type ChatMeta, type ChatModel, type Effort, isEffort, type Mode } from '../../shared/chat'
@@ -13,6 +13,7 @@ import { type DrawnOver, type ViewDrawing, drawnOver } from '../../shared/drawin
 import type { Scene } from '../../shared/scene'
 import type { ObjectInfo } from '../../shared/workspace'
 import { FOLDER } from '../own'
+import { isIgnoredName } from '../builds'
 import type { PromptContext } from '../context'
 import { hardDefects, partsUnchanged, sanity } from '../sanity'
 import { type BuildVerdicts, verdictChanges } from '../verdicts'
@@ -313,8 +314,12 @@ export class Sessions {
       dimensionDetail?: (objectId: string, markId: string, revision: number) => Promise<string | undefined>
       /** Resolves once the marks of an object are checked against build `revision`, and its dimensions measured, or at `until` (ms epoch): the answer to an edit waits for it (`Verdicts.settled`). */
       settled?: (objectId: string, revision: number, until: number) => Promise<void>
-      /** When the newest `.py` of an object, and of the `common/` beside it, was saved (null: none): a `Bash` after which it is newer has rewritten the model. Absent: a `Bash` is taken for no change. */
-      sourcesSaved?: (objectDir: string) => Promise<number | null>
+      /**
+       * When the newest source of an object was saved (null: none): a `.py` in its folder or in the `common/` beside it,
+       * at any depth the watcher watches, or one of the files its last build imported from beside it (`uses`, paths from
+       * the workspace root). A `Bash` after which it is newer has rewritten the model. Absent: a `Bash` is taken for no change.
+       */
+      sourcesSaved?: (objectDir: string, uses: readonly string[]) => Promise<number | null>
       /** What the build of this run with this revision was made from: told under the chat's build lines and chips. Absent: nothing is. */
       identity?: (objectId: string, revision: number) => BuildIdentity | undefined
       /** Tests only: how long an edit's answer waits for its build, and for it to begin, and how long a `Stop` waits for a build. */
@@ -579,7 +584,7 @@ export class Sessions {
       const now = Date.now()
       if (!begun && now >= grace) return {}
       if (begun && now >= deadline) {
-        const text = `A build is running (r${(state?.revision ?? 0) + 1}); call ${this.deps.adapter.toolName('scene')} for its result.`
+        const text = `A build is running (r${(state?.revision ?? 0) + 1}); call ${this.deps.adapter.toolName('wait_build')} for its result.`
         session.chat?.transcript.toolContext({ toolUseId: session.turn?.lastToolUse, text, buildState: 'building' })
         return { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: text } }
       }
@@ -653,7 +658,7 @@ export class Sessions {
       return { decision: 'block', reason: text }
     }
     if (state.status === 'building' && runs()) {
-      return hold('running', `A build begun in this turn is still running (r${state.revision + 1}). Call ${toolName('scene')} for its result, then ${toolName('look')}, before finishing.`)
+      return hold('running', `A build begun in this turn is still running (r${state.revision + 1}). Call ${toolName('wait_build')} for its result, then ${toolName('look')}, before finishing.`)
     }
     const builtInTurn = (this.buildEnds.get(objectId) ?? 0) > turn.since
     if (!builtInTurn) return null
@@ -1221,23 +1226,31 @@ export class Sessions {
   }
 
   /**
-   * A `Bash` of the turn. It is a change of the model only if the newest source of the object (its `.py` files and
-   * those of `common/`) is newer after it than before: the command text says nothing sure, and a build begun while
-   * it ran may be the first build or a save of the person's.
+   * A `Bash` of the turn. It is a change of the model only if the newest source of the object (`sourcesSaved`: its
+   * `.py` files, those under `common/`, and the files its last build imported) is newer after it than before: the
+   * command text says nothing sure, and a build begun while it ran may be the first build or a save of the person's.
+   * A change is answered as an edit is, with the build begun since the command began (`afterEdit`).
    */
   private async aroundBash(session: Session, turn: TurnState, event: string, useId: string): Promise<unknown> {
     const { sourcesSaved } = this.deps
     if (!sourcesSaved) return {}
     const at = Date.now()
-    const saved = await sourcesSaved(session.object.dir).catch(() => null)
+    const saved = await sourcesSaved(session.object.dir, this.usesOf(session)).catch(() => null)
     if (event === 'PreToolUse') {
       turn.bashing.set(useId, { at, saved })
       return {}
     }
     const was = turn.bashing.get(useId)
     turn.bashing.delete(useId)
-    if (was && saved !== null && (was.saved === null || saved > was.saved)) turn.changedAt ??= was.at
-    return {}
+    if (!was || saved === null || (was.saved !== null && saved <= was.saved)) return {}
+    turn.changedAt ??= was.at
+    turn.lastToolUse = useId || undefined
+    return this.afterEdit(session, was.at)
+  }
+
+  /** The files the last build of a session's object imported from beside its project (`Scene.uses`, from the workspace root). */
+  private usesOf(session: Session): readonly string[] {
+    return this.deps.scene?.(session.object.id)?.scene.uses ?? []
   }
 
   /** A turn begins: the builds ended so far are not its, and the build it begins with, and what its dimensions say of it, is what it is held to. */
@@ -1248,11 +1261,20 @@ export class Sessions {
     return { since: this.finished, startedAt: Date.now(), lookedAt: this.finished, ...(before ? { before } : {}), ...(beforeVerdicts ? { beforeVerdicts } : {}), held: new Set(), holds: 0, editing: new Map(), bashing: new Map() }
   }
 
-  /** Whether a tool's input names a `.py` inside the object's folder. */
+  /**
+   * Whether a tool's input names a `.py` whose save builds the object again: one inside the object's folder, inside
+   * the `common/` beside it (where the watcher watches: not under a dotfolder, `__pycache__` and the like), or one of
+   * the files its last build imported from beside its project.
+   */
   private ofObject(session: Session, input: unknown): boolean {
     const path = typeof input === 'object' && input !== null ? (input as { file_path?: unknown }).file_path : undefined
     if (typeof path !== 'string' || !path.endsWith('.py')) return false
-    return isInsideFolder(session.object.dir, path)
+    if (isInsideFolder(session.object.dir, path)) return true
+    const root = dirname(session.object.dir)
+    const real = realPathOrNearest(resolve(session.object.dir, path))
+    const common = join(root, 'common')
+    if (isInsideFolder(common, path) && !relative(realPathOrNearest(common), real).split(sep).slice(0, -1).some(isIgnoredName)) return true
+    return this.usesOf(session).some((file) => realPathOrNearest(join(root, file)) === real)
   }
 
   /** `POST /hooks/<sessionId>/<event>`, with the hook's JSON as the body (the router let it through only with that session's token); `rest` is what comes after `/hooks`. */
